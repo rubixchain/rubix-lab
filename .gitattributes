@@ -1,0 +1,12 @@
+# Keep shell scripts LF-only so they run on Linux even when edited on Windows.
+# Without this, a Windows checkout can give them CRLF endings and Linux fails
+# with a confusing "bad interpreter" error.
+*.sh text eol=lf
+
+# Note on the binaries in prerequisite/ (rubixgoplatform, ipfs):
+# these are committed normally, NOT via Git LFS. LFS bandwidth on GitHub is
+# metered (1GB/month free) and 40 machines cloning ~105MB would exhaust that
+# immediately, whereas ordinary git clone traffic is not metered. The binaries
+# change rarely - ipfs is pinned, and rubixgoplatform only moves when the
+# baseline version changes (branch testing goes through exec-update, which
+# never touches prerequisite/) - so history growth stays manageable.

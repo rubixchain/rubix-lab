@@ -1,0 +1,7 @@
+# Per-desktop runtime state — binaries, generated config, IPFS state, and
+# DID private keys all end up here once setup.sh runs. None of it belongs
+# in the repo: binaries are large/binary-diff-noisy, config.toml embeds
+# this lab's real bootstrap IPs, and DID keys are private key material.
+# Keep the folder structure (via nodes/.gitkeep) but never its contents.
+/nodes/*
+!/nodes/.gitkeep

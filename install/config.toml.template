@@ -1,0 +1,22 @@
+[core]
+node_index = 0
+network_mode = "localnet"
+
+[db]
+host = "localhost"
+port = 5433
+username = "rubix"
+password = "rubixpass"
+db_name = "rubix"
+
+[db.config]
+max_connections = 50
+min_connections = 10
+max_connection_lifetime_seconds = 60
+max_connection_idletime_seconds = 30
+statement_timeout_seconds = 20
+
+[ipfs]
+mainnet_bootstrap_nodes = []
+testnet_bootstrap_nodes = []
+localnet_bootstrap_nodes = ${LOCALNET_BOOTSTRAP_NODES}

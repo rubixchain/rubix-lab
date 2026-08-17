@@ -1,0 +1,8 @@
+# Copy this to hosts.txt (same folder) and fill in your fleet's real LAN IPs
+# or hostnames, one per line. Used by: ./update-exec.sh <branch> --all
+#
+# Lines starting with # and blank lines are ignored.
+
+# 10.0.0.11
+# 10.0.0.12
+# 10.0.0.13

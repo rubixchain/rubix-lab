@@ -1,0 +1,16 @@
+# Install this on EACH TARGET desktop (not the controller) as:
+#   /etc/sudoers.d/rubix-exec-update
+# with mode 0440 (visudo -cf to validate before installing — a broken
+# sudoers file can lock out sudo entirely):
+#
+#   sudo visudo -cf rubix-exec-update-sudoers.example
+#   sudo install -m 0440 rubix-exec-update-sudoers.example /etc/sudoers.d/rubix-exec-update
+#
+# Grants the controller's SSH user passwordless sudo for exactly two
+# commands — starting and stopping this one systemd unit — nothing broader.
+# Every desktop uses the same OS user (Rubix), so this file doesn't need
+# per-machine editing — just confirm the systemctl path matches
+# (`which systemctl` on the target; usually /usr/bin/systemctl on Ubuntu,
+# but verify rather than assume).
+
+Rubix ALL=(root) NOPASSWD: /usr/bin/systemctl stop rubixgoplatform, /usr/bin/systemctl start rubixgoplatform

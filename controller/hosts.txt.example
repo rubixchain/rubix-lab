@@ -1,0 +1,18 @@
+# Rubix Lab node list - copy to hosts.txt and fill in your real addresses.
+#
+# One host per line:   <ip or hostname>  [role]
+# Role is optional and defaults to "participant".
+# Blank lines and anything after # are ignored.
+#
+# Roles used by the lab tooling:
+#   quorum       - designated quorum node (signs transactions, must stay funded)
+#   participant  - ordinary sender/receiver node
+#   fullnode     - the dedicated fullnode for this environment
+#   controller   - this machine (list it if it also runs a node)
+
+# 10.0.0.11  quorum
+# 10.0.0.12  quorum
+# 10.0.0.13  quorum
+# 10.0.0.20  participant
+# 10.0.0.21  participant
+# 10.0.0.22  participant

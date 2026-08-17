@@ -1,0 +1,16 @@
+[Unit]
+Description=Rubix Node (office lab fleet)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User={{USER}}
+WorkingDirectory={{NODE_DIR}}
+ExecStart={{NODE_DIR}}/rubixgoplatform run -p {{NODE_DIR}}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
