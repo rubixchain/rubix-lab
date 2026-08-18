@@ -5,3 +5,14 @@
 # Keep the folder structure (via nodes/.gitkeep) but never its contents.
 /nodes/*
 !/nodes/.gitkeep
+
+# Local AI agent context — personal tooling, not part of the lab setup.
+CLAUDE.md
+.claude/
+
+# Real host lists contain internal lab IPs. Only the .example files are tracked.
+controller/hosts.txt
+exec-update/hosts.txt
+
+# Written by check-nodes.py — a point-in-time snapshot with real IPs and DIDs.
+controller/inventory.json
