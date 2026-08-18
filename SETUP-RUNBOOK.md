@@ -138,7 +138,7 @@ curl -s http://localhost:20000/rubix/v1/node/peer_id
 Build the shared bootstrap list from those:
 
 ```
-["/ip4/<quorum-ip-1>/tcp/4001/p2p/<peer-id-1>", "/ip4/<quorum-ip-2>/tcp/4001/p2p/<peer-id-2>"]
+["/ip4/<quorum-ip-1>/tcp/4002/p2p/<peer-id-1>", "/ip4/<quorum-ip-2>/tcp/4002/p2p/<peer-id-2>"]
 ```
 
 ### B4. Bring up everything else
@@ -169,7 +169,7 @@ lab network:
 
 ```
 sudo ufw allow 20000/tcp
-sudo ufw allow 4001/tcp
+sudo ufw allow 4002/tcp
 sudo ufw status
 ```
 

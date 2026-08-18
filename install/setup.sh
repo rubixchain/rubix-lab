@@ -8,7 +8,7 @@
 #
 # Usage:
 #   LOCALNET_BOOTSTRAP_NODES='[]' ./setup.sh
-#   LOCALNET_BOOTSTRAP_NODES='["/ip4/10.0.0.11/tcp/4001/p2p/12D3Koo...", "/ip4/10.0.0.12/tcp/4001/p2p/12D3Koo..."]' ./setup.sh
+#   LOCALNET_BOOTSTRAP_NODES='["/ip4/10.0.0.11/tcp/4002/p2p/12D3Koo...", "/ip4/10.0.0.12/tcp/4002/p2p/12D3Koo..."]' ./setup.sh
 #
 # See README.md for why LOCALNET_BOOTSTRAP_NODES must be empty on the first
 # few (quorum-designated) desktops and filled in on every desktop after that.

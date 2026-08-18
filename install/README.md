@@ -53,7 +53,7 @@ which only exists after that node has been started at least once. So:
 4. Build the shared bootstrap list from those peer IDs + each quorum
    desktop's LAN IP:
    ```
-   ["/ip4/<quorum-ip-1>/tcp/4001/p2p/<peer-id-1>", "/ip4/<quorum-ip-2>/tcp/4001/p2p/<peer-id-2>", ...]
+   ["/ip4/<quorum-ip-1>/tcp/4002/p2p/<peer-id-1>", "/ip4/<quorum-ip-2>/tcp/4002/p2p/<peer-id-2>", ...]
    ```
 5. On **every remaining desktop** (participants, and the quorum desktops too
    if you re-run it — it's a no-op there since their config.toml already

@@ -1,40 +1,47 @@
-Rubix Lab — quick reference for setting up a lab machine
-==========================================================
-Copy-paste commands only. For explanations and the full phase-by-phase
-process, see SETUP-RUNBOOK.md.
+Rubix Lab — quick reference: commands only, in order
+=====================================================
+Run these top to bottom on each machine. Details/troubleshooting: SETUP-RUNBOOK.md
 
-1. Install Docker (Engine, not Desktop)
+1. Install Docker
 ----------------------------------------
 sudo apt update
 sudo apt install -y docker.io
-sudo systemctl enable --now docker     # start now AND at every boot
-sudo usermod -aG docker $USER          # use docker without sudo
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
 
-Log out and back in so the group change takes effect.
+# log out and back in (or: newgrp docker), then check:
+docker run --rm hello-world
 
-Check:
-docker run --rm hello-world     # works without sudo
-systemctl is-enabled docker     # prints: enabled
-
-2. Get the repo and bring up the node
+2. Get the repo
 ----------------------------------------
 git clone <rubix-lab repo> ~/rubix-lab
+
+3. Bring up the first node (fullnode — no bootstrap yet)
+----------------------------------------
 cd ~/rubix-lab/install
 LOCALNET_BOOTSTRAP_NODES='[]' ./setup.sh
-# (use the real bootstrap list instead of '[]' on non-quorum machines —
-# see SETUP-RUNBOOK.md Phase B)
 
-Check:
-curl -s http://localhost:20000/rubix/v1/node/ping
-journalctl -u rubixgoplatform -f
+curl -s http://localhost:20000/rubix/v1/node/peer_id
+# save this peer ID — every other node's bootstrap list points to it
 
-3. Reference — manual Postgres container command
+sudo ufw allow 4002/tcp
+sudo ufw allow 20000/tcp
+
+4. Bring up every other node (bootstrap = fullnode's IP + peer ID)
 ----------------------------------------
-setup.sh normally creates the node's Postgres container for you (fixed name
-rubix-node-db, port 5433). Only needed by hand if testing outside the script,
-or running more than one node on the same box with a distinct name/port/volume:
+cd ~/rubix-lab/install
+LOCALNET_BOOTSTRAP_NODES='["/ip4/192.168.1.101/tcp/4002/p2p/12D3KooWF1VXujXpp6gmGTpdJJ9X6yvoxYD7BFh9VLAf42T3fJ34"]' ./setup.sh
 
+sudo ufw allow 4002/tcp
+sudo ufw allow 20000/tcp
+
+5. Verify each node
+----------------------------------------
+curl -s http://localhost:20000/rubix/v1/node/ping
+IPFS_PATH=<node-dir>/.ipfs <node-dir>/ipfs swarm peers
+# should list the fullnode's peer ID (and vice versa on the fullnode)
+
+---
+Optional — manual Postgres container (setup.sh does this for you already;
+only needed for hand-testing or a second node on the same box):
 docker run --name node -e POSTGRES_PASSWORD=rubixpass -e POSTGRES_USER=rubix -e POSTGRES_DB=rubix -p 5433:5432 -v pgdata_node:/var/lib/postgresql --restart always -d postgres:18
-
-Swap "node" / "5433" / "pgdata_node" for whatever container name, host port,
-and volume distinguish that node.
