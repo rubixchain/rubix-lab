@@ -103,16 +103,8 @@ back in.
 > error="exit status 1"` at startup. Docker logs it at info level and starts
 > normally afterwards.
 
-> **Reference — manual Postgres container command.** `setup.sh` normally
-> creates the node's Postgres container for you (fixed name `rubix-node-db`,
-> port 5433). If you ever need to stand one up by hand on a lab machine —
-> e.g. testing outside the script, or running more than one node on the same
-> box with a distinct name/port/volume — this is the pattern to follow:
-> ```
-> docker run --name node -e POSTGRES_PASSWORD=rubixpass -e POSTGRES_USER=rubix -e POSTGRES_DB=rubix -p 5433:5432 -v pgdata_node:/var/lib/postgresql --restart always -d postgres:18
-> ```
-> Swap `node` / `5433` / `pgdata_node` for whatever container name, host
-> port, and volume distinguish that node.
+See [LAB-QUICKREF.txt](LAB-QUICKREF.txt) for the copy-pasteable Docker install
+and node commands in one place.
 
 ### B2. Get the repo onto the machine
 
