@@ -45,7 +45,8 @@ IPFS_PATH=<node-dir>/.ipfs <node-dir>/ipfs swarm peers
 ----------------------------------------
 cd ~/rubix-lab/controller
 pip install openpyxl        # one-time, not stdlib
-python3 dids-to-excel.py --start 101 --end 150 --port 20000
+python3 dids-to-excel.py
+# fixed fleet range is built in (101-144, excluding .142/.143) — no flags needed
 # writes dids.xlsx in this folder
 
 ---

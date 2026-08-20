@@ -17,9 +17,8 @@ Requires:
     - The `ssh` binary on the controller (stdlib subprocess, no pip installs).
 
 Usage:
-    python3 node-versions.py                              # 192.168.1.101-150
+    python3 node-versions.py                              # the fixed fleet range
     python3 node-versions.py --user rubix --remote-dir '~/Desktop/rubix'
-    python3 node-versions.py --start 101 --end 150 --out versions.xlsx
 """
 
 import argparse
@@ -35,9 +34,14 @@ try:
 except ImportError:
     sys.exit("ERROR: openpyxl is required. Install it with:\n  pip install openpyxl")
 
-DEFAULT_SUBNET = "192.168.1"
-DEFAULT_START = 101
-DEFAULT_END = 150
+# Fixed fleet range. .142 and .143 are other systems, not part of this lab.
+FLEET_SUBNET = "192.168.1"
+FLEET_START = 101
+FLEET_END = 144
+FLEET_EXCLUDE = {142, 143}
+FLEET_HOSTS = ["{}.{}".format(FLEET_SUBNET, i)
+               for i in range(FLEET_START, FLEET_END + 1) if i not in FLEET_EXCLUDE]
+
 DEFAULT_USER = "rubix"
 DEFAULT_REMOTE_DIR = "~/Desktop/rubix"
 DEFAULT_TIMEOUT = 8
@@ -82,9 +86,6 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--subnet", default=DEFAULT_SUBNET)
-    p.add_argument("--start", type=int, default=DEFAULT_START)
-    p.add_argument("--end", type=int, default=DEFAULT_END)
     p.add_argument("--user", default=DEFAULT_USER, help="SSH user (default: %(default)s)")
     p.add_argument("--remote-dir", default=DEFAULT_REMOTE_DIR,
                    help="directory on each host containing the rubixgoplatform binary (default: %(default)s)")
@@ -93,9 +94,10 @@ def main():
     p.add_argument("--out", default=os.path.join(here, "versions.xlsx"))
     args = p.parse_args()
 
-    hosts = ["{}.{}".format(args.subnet, i) for i in range(args.start, args.end + 1)]
-    print("Checking {} host(s) ({}.{}-{}) via SSH as {}...\n".format(
-        len(hosts), args.subnet, args.start, args.end, args.user))
+    hosts = FLEET_HOSTS
+    print("Checking {} host(s) ({}.{}-{}, excluding {}) via SSH as {}...\n".format(
+        len(hosts), FLEET_SUBNET, FLEET_START, FLEET_END,
+        ", ".join(str(i) for i in sorted(FLEET_EXCLUDE)), args.user))
 
     with ThreadPoolExecutor(max_workers=min(20, len(hosts))) as pool:
         results = list(pool.map(

@@ -28,8 +28,7 @@ Requires openpyxl (not stdlib):
     pip install openpyxl
 
 Usage:
-    python3 dids-to-excel.py                              # 192.168.1.101-150, port 20000
-    python3 dids-to-excel.py --start 101 --end 150 --subnet 192.168.1
+    python3 dids-to-excel.py                              # the fixed fleet range, port 20000
     python3 dids-to-excel.py --dry-run                    # sweep + report only, no create/register
 """
 
@@ -47,9 +46,14 @@ try:
 except ImportError:
     sys.exit("ERROR: openpyxl is required. Install it with:\n  pip install openpyxl")
 
-DEFAULT_SUBNET = "192.168.1"
-DEFAULT_START = 101
-DEFAULT_END = 150
+# Fixed fleet range. .142 and .143 are other systems, not part of this lab.
+FLEET_SUBNET = "192.168.1"
+FLEET_START = 101
+FLEET_END = 144
+FLEET_EXCLUDE = {142, 143}
+FLEET_HOSTS = ["{}.{}".format(FLEET_SUBNET, i)
+               for i in range(FLEET_START, FLEET_END + 1) if i not in FLEET_EXCLUDE]
+
 DEFAULT_PORT = 20000
 DEFAULT_TIMEOUT = 5
 REGISTER_TIMEOUT = 15  # register+signature round trip, a bit more generous
@@ -144,9 +148,6 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--subnet", default=DEFAULT_SUBNET)
-    p.add_argument("--start", type=int, default=DEFAULT_START)
-    p.add_argument("--end", type=int, default=DEFAULT_END)
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     p.add_argument("--out", default=os.path.join(here, "dids.xlsx"))
@@ -154,10 +155,11 @@ def main():
                    help="sweep and report only, never create/register")
     args = p.parse_args()
 
-    hosts = ["{}.{}".format(args.subnet, i) for i in range(args.start, args.end + 1)]
+    hosts = FLEET_HOSTS
 
-    print("Sweeping {} host(s) ({}.{}-{}) on port {}...\n".format(
-        len(hosts), args.subnet, args.start, args.end, args.port))
+    print("Sweeping {} host(s) ({}.{}-{}, excluding {}) on port {}...\n".format(
+        len(hosts), FLEET_SUBNET, FLEET_START, FLEET_END,
+        ", ".join(str(i) for i in sorted(FLEET_EXCLUDE)), args.port))
     results = sweep(hosts, args.port, args.timeout)
     print_table(results)
 

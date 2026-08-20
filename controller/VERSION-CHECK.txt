@@ -13,10 +13,14 @@ controller can log into any of them with no password.
 
 There's a script that does this for you — setup-ssh.sh. It makes the key
 (if you don't have one yet) and copies it to every host listed in
-controller/hosts.txt:
+controller/hosts.txt. Generate that file with the fixed fleet range
+(101-144, excluding .142/.143 — those are other systems) if you haven't yet:
 
     cd ~/rubix-lab/controller
-    cp hosts.txt.example hosts.txt      # if not done already — fill in real IPs
+    for i in $(seq 101 144); do
+      [ "$i" = "142" ] || [ "$i" = "143" ] && continue
+      echo "192.168.1.$i"
+    done > hosts.txt
     ./setup-ssh.sh
 
 It will still ask for each machine's normal login password once — that
