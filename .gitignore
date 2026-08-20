@@ -14,5 +14,8 @@ CLAUDE.md
 controller/hosts.txt
 exec-update/hosts.txt
 
-# Written by check-nodes.py — a point-in-time snapshot with real IPs and DIDs.
+# Written by check-nodes.py / dids-to-excel.py / node-versions.py — point-in-time
+# snapshots with real IPs and DIDs.
 controller/inventory.json
+controller/dids.xlsx
+controller/versions.xlsx
