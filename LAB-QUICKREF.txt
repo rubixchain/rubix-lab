@@ -52,3 +52,22 @@ python3 dids-to-excel.py --start 101 --end 150 --port 20000
 Optional — manual Postgres container (setup.sh does this for you already;
 only needed for hand-testing or a second node on the same box):
 docker run --name node -e POSTGRES_PASSWORD=rubixpass -e POSTGRES_USER=rubix -e POSTGRES_DB=rubix -p 5433:5432 -v pgdata_node:/var/lib/postgresql --restart always -d postgres:18
+
+Version check (SSH-based) moved to controller/VERSION-CHECK.txt — separate
+doc since it needs its own SSH setup walkthrough.
+
+7. Planned — more inventory columns (not built yet, notes for later)
+----------------------------------------
+- Multi-port / multi-DID per system: today the script assumes one node per
+  host, fixed port 20000, one DID. When a host can run several nodes on
+  different ports, each with its own DID(s), the inventory unit changes
+  from "host" to "host + port", and DIDs becomes a list per (host, port)
+  rather than per host. Will need a per-host port list, not just a host list.
+
+- Quorum flag: confirmed API — GET /rubix/v1/quorums/status?quorumAddress=<did>
+  (server/basic.go APICheckQuorumStatus) returns whether a given DID is set
+  up and available as a quorum. Plan: for each DID found, call this to fill
+  a Quorum yes/no column.
+
+To do when these get built: merge into dids-to-excel.py, or split into
+separate scripts in controller/ (one per concern) — not decided yet.

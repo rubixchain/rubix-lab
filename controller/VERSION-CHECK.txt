@@ -1,0 +1,48 @@
+Rubix Lab — SSH setup + node version check
+============================================
+This doc has two parts: setting up passwordless SSH from the controller to
+every node (a one-time thing, needed here and by exec-update), and running
+node-versions.py once that's done.
+
+Part 1 — SSH setup, in simple words
+----------------------------------------
+Right now, to run a command on another machine you have to type its
+password every time. An SSH "key" fixes that: you make one key pair on the
+controller, hand the public half to every node once, and after that the
+controller can log into any of them with no password.
+
+There's a script that does this for you — setup-ssh.sh. It makes the key
+(if you don't have one yet) and copies it to every host listed in
+controller/hosts.txt:
+
+    cd ~/rubix-lab/controller
+    cp hosts.txt.example hosts.txt      # if not done already — fill in real IPs
+    ./setup-ssh.sh
+
+It will still ask for each machine's normal login password once — that
+part can't be automated away without storing the password somewhere
+insecurely — but you only type the script name once instead of running
+four commands per machine by hand. At the end it re-checks every host and
+tells you plainly which ones (if any) still need attention.
+
+Safe to re-run any time, e.g. after adding new machines to hosts.txt —
+machines that already have the key are just skipped over, nothing breaks.
+
+Part 2 — get every node's Rubix version
+----------------------------------------
+Needs Part 1 done first. Also needs openpyxl (one-time):
+    pip install openpyxl
+
+Then, from the controller:
+    cd ~/rubix-lab/controller
+    python3 node-versions.py --user rubix --remote-dir '~/Desktop/rubix'
+
+This SSHes into each host in the range, runs `./rubixgoplatform -v` there
+(just prints the version and exits — doesn't touch the running node), and
+writes controller/versions.xlsx with columns: Host, Version, Note, Checked At.
+
+If a host shows "ssh failed: ..." in the Note column, Part 1 wasn't
+completed for that machine — go back and run ssh-copy-id for it.
+
+If your nodes live somewhere other than ~/Desktop/rubix, pass the real path:
+    python3 node-versions.py --remote-dir '~/some/other/path'
