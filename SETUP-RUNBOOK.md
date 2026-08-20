@@ -27,6 +27,12 @@ Before touching any machine.
 Quorum count can start at 3. It is easy to promote more participants to quorum
 later; the tests that vary quorum count need at least 3 to be meaningful.
 
+Quorum and participant are *planning* concepts here, not something written
+into `hosts.txt` — that file only records the durable, fixed-role machines
+(fullnode/explorer/controller) plus down/excluded ones. Which pool machines
+act as quorum vs sender vs receiver is decided per test case at execution
+time, since it can (and does) change between test cycles.
+
 ### A2. Fix the addresses
 
 Give every machine a static IP or a DHCP reservation. Addresses must not change
@@ -119,35 +125,35 @@ on that being consistent.
 The key is already committed. For the two binaries, either commit them once or
 let `setup.sh` fetch them on first run — see `prerequisite/README.md`.
 
-### B3. Bring up the quorum machines first
+### B3. Bring up the fullnode first
 
-The bootstrap list needs each quorum node's peer ID, which only exists after
-that node has started once. So quorum machines go first, with an empty list:
+The bootstrap list needs a peer ID to point at, which only exists after that
+node has started once. The fullnode is the seed: a single stable, always-on
+machine makes a better permanent bootstrap point than juggling several
+quorum peer IDs. Bring it up with an empty list:
 
 ```
 cd ~/rubix-lab/install
 LOCALNET_BOOTSTRAP_NODES='[]' ./setup.sh
 ```
 
-Then collect each one's peer ID:
+Then collect its peer ID:
 
 ```
 curl -s http://localhost:20000/rubix/v1/node/peer_id
 ```
 
-Build the shared bootstrap list from those:
-
-```
-["/ip4/<quorum-ip-1>/tcp/4002/p2p/<peer-id-1>", "/ip4/<quorum-ip-2>/tcp/4002/p2p/<peer-id-2>"]
-```
-
 ### B4. Bring up everything else
 
-On every remaining machine, using the list from B3:
+On every remaining machine — quorum-designated or not, it makes no
+difference to bootstrap order now — point at the fullnode:
 
 ```
-LOCALNET_BOOTSTRAP_NODES='["/ip4/...","/ip4/..."]' ./setup.sh
+LOCALNET_BOOTSTRAP_NODES='["/ip4/<fullnode-ip>/tcp/4002/p2p/<fullnode-peer-id>"]' ./setup.sh
 ```
+
+See [LAB-QUICKREF.txt](LAB-QUICKREF.txt) for the exact copy-pasteable
+sequence, including firewall ports and peering verification.
 
 **Check on each machine, locally:**
 ```
@@ -194,18 +200,25 @@ On the controller:
 
 ```
 cd controller
-cp hosts.txt.example hosts.txt      # then fill in your real IPs and roles
+cp hosts.txt.example hosts.txt      # then fill in your real IPs
 python3 check-nodes.py
 ```
+
+`hosts.txt` only records two fixed, durable facts per host — an
+infrastructure role (`fullnode` / `explorer` / `controller`) or "down"
+(commented out with a reason). Everything else is left untagged: the
+generic pool. Quorum/sender/receiver are never written here — those are
+assigned per test case at execution time, not a fixed property of a host.
+See `controller/hosts.txt.example` for the format.
 
 Output looks like:
 
 ```
 HOST         ROLE          STATUS     DIDs       RBT  NOTES
-10.0.0.11    quorum        OK            1     1000
-10.0.0.12    quorum        OK            1     1000
-10.0.0.20    participant   NO DID        0        -  reachable but no DID yet - needs bootstrap
-10.0.0.21    participant   DOWN          0        -  unreachable (timed out)
+10.0.0.11    fullnode      OK            0     -
+10.0.0.12    pool          OK            1     1000
+10.0.0.20    pool          NO DID        0        -  reachable but no DID yet - needs bootstrap
+10.0.0.21    pool          DOWN          0        -  unreachable (timed out)
 
 Reachable : 3/4
 Ready     : 2/4   (reachable and has a DID)

@@ -12,7 +12,7 @@ releases, bug fixes and new features.
 |---|---|---|
 | [prerequisite/](prerequisite/) | Node binary, IPFS binary, swarm key | Every machine |
 | [install/](install/) | `setup.sh` — brings up one node on one machine | Every machine |
-| [controller/](controller/) | `check-nodes.py` — verifies the controller can reach every node | Controller only |
+| [controller/](controller/) | Reachability, DID, version and SSH-setup tooling — see `controller/` for the full list | Controller only |
 | [exec-update/](exec-update/) | Build any branch and deploy it to running nodes | Controller only |
 | [test-plan/](test-plan/) | 259-case test catalogue (CSV) and how to read it | Reference |
 | `nodes/` | Where each machine's running node lives | Created by setup, gitignored |
@@ -35,8 +35,8 @@ LOCALNET_BOOTSTRAP_NODES='[...]' ./setup.sh
 Use **Docker Engine as above, not Docker Desktop** — Desktop needs a logged-in
 session, so containers would not restart after an unattended reboot.
 
-Quorum machines go first with `'[]'`, then their peer IDs form the bootstrap
-list for everything else. Full detail in the runbook.
+The fullnode goes first with `'[]'`, then its peer ID becomes the bootstrap
+entry for every other machine. Full detail in the runbook.
 
 ## How the repo is used
 

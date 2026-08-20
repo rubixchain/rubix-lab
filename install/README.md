@@ -34,35 +34,32 @@ release is fine, since this step just gets a node running. Testing a specific
 branch is handled separately by [../exec-update/](../exec-update/) on
 already-running nodes; you never rebuild or redistribute this to do that.
 
-## Bring-up order matters once: quorum nodes first
+## Bring-up order matters once: fullnode first
 
-`localnet_bootstrap_nodes` needs each quorum-designated node's **peer ID**,
-which only exists after that node has been started at least once. So:
+`localnet_bootstrap_nodes` needs a peer ID to point at, which only exists
+after that node has been started at least once. The fullnode is the seed —
+a single stable, always-on machine makes a better permanent bootstrap point
+than juggling several quorum peer IDs. So:
 
-1. Pick your 3-5 quorum-designated desktops (see the architecture memory —
-   quorum selection is per-sender, decided later in Step 2; for now you just
-   need *some* desktops to go first).
-2. On those desktops only, run setup with an empty bootstrap list:
+1. On the fullnode desktop only, run setup with an empty bootstrap list:
    ```
    LOCALNET_BOOTSTRAP_NODES='[]' ./setup.sh
    ```
-3. Once each is up, get its peer ID:
+2. Once it's up, get its peer ID:
    ```
    curl -s http://localhost:20000/rubix/v1/node/peer_id
    ```
-4. Build the shared bootstrap list from those peer IDs + each quorum
-   desktop's LAN IP:
+3. On **every other desktop** — quorum-designated or not, it makes no
+   difference to bootstrap order — point at the fullnode:
    ```
-   ["/ip4/<quorum-ip-1>/tcp/4002/p2p/<peer-id-1>", "/ip4/<quorum-ip-2>/tcp/4002/p2p/<peer-id-2>", ...]
-   ```
-5. On **every remaining desktop** (participants, and the quorum desktops too
-   if you re-run it — it's a no-op there since their config.toml already
-   exists), run:
-   ```
-   LOCALNET_BOOTSTRAP_NODES='["/ip4/...","/ip4/..."]' ./setup.sh
+   LOCALNET_BOOTSTRAP_NODES='["/ip4/<fullnode-ip>/tcp/4002/p2p/<fullnode-peer-id>"]' ./setup.sh
    ```
 
-After this, every desktop's `config.toml` is byte-for-byte identical.
+After this, every desktop's `config.toml` is byte-for-byte identical except
+for that shared bootstrap entry. Quorum selection itself (which pool
+machines sign for which senders) is a Step 2 concern, decided per test
+case — not a bring-up-time decision. See `../SETUP-RUNBOOK.md` Phase B3 and
+`../LAB-QUICKREF.txt` for the exact copy-pasteable sequence.
 
 ## Running it
 
