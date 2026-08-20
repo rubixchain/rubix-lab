@@ -41,6 +41,13 @@ curl -s http://localhost:20000/rubix/v1/node/ping
 IPFS_PATH=<node-dir>/.ipfs <node-dir>/ipfs swarm peers
 # should list the fullnode's peer ID (and vice versa on the fullnode)
 
+6. Controller — sweep the fleet for DIDs, save to Excel
+----------------------------------------
+cd ~/rubix-lab/controller
+pip install openpyxl        # one-time, not stdlib
+python3 dids-to-excel.py --start 101 --end 150 --port 20000
+# writes dids.xlsx in this folder
+
 ---
 Optional — manual Postgres container (setup.sh does this for you already;
 only needed for hand-testing or a second node on the same box):
