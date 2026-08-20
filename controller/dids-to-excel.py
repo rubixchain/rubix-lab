@@ -27,9 +27,14 @@ second identity with no error):
 Requires openpyxl (not stdlib):
     pip install openpyxl
 
+Reads the fleet's host list from hosts.txt (same file check-nodes.py and
+setup-ssh.sh use) — one source of truth for who's in the fleet. Comments
+and the optional role column are ignored here; only the host column matters.
+
 Usage:
-    python3 dids-to-excel.py                              # the fixed fleet range, port 20000
+    python3 dids-to-excel.py                              # reads hosts.txt, port 20000
     python3 dids-to-excel.py --dry-run                    # sweep + report only, no create/register
+    python3 dids-to-excel.py --hosts other-hosts.txt
 """
 
 import argparse
@@ -45,14 +50,6 @@ try:
     from openpyxl import Workbook
 except ImportError:
     sys.exit("ERROR: openpyxl is required. Install it with:\n  pip install openpyxl")
-
-# Fixed fleet range. .142 and .143 are other systems, not part of this lab.
-FLEET_SUBNET = "192.168.1"
-FLEET_START = 101
-FLEET_END = 144
-FLEET_EXCLUDE = {142, 143}
-FLEET_HOSTS = ["{}.{}".format(FLEET_SUBNET, i)
-               for i in range(FLEET_START, FLEET_END + 1) if i not in FLEET_EXCLUDE]
 
 DEFAULT_PORT = 20000
 DEFAULT_TIMEOUT = 5
@@ -124,6 +121,23 @@ def create_and_register_did(host, port, timeout):
     return did, "created and registered"
 
 
+def load_hosts(path):
+    """Read the hosts file. Format per line:  <host> [role]  ('#' comments ok)."""
+    if not os.path.exists(path):
+        sys.exit("ERROR: hosts file not found: {}\n"
+                 "Copy hosts.txt.example to hosts.txt and fill in real IPs first.".format(path))
+    hosts = []
+    with open(path, encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            hosts.append(line.split()[0])
+    if not hosts:
+        sys.exit("ERROR: no hosts listed in {}".format(path))
+    return hosts
+
+
 def sweep(hosts, port, timeout):
     def check(host):
         reachable, dids, note = get_dids(host, port, timeout)
@@ -148,6 +162,8 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--hosts", default=os.path.join(here, "hosts.txt"),
+                   help="hosts file (default: hosts.txt beside this script)")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     p.add_argument("--out", default=os.path.join(here, "dids.xlsx"))
@@ -155,11 +171,10 @@ def main():
                    help="sweep and report only, never create/register")
     args = p.parse_args()
 
-    hosts = FLEET_HOSTS
+    hosts = load_hosts(args.hosts)
 
-    print("Sweeping {} host(s) ({}.{}-{}, excluding {}) on port {}...\n".format(
-        len(hosts), FLEET_SUBNET, FLEET_START, FLEET_END,
-        ", ".join(str(i) for i in sorted(FLEET_EXCLUDE)), args.port))
+    print("Sweeping {} host(s) from {} on port {}...\n".format(
+        len(hosts), args.hosts, args.port))
     results = sweep(hosts, args.port, args.timeout)
     print_table(results)
 

@@ -1,18 +1,29 @@
-# Rubix Lab node list - copy to hosts.txt and fill in your real addresses.
+# Rubix Lab host list - copy to hosts.txt and fill in your real addresses.
 #
 # One host per line:   <ip or hostname>  [role]
-# Role is optional and defaults to "participant".
 # Blank lines and anything after # are ignored.
 #
-# Roles used by the lab tooling:
-#   quorum       - designated quorum node (signs transactions, must stay funded)
-#   participant  - ordinary sender/receiver node
-#   fullnode     - the dedicated fullnode for this environment
-#   controller   - this machine (list it if it also runs a node)
+# hosts.txt only records two kinds of FIXED, DURABLE facts about a host:
+#
+#   1. Infrastructure role - a permanent identity for that machine:
+#        fullnode     - the dedicated fullnode for this environment
+#        explorer     - the dedicated explorer for this environment
+#        controller   - this machine (list it if it also runs a node)
+#      Leave the role column blank for every other host.
+#
+#   2. Unavailable - comment the line out with a reason + date, so every
+#      tool (check-nodes.py, setup-ssh.sh, dids-to-excel.py, node-versions.py)
+#      skips it automatically, without losing the record of why:
+#        # 10.0.0.20  # down - unreachable since 2026-08-18
+#
+# Do NOT write "quorum" or "participant" here. Those are per-test-case
+# assignments made at test-execution time from whatever hosts are left
+# after excluding fixed-role and down hosts - not a fixed property of a
+# host, since which machines act as quorum can change between test cycles.
 
-# 10.0.0.11  quorum
-# 10.0.0.12  quorum
-# 10.0.0.13  quorum
-# 10.0.0.20  participant
-# 10.0.0.21  participant
-# 10.0.0.22  participant
+10.0.0.11  fullnode
+10.0.0.12  explorer
+10.0.0.13  controller
+10.0.0.20
+10.0.0.21
+10.0.0.22

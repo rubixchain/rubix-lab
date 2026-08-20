@@ -16,9 +16,14 @@ Requires:
       (same one-time step exec-update/README.md describes: ssh-copy-id).
     - The `ssh` binary on the controller (stdlib subprocess, no pip installs).
 
+Reads the fleet's host list from hosts.txt (same file check-nodes.py and
+setup-ssh.sh use) — one source of truth for who's in the fleet. Comments
+and the optional role column are ignored here; only the host column matters.
+
 Usage:
-    python3 node-versions.py                              # the fixed fleet range
+    python3 node-versions.py                              # reads hosts.txt
     python3 node-versions.py --user rubix --remote-dir '~/Desktop/rubix'
+    python3 node-versions.py --hosts other-hosts.txt
 """
 
 import argparse
@@ -33,14 +38,6 @@ try:
     from openpyxl import Workbook
 except ImportError:
     sys.exit("ERROR: openpyxl is required. Install it with:\n  pip install openpyxl")
-
-# Fixed fleet range. .142 and .143 are other systems, not part of this lab.
-FLEET_SUBNET = "192.168.1"
-FLEET_START = 101
-FLEET_END = 144
-FLEET_EXCLUDE = {142, 143}
-FLEET_HOSTS = ["{}.{}".format(FLEET_SUBNET, i)
-               for i in range(FLEET_START, FLEET_END + 1) if i not in FLEET_EXCLUDE]
 
 DEFAULT_USER = "rubix"
 DEFAULT_REMOTE_DIR = "~/Desktop/rubix"
@@ -82,10 +79,29 @@ def check_host(host, user, remote_dir, timeout):
     return {"host": host, "version": version, "note": note}
 
 
+def load_hosts(path):
+    """Read the hosts file. Format per line:  <host> [role]  ('#' comments ok)."""
+    if not os.path.exists(path):
+        sys.exit("ERROR: hosts file not found: {}\n"
+                 "Copy hosts.txt.example to hosts.txt and fill in real IPs first.".format(path))
+    hosts = []
+    with open(path, encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            hosts.append(line.split()[0])
+    if not hosts:
+        sys.exit("ERROR: no hosts listed in {}".format(path))
+    return hosts
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--hosts", default=os.path.join(here, "hosts.txt"),
+                   help="hosts file (default: hosts.txt beside this script)")
     p.add_argument("--user", default=DEFAULT_USER, help="SSH user (default: %(default)s)")
     p.add_argument("--remote-dir", default=DEFAULT_REMOTE_DIR,
                    help="directory on each host containing the rubixgoplatform binary (default: %(default)s)")
@@ -94,10 +110,9 @@ def main():
     p.add_argument("--out", default=os.path.join(here, "versions.xlsx"))
     args = p.parse_args()
 
-    hosts = FLEET_HOSTS
-    print("Checking {} host(s) ({}.{}-{}, excluding {}) via SSH as {}...\n".format(
-        len(hosts), FLEET_SUBNET, FLEET_START, FLEET_END,
-        ", ".join(str(i) for i in sorted(FLEET_EXCLUDE)), args.user))
+    hosts = load_hosts(args.hosts)
+    print("Checking {} host(s) from {} via SSH as {}...\n".format(
+        len(hosts), args.hosts, args.user))
 
     with ThreadPoolExecutor(max_workers=min(20, len(hosts))) as pool:
         results = list(pool.map(

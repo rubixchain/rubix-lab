@@ -187,8 +187,9 @@ def main():
                    help="per-request timeout in seconds (default: %(default)s)")
     p.add_argument("--out", default=os.path.join(here, "inventory.json"),
                    help="where to write the inventory (default: inventory.json)")
-    p.add_argument("--default-role", default="participant",
-                   help="role for hosts with none listed (default: %(default)s)")
+    p.add_argument("--default-role", default="pool",
+                   help="role label for hosts with none listed (default: %(default)s) — "
+                        "untagged hosts are the generic pool, not a fixed role")
     args = p.parse_args()
 
     entries = load_hosts(args.hosts, args.default_role)
