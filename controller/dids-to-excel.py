@@ -6,14 +6,17 @@ on any node that doesn't have one yet, and record the result in an .xlsx.
 APIs used (confirmed against server/did.go, core/did.go, did/lite.go and
 setup/setup.go in the rubixgoplatform repo):
     GET  /rubix/v1/dids                  -> {"result": [<did>, ...]}
-    POST /rubix/v1/dids/create            body {"password": ""}
+    POST /rubix/v1/dids/create            body {"password": "<DID_PASSWORD>"}
                                           -> {"result": {"did": "...", "peer_id": "..."}}
     POST /rubix/v1/dids/{did}/register    -> {"result": {"id": "<reqID>"}}  (password challenge)
-    POST /rubix/v1/signature               body {"id": "<reqID>", "password": ""}
+    POST /rubix/v1/signature               body {"id": "<reqID>", "password": "<DID_PASSWORD>"}
                                           -> {"status": true, "message": "DID registered successfully"}
 
-Password is sent as an empty string throughout, per lab convention (no
-passphrase needed for the DID's private key on this fleet).
+An empty password is NOT possible here -- core.CreateDID rejects it outright
+("password required for creating did", did/did.go:78-79). DID_PASSWORD below
+is "mypassword" -- the product's own built-in default (command/command.go:417,
+-privPWD flag) and the convention its own integration test suite uses
+throughout (test/integration/, tests/node/), not a lab-invented value.
 
 Safety rules (do not relax these — CreateDID has zero idempotency in the
 product code; calling it on a node that already has a DID silently mints a
@@ -28,8 +31,9 @@ Requires openpyxl (not stdlib):
     pip install openpyxl
 
 Reads the fleet's host list from hosts.txt (same file check-nodes.py and
-setup-ssh.sh use) — one source of truth for who's in the fleet. Comments
-and the optional role column are ignored here; only the host column matters.
+setup-ssh.sh use) — one source of truth for who's in the fleet. The role
+column matters here: fullnode/explorer/controller are never auto-created
+(see NO_DID_ROLES below); everything else is the generic pool.
 
 Usage:
     python3 dids-to-excel.py                              # reads hosts.txt, port 20000
@@ -60,7 +64,7 @@ EP_CREATE = "/rubix/v1/dids/create"
 EP_REGISTER = "/rubix/v1/dids/{did}/register"
 EP_SIGNATURE = "/rubix/v1/signature"
 
-DID_PASSWORD = ""  # lab convention: no passphrase
+DID_PASSWORD = "mypassword"  # the product's own default (command/command.go -privPWD)
 
 
 def http_json(method, url, timeout, body=None):
@@ -121,6 +125,12 @@ def create_and_register_did(host, port, timeout):
     return did, "created and registered"
 
 
+# Fixed-role hosts never get an auto-created DID: a fullnode/explorer has no
+# wallet role by design (zero DIDs is correct, not a gap), and a controller
+# isn't a node at all. Only the untagged "pool" gets create+register.
+NO_DID_ROLES = {"fullnode", "explorer", "controller"}
+
+
 def load_hosts(path):
     """Read the hosts file. Format per line:  <host> [role]  ('#' comments ok)."""
     if not os.path.exists(path):
@@ -132,16 +142,18 @@ def load_hosts(path):
             line = raw.split("#", 1)[0].strip()
             if not line:
                 continue
-            hosts.append(line.split()[0])
+            parts = line.split()
+            hosts.append({"host": parts[0], "role": parts[1] if len(parts) > 1 else ""})
     if not hosts:
         sys.exit("ERROR: no hosts listed in {}".format(path))
     return hosts
 
 
 def sweep(hosts, port, timeout):
-    def check(host):
-        reachable, dids, note = get_dids(host, port, timeout)
-        return {"host": host, "reachable": reachable, "dids": dids, "note": note}
+    def check(entry):
+        reachable, dids, note = get_dids(entry["host"], port, timeout)
+        return {"host": entry["host"], "role": entry["role"],
+                "reachable": reachable, "dids": dids, "note": note}
 
     with ThreadPoolExecutor(max_workers=min(40, len(hosts))) as pool:
         return list(pool.map(check, hosts))
@@ -178,8 +190,16 @@ def main():
     results = sweep(hosts, args.port, args.timeout)
     print_table(results)
 
-    todo = [r for r in results if r["reachable"] and len(r["dids"]) == 0]
+    fixed_role_skipped = [r for r in results
+                          if r["reachable"] and len(r["dids"]) == 0 and r["role"] in NO_DID_ROLES]
+    todo = [r for r in results
+            if r["reachable"] and len(r["dids"]) == 0 and r["role"] not in NO_DID_ROLES]
     ambiguous = [r for r in results if r["reachable"] and len(r["dids"]) > 1]
+    if fixed_role_skipped:
+        print("\n{} fixed-role host(s) have no DID — expected, left alone:".format(
+            len(fixed_role_skipped)))
+        for r in fixed_role_skipped:
+            print("  {} ({})".format(r["host"], r["role"]))
     if ambiguous:
         print("\n{} host(s) have MORE THAN ONE DID already — left untouched, needs human review:".format(
             len(ambiguous)))
@@ -188,13 +208,13 @@ def main():
 
     actions = {}
     if todo and not args.dry_run:
-        print("\n{} host(s) have no DID — creating and registering one each...\n".format(len(todo)))
+        print("\n{} pool host(s) have no DID — creating and registering one each...\n".format(len(todo)))
         for r in todo:
             did, note = create_and_register_did(r["host"], args.port, REGISTER_TIMEOUT)
             actions[r["host"]] = note
             print("  {:<15}  {}".format(r["host"], note))
         print("\nRe-checking affected hosts...")
-        recheck = sweep([r["host"] for r in todo], args.port, args.timeout)
+        recheck = sweep([{"host": r["host"], "role": r["role"]} for r in todo], args.port, args.timeout)
         by_host = {r["host"]: r for r in recheck}
         for r in results:
             if r["host"] in by_host:
@@ -209,7 +229,7 @@ def main():
     wb = Workbook()
     ws = wb.active
     ws.title = "DIDs"
-    ws.append(["Host", "Status", "DID Count", "DIDs", "Action Taken", "Note", "Checked At"])
+    ws.append(["Host", "Role", "Status", "DID Count", "DIDs", "Action Taken", "Note", "Checked At"])
     checked_at = datetime.datetime.now().isoformat(timespec="seconds")
     for r in results:
         note = ""
@@ -217,8 +237,11 @@ def main():
             note = "multiple DIDs - needs human review"
         elif not r["reachable"]:
             note = r.get("note", "")
+        elif len(r["dids"]) == 0 and r["role"] in NO_DID_ROLES:
+            note = "fixed role - no DID expected"
         ws.append([
             r["host"],
+            r["role"],
             "OK" if r["reachable"] else "DOWN",
             len(r["dids"]),
             ", ".join(r["dids"]),
@@ -226,7 +249,7 @@ def main():
             note,
             checked_at,
         ])
-    for col, width in zip("ABCDEFG", (16, 10, 10, 65, 25, 35, 20)):
+    for col, width in zip("ABCDEFGH", (16, 12, 10, 10, 65, 25, 35, 20)):
         ws.column_dimensions[col].width = width
     wb.save(args.out)
     print("\nSaved to {}".format(args.out))
