@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""
+rubix_client.py - Shared helpers for the test-plan scripts. Not a script to
+run directly - imported by preflight.py and each test-plan/<asset>/ runner.
+
+Core primitive (confirmed against server/*.go in the rubixgoplatform repo):
+almost every mutating call is a 2-step password challenge:
+    POST <action>            -> {"result": {"id": "<reqID>"}}   (password needed)
+    POST /rubix/v1/signature  body {"id": "<reqID>", "password": DID_PASSWORD}
+                              -> final {"status": bool, "message": ..., "result": ...}
+RegisterDID, GenerateLocalRBT and InitiateTransaction (RBT/FT/NFT/SC all go
+through the one /rubix/v1/transaction body) all follow this. signed_action()
+below drives it generically; a handful of calls (CreateDID, AddQuorum,
+GetAllDIDs, balances) are plain single-call GET/POST and use http_json()
+directly.
+
+DID_PASSWORD = "mypassword" is the product's own built-in default
+(command/command.go -privPWD flag), used throughout its integration test
+suite - not a lab-invented value. Same convention used by dids-to-excel.py.
+"""
+
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+DID_PASSWORD = "mypassword"
+DEFAULT_PORT = 20000
+DEFAULT_TIMEOUT = 8
+SIGNATURE_TIMEOUT = 20  # generous: covers pledge/consensus round trips
+
+EP_DIDS = "/rubix/v1/dids"
+EP_PEER_ID = "/rubix/v1/node/peer_id"
+EP_CREATE_DID = "/rubix/v1/dids/create"
+EP_REGISTER_DID = "/rubix/v1/dids/{did}/register"
+EP_SIGNATURE = "/rubix/v1/signature"
+EP_RBT_BALANCE = "/rubix/v1/dids/{did}/balances/rbt"
+EP_GENERATE_LOCAL_RBT = "/rubix/v1/tokens/generate_local_rbt"
+EP_QUORUM_SETUP = "/rubix/v1/quorums/setup"
+EP_QUORUM_ADD = "/rubix/v1/quorums/add"
+EP_QUORUM_LIST = "/rubix/v1/quorums"
+EP_TRANSACTION = "/rubix/v1/transaction"
+
+
+def base_url(host, port=DEFAULT_PORT):
+    return "http://{}:{}".format(host, port)
+
+
+def http_json(method, url, timeout=DEFAULT_TIMEOUT, body=None):
+    """Send a GET/POST and return (ok, payload_or_error_string)."""
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {"Content-Type": "application/json"} if data is not None else {}
+    try:
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status != 200:
+                return False, "HTTP {}".format(resp.status)
+            return True, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return False, "HTTP {}".format(e.code)
+    except urllib.error.URLError as e:
+        return False, "unreachable ({})".format(e.reason)
+    except TimeoutError:
+        return False, "timeout"
+    except Exception as e:  # malformed JSON, connection reset, etc.
+        return False, "{}: {}".format(type(e).__name__, e)
+
+
+def signed_action(host, action_path, body, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """
+    POST an action that needs the password-challenge round trip.
+    Returns (status: bool, message: str, result: any).
+    """
+    base = base_url(host, port)
+    ok, payload = http_json("POST", base + action_path, timeout, body)
+    if not ok or not isinstance(payload, dict):
+        return False, "request failed: {}".format(payload), None
+
+    # A validation failure (e.g. bad DID, insufficient balance) can be
+    # returned directly here, with no challenge step at all.
+    result = payload.get("result")
+    req_id = result.get("id") if isinstance(result, dict) else None
+    if not req_id:
+        return bool(payload.get("status")), payload.get("message", ""), result
+
+    ok, payload = http_json("POST", base + EP_SIGNATURE, timeout,
+                             {"id": req_id, "password": DID_PASSWORD})
+    if not ok or not isinstance(payload, dict):
+        return False, "signature step failed: {}".format(payload), None
+    return bool(payload.get("status")), payload.get("message", ""), payload.get("result")
+
+
+def get_dids(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Returns (reachable, dids_list, note)."""
+    ok, payload = http_json("GET", base_url(host, port) + EP_DIDS, timeout)
+    if not ok:
+        return False, [], payload
+    result = payload.get("result") if isinstance(payload, dict) else None
+    return True, (result if isinstance(result, list) else []), ""
+
+
+def get_rbt_balance(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Returns (ok, balance_float_or_None, note)."""
+    url = base_url(host, port) + EP_RBT_BALANCE.format(did=did)
+    ok, payload = http_json("GET", url, timeout)
+    if not ok:
+        return False, None, payload
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if isinstance(result, dict):
+        for key in ("rbt_amount", "rbtAmount", "balance", "value"):
+            if key in result:
+                try:
+                    return True, float(result[key]), ""
+                except (TypeError, ValueError):
+                    return False, None, "unparseable balance: {}".format(result[key])
+    if isinstance(result, (int, float)):
+        return True, float(result), ""
+    return False, None, "no balance field in response: {}".format(payload)
+
+
+def fund_did(host, did, amount, port=DEFAULT_PORT):
+    """Mint local RBT for a DID. Returns (status, message)."""
+    body = {"did": did, "number_of_tokens": int(amount), "start_index": 0}
+    status, message, _ = signed_action(host, EP_GENERATE_LOCAL_RBT, body, port)
+    return status, message
+
+
+def quorum_setup(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Activate a DID as a quorum signer on its own node. Single-call, no
+    password challenge (confirmed: core.SetupQuorum returns synchronously)."""
+    body = {"did": did, "password": DID_PASSWORD, "priv_password": DID_PASSWORD}
+    ok, payload = http_json("POST", base_url(host, port) + EP_QUORUM_SETUP, timeout, body)
+    if not ok or not isinstance(payload, dict):
+        return False, "request failed: {}".format(payload)
+    return bool(payload.get("status")), payload.get("message", "")
+
+
+def quorum_add(host, quorum_did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Register a quorum DID as trusted on a participant node. Idempotency
+    note: the Go wrapper errors on repeat even though the DB write is
+    ON CONFLICT DO NOTHING (core/wallet/quorum.go) - callers must treat an
+    'already exists' style message as success, not failure."""
+    ok, payload = http_json("POST", base_url(host, port) + EP_QUORUM_ADD, timeout,
+                             {"did": quorum_did})
+    if not ok or not isinstance(payload, dict):
+        return False, "request failed: {}".format(payload)
+    status = bool(payload.get("status"))
+    message = payload.get("message", "")
+    if not status and "already exist" in message.lower():
+        return True, message + " (treated as success - idempotent)"
+    return status, message
+
+
+def get_quorums(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    ok, payload = http_json("GET", base_url(host, port) + EP_QUORUM_LIST, timeout)
+    if not ok:
+        return False, [], payload
+    result = payload.get("result") if isinstance(payload, dict) else None
+    return True, (result if isinstance(result, list) else []), ""
+
+
+def announce_did(host, did, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """Re-broadcast an EXISTING DID's peer mapping (register + signature).
+    Safe to repeat, unlike create - never call create here. Used for the
+    'everyone online together' announcement pass, not first-time DID setup."""
+    url = EP_REGISTER_DID.format(did=did)
+    return signed_action(host, url, None, port, timeout)
+
+
+def initiate_transaction(sender_host, initiator_did, owner_did, rbt=None, ft=None,
+                          nft=None, smart_contract=None, transfer_nft_ownership=False,
+                          memo="", port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """
+    Fire a transaction from sender_host. One body shape covers RBT/FT/NFT/SC
+    and any combination (types/models/transaction_info.go TransactionRequest).
+    owner_did is who the transaction is FROM (equals initiator_did except in
+    the 'send with no receiver' / self-transfer edge cases).
+    Returns (status, message, result).
+    """
+    tokens = {"rbt": rbt or 0, "transferNftOwnership": transfer_nft_ownership}
+    if ft:
+        tokens["ft"] = ft
+    if nft:
+        tokens["nft"] = nft
+    if smart_contract:
+        tokens["smartContract"] = smart_contract
+    body = {"initiator": initiator_did, "owner": owner_did, "tokens": tokens, "memo": memo}
+    return signed_action(sender_host, EP_TRANSACTION, body, port, timeout)
+
+
+def load_hosts(path):
+    """Read hosts.txt. Format per line: <host> [role] ('#' comments ok)."""
+    if not os.path.exists(path):
+        sys.exit("ERROR: hosts file not found: {}".format(path))
+    hosts = []
+    with open(path, encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            parts = line.split()
+            hosts.append({"host": parts[0], "role": parts[1] if len(parts) > 1 else ""})
+    if not hosts:
+        sys.exit("ERROR: no hosts listed in {}".format(path))
+    return hosts
+
+
+def wait_for_balance(host, did, min_amount, port=DEFAULT_PORT, attempts=10, delay=2):
+    """Poll RBT balance until it clears min_amount or attempts run out.
+    Minting is asynchronous relative to when the signature call returns."""
+    for _ in range(attempts):
+        ok, bal, _ = get_rbt_balance(host, did, port)
+        if ok and bal is not None and bal >= min_amount:
+            return True, bal
+        time.sleep(delay)
+    ok, bal, _ = get_rbt_balance(host, did, port)
+    return False, bal
