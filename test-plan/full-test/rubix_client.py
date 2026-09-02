@@ -56,7 +56,7 @@ EP_GENERATE_LOCAL_RBT = "/rubix/v1/tokens/generate_local_rbt"
 EP_QUORUM_SETUP = "/rubix/v1/quorums/setup"
 EP_QUORUM_ADD = "/rubix/v1/quorums/add"
 EP_QUORUM_LIST = "/rubix/v1/quorums"
-EP_TRANSACTION = "/rubix/v1/transaction"
+EP_TRANSACTION = "/rubix/v1/tx"  # confirmed setup.go:69 - NOT /rubix/v1/transaction
 EP_FT_MINT = "/rubix/v1/fts/mint"
 EP_FT_BALANCE = "/rubix/v1/dids/{did}/balances/ft"
 EP_CREATE_NFT = "/rubix/v1/nfts/generate"
@@ -215,11 +215,12 @@ def create_nft(host, did, metadata_bytes, artifact_bytes, port=DEFAULT_PORT, tim
 def create_smart_contract(host, did, wasm_bytes, raw_bytes, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
     """multipart/form-data: did, binaryCodePath (.wasm), rawCodePath (source)
     -> returns the new contract's ID as a plain string in `result`
-    (confirmed against server/smart_contract.go - both files required,
-    extension on binaryCodePath must be literally '.wasm')."""
+    (confirmed against server/smart_contract.go - both files required, and
+    BOTH extensions are checked literally: binaryCodePath must end '.wasm',
+    rawCodePath must end '.rs' - server/smart_contract.go:70 and :101-106)."""
     fields = {"did": did}
     files = {"binaryCodePath": ("contract.wasm", wasm_bytes),
-             "rawCodePath": ("contract.src", raw_bytes)}
+             "rawCodePath": ("contract.rs", raw_bytes)}
     return signed_multipart_action(host, EP_GENERATE_SC, fields, files, port, timeout)
 
 
