@@ -19,6 +19,7 @@ DID_PASSWORD = "mypassword" is the product's own built-in default
 suite - not a lab-invented value. Same convention used by dids-to-excel.py.
 """
 
+import csv
 import datetime
 import json
 import os
@@ -422,7 +423,22 @@ def write_pdf_report(path, title, headers, rows):
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     except ImportError:
-        sys.exit("ERROR: reportlab is required for PDF reports. Install it with:\n  pip install reportlab")
+        # Never lose a completed run's results just because a formatting
+        # library is missing - by the time this is called every test has
+        # already executed against the real fleet. Fall back to CSV, which
+        # needs nothing beyond the stdlib, and say so loudly.
+        csv_path = os.path.splitext(path)[0] + ".csv"
+        with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(headers)
+            writer.writerows(rows)
+        print("\nWARNING: reportlab is not installed, so no PDF was written.")
+        print("         Results were NOT lost - saved as CSV instead:")
+        print("           {}".format(csv_path))
+        print("         For PDFs in future runs:  sudo apt install -y python3-reportlab")
+        print("         (plain `pip install` is blocked on Ubuntu 24.04 by PEP 668,")
+        print("          and a venv gets lost if the .venv directory is removed)")
+        return
 
     styles = getSampleStyleSheet()
     cell_style = ParagraphStyle("cell", parent=styles["BodyText"], fontSize=7, leading=9)
@@ -467,3 +483,35 @@ def wait_for_balance(host, did, min_amount, port=DEFAULT_PORT, attempts=10, dela
         time.sleep(delay)
     ok, bal, _ = get_rbt_balance(host, did, port)
     return False, bal
+
+
+def ft_count_for(ft_balance_result, ft_name):
+    """Pull the count for one FT series out of what get_ft_balance returns
+    (a list of {name, creator, value, count} dicts). 0 if absent."""
+    if not isinstance(ft_balance_result, list):
+        return 0
+    for entry in ft_balance_result:
+        if isinstance(entry, dict) and entry.get("name") == ft_name:
+            try:
+                return int(entry.get("count") or 0)
+            except (TypeError, ValueError):
+                return 0
+    return 0
+
+
+def wait_for_ft_count(host, did, ft_name, min_count, port=DEFAULT_PORT, attempts=15, delay=1):
+    """Poll a DID's FT balance until `ft_name` reaches min_count.
+
+    A receiver credits incoming tokens asynchronously - the sender's
+    transaction can return success well before the receiving node has
+    processed them, so checking the receiver once immediately reports a
+    false empty. Returns (reached, actual_count, raw_result)."""
+    result = None
+    for _ in range(attempts):
+        ok, result, _ = get_ft_balance(host, did, port)
+        count = ft_count_for(result, ft_name)
+        if ok and count >= min_count:
+            return True, count, result
+        time.sleep(delay)
+    ok, result, _ = get_ft_balance(host, did, port)
+    return False, ft_count_for(result, ft_name), result

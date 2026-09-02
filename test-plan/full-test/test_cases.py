@@ -56,12 +56,19 @@ def run_rbt_transfers(ctx, report):
                 memo="smoke-test-rbt", port=ctx.port)
             if not status:
                 return False, "rejected", msg
+            # The receiver credits incoming tokens asynchronously - the sender's
+            # call returns before the receiving node has processed them, so
+            # checking once immediately reports a false 0. Poll instead.
+            credited, bal_r1 = rc.wait_for_balance(
+                r["host"], r["did"], (bal_r0 or 0) + ctx.args.rbt_amount, ctx.port)
             ok_s1, bal_s1, _ = rc.get_rbt_balance(s["host"], s["did"], ctx.port)
-            ok_r1, bal_r1, _ = rc.get_rbt_balance(r["host"], r["did"], ctx.port)
-            if rc.close_enough(bal_s1, bal_s0 - ctx.args.rbt_amount) and \
-               rc.close_enough(bal_r1, bal_r0 + ctx.args.rbt_amount):
+            if credited and rc.close_enough(bal_s1, bal_s0 - ctx.args.rbt_amount):
                 return True, "sender {}->{}  receiver {}->{}".format(bal_s0, bal_s1, bal_r0, bal_r1), ""
-            return False, "balances did not move as expected", "sender {}->{} receiver {}->{}".format(
+            if credited:
+                return False, "receiver credited but sender balance wrong", \
+                    "sender {}->{} (expected {}), receiver {}->{}".format(
+                        bal_s0, bal_s1, bal_s0 - ctx.args.rbt_amount, bal_r0, bal_r1)
+            return False, "receiver never credited", "sender {}->{} receiver {}->{} (waited ~20s)".format(
                 bal_s0, bal_s1, bal_r0, bal_r1)
         report.record("rbt-transfer-{}".format(i), do_rbt,
                        sender_host=s["host"], sender_did=s["did"],
@@ -99,8 +106,16 @@ def run_ft_mint_transfer(ctx, report):
                 memo="smoke-test-ft", port=ctx.port)
             if not status:
                 return False, "rejected", msg
-            ok, bal, _ = rc.get_ft_balance(r["host"], r["did"], ctx.port)
-            return True, "receiver FT balance now: {}".format(bal), ""
+            # Assert the receiver ACTUALLY got them - and poll, since the credit
+            # is asynchronous. (This previously returned True unconditionally,
+            # which passed even when the receiver had received nothing.)
+            credited, count, raw = rc.wait_for_ft_count(
+                r["host"], r["did"], ft_name, send_count, ctx.port)
+            if credited:
+                return True, "receiver holds {} of {}".format(count, ft_name), ""
+            return False, "receiver never credited", \
+                "expected {} of {}, receiver has {} (waited ~15s); full balance: {}".format(
+                    send_count, ft_name, count, raw)
         report.record("ft-transfer-{}".format(i), do_transfer,
                        sender_host=s["host"], receiver_host=r["host"], receiver_did=r["did"],
                        ft_name=ft_name, count=max(1, ctx.args.ft_count // 2))
