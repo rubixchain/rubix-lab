@@ -24,14 +24,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import rubix_client as rc
 
 try:
-    from openpyxl import Workbook, load_workbook
+    from openpyxl import load_workbook  # only for reading master-test-cases.xlsx, not for the report
 except ImportError:
     sys.exit("ERROR: openpyxl is required. Install it with:\n  pip install openpyxl")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONTEXT_PATH = os.path.join(HERE, "..", "full-test", "preflight-context.json")
 MASTER_PATH = os.path.join(HERE, "..", "full-test", "master-test-cases.xlsx")
-REPORT_PATH = os.path.join(HERE, "rbt-pilot-report.xlsx")
 
 FAKE_BUT_WELLFORMED_DID = "bafybmi" + "z" * 52  # 59 chars, right prefix, never created
 BADLY_FORMATTED_DID = "not-a-valid-did"
@@ -127,7 +126,7 @@ def main():
     def case_send_a_to_b():
         ok_a0, bal_a0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
         ok_b0, bal_b0, _ = rc.get_rbt_balance(b["host"], b["did"], port)
-        status, message, _ = rc.initiate_transaction(a["host"], a["did"], a["did"],
+        status, message, _ = rc.initiate_transaction(a["host"], a["did"], b["did"],
                                                        rbt=1, memo="RBT-005 pilot", port=port)
         if not status:
             return False, "transfer rejected", message
@@ -143,7 +142,7 @@ def main():
     def case_send_b_to_a():
         ok_a0, bal_a0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
         ok_b0, bal_b0, _ = rc.get_rbt_balance(b["host"], b["did"], port)
-        status, message, _ = rc.initiate_transaction(b["host"], b["did"], b["did"],
+        status, message, _ = rc.initiate_transaction(b["host"], b["did"], a["did"],
                                                        rbt=1, memo="RBT-006 pilot", port=port)
         if not status:
             return False, "transfer rejected", message
@@ -158,7 +157,7 @@ def main():
     # --- RBT-007: Send RBT to a DID that does not exist ---
     def case_send_nonexistent_did():
         ok0, bal0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
-        status, message, _ = rc.initiate_transaction(a["host"], FAKE_BUT_WELLFORMED_DID, a["did"],
+        status, message, _ = rc.initiate_transaction(a["host"], a["did"], FAKE_BUT_WELLFORMED_DID,
                                                        rbt=1, memo="RBT-007 pilot", port=port)
         ok1, bal1, _ = rc.get_rbt_balance(a["host"], a["did"], port)
         if status:
@@ -171,7 +170,7 @@ def main():
     # --- RBT-008: Send RBT to a badly formatted DID ---
     def case_send_badly_formatted_did():
         ok0, bal0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
-        status, message, _ = rc.initiate_transaction(a["host"], BADLY_FORMATTED_DID, a["did"],
+        status, message, _ = rc.initiate_transaction(a["host"], a["did"], BADLY_FORMATTED_DID,
                                                        rbt=1, memo="RBT-008 pilot", port=port)
         ok1, bal1, _ = rc.get_rbt_balance(a["host"], a["did"], port)
         if status:
@@ -184,7 +183,7 @@ def main():
     # --- RBT-024: Send 0 RBT ---
     def case_send_zero():
         ok0, bal0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
-        status, message, _ = rc.initiate_transaction(a["host"], b["did"], a["did"],
+        status, message, _ = rc.initiate_transaction(a["host"], a["did"], b["did"],
                                                        rbt=0, memo="RBT-024 pilot", port=port)
         ok1, bal1, _ = rc.get_rbt_balance(a["host"], a["did"], port)
         if status:
@@ -197,7 +196,7 @@ def main():
     # --- RBT-025: Send a negative amount ---
     def case_send_negative():
         ok0, bal0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
-        status, message, _ = rc.initiate_transaction(a["host"], b["did"], a["did"],
+        status, message, _ = rc.initiate_transaction(a["host"], a["did"], b["did"],
                                                        rbt=-1, memo="RBT-025 pilot", port=port)
         ok1, bal1, _ = rc.get_rbt_balance(a["host"], a["did"], port)
         if status:
@@ -211,7 +210,7 @@ def main():
     def case_send_more_than_held():
         ok0, bal0, _ = rc.get_rbt_balance(b["host"], b["did"], port)
         huge = (bal0 or 0) + 1_000_000
-        status, message, _ = rc.initiate_transaction(b["host"], a["did"], b["did"],
+        status, message, _ = rc.initiate_transaction(b["host"], b["did"], a["did"],
                                                        rbt=huge, memo="RBT-026 pilot", port=port)
         ok1, bal1, _ = rc.get_rbt_balance(b["host"], b["did"], port)
         if status:
@@ -222,23 +221,19 @@ def main():
     run_case("RBT-026", case_send_more_than_held, results)
 
     # --- Report ---
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "RBT Pilot"
-    ws.append(["Test ID", "Test Case", "Expected Result", "Pass/Fail", "Actual",
-               "Note", "Seconds", "Run At"])
+    headers = ["Test ID", "Test Case", "Expected Result", "Pass/Fail", "Actual", "Note", "Seconds", "Run At"]
     run_at = datetime.datetime.now().isoformat(timespec="seconds")
+    rows = []
     for r in results:
         m = lookup.get(r["test_id"], {})
-        ws.append([r["test_id"], m.get("case", ""), m.get("expected", ""),
-                   "PASS" if r["passed"] else "FAIL", r["actual"], r["note"],
-                   r["seconds"], run_at])
-    for col, width in zip("ABCDEFGH", (10, 45, 30, 10, 40, 45, 8, 20)):
-        ws.column_dimensions[col].width = width
-    wb.save(REPORT_PATH)
+        rows.append([r["test_id"], m.get("case", ""), m.get("expected", ""),
+                     "PASS" if r["passed"] else "FAIL", r["actual"], r["note"],
+                     r["seconds"], run_at])
+    report_path = rc.new_report_path("run_rbt")
+    rc.write_pdf_report(report_path, "Rubix Lab - RBT Pilot Report", headers, rows)
 
     passed = sum(1 for r in results if r["passed"])
-    print("\n{}/{} passed. Report: {}".format(passed, len(results), REPORT_PATH))
+    print("\n{}/{} passed. Report: {}".format(passed, len(results), report_path))
 
 
 if __name__ == "__main__":

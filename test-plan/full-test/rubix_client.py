@@ -19,6 +19,7 @@ DID_PASSWORD = "mypassword" is the product's own built-in default
 suite - not a lab-invented value. Same convention used by dids-to-excel.py.
 """
 
+import datetime
 import json
 import os
 import sys
@@ -30,6 +31,20 @@ DID_PASSWORD = "mypassword"
 DEFAULT_PORT = 20000
 DEFAULT_TIMEOUT = 8
 SIGNATURE_TIMEOUT = 20  # generous: covers pledge/consensus round trips
+
+
+def new_report_path(script_name, ext="pdf"):
+    """Every test-plan script's report goes to <repo root>/reports/ (one
+    shared folder at the top of the repo, regardless of which test-plan/
+    subfolder the script lives in), named
+    <script_name>_<YYYY-MM-DD_HH-MM-SS>.<ext> so re-runs never silently
+    overwrite a previous result."""
+    repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    report_dir = os.path.join(repo_root, "reports")
+    os.makedirs(report_dir, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = "{}_{}.{}".format(script_name, timestamp, ext)
+    return os.path.join(report_dir, filename)
 
 EP_DIDS = "/rubix/v1/dids"
 EP_PEER_ID = "/rubix/v1/node/peer_id"
@@ -285,14 +300,27 @@ def announce_did(host, did, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
     return signed_action(host, url, None, port, timeout)
 
 
-def initiate_transaction(sender_host, initiator_did, owner_did, rbt=None, ft=None,
+def initiate_transaction(sender_host, initiator_did, receiver_did, rbt=None, ft=None,
                           nft=None, smart_contract=None, transfer_nft_ownership=False,
                           memo="", port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
     """
     Fire a transaction from sender_host. One body shape covers RBT/FT/NFT/SC
     and any combination (types/models/transaction_info.go TransactionRequest).
-    owner_did is who the transaction is FROM (equals initiator_did except in
-    the 'send with no receiver' / self-transfer edge cases).
+
+    CONFIRMED against core/transaction.go:44 (`nextOwnerDID := request.Owner`)
+    and core/transaction_builder.go:60-69: the JSON field is called "owner"
+    but it means WHO RECEIVES the asset after this transaction, not who it's
+    from. initiator_did must be a DID that exists LOCALLY on sender_host
+    (SetupDID requires it) - it is NOT the receiver.
+
+    For a real transfer between two different DIDs: receiver_did = the
+    OTHER party's DID.
+    For NFT/SC deploy or self-execute (no ownership change): receiver_did
+    should equal initiator_did - though note the product code pins
+    Owner=Initiator for deploys and pins it to the current owner for
+    NFT-only execute regardless of what's passed here, so this case is
+    forgiving; transfers are not.
+
     Returns (status, message, result).
     """
     tokens = {"rbt": rbt or 0, "transferNftOwnership": transfer_nft_ownership}
@@ -302,7 +330,7 @@ def initiate_transaction(sender_host, initiator_did, owner_did, rbt=None, ft=Non
         tokens["nft"] = nft
     if smart_contract:
         tokens["smartContract"] = smart_contract
-    body = {"initiator": initiator_did, "owner": owner_did, "tokens": tokens, "memo": memo}
+    body = {"initiator": initiator_did, "owner": receiver_did, "tokens": tokens, "memo": memo}
     return signed_action(sender_host, EP_TRANSACTION, body, port, timeout)
 
 
@@ -321,6 +349,48 @@ def load_hosts(path):
     if not hosts:
         sys.exit("ERROR: no hosts listed in {}".format(path))
     return hosts
+
+
+def write_pdf_report(path, title, headers, rows):
+    """
+    Generic tabular PDF report writer, shared by every test-plan script.
+    rows: list of lists of strings, same column count as headers.
+    Requires reportlab (not stdlib): pip install reportlab
+    Chosen over .xlsx because the lab machines are headless Ubuntu boxes -
+    no spreadsheet app to open .xlsx with, and a PDF can be viewed anywhere
+    (browser, any OS) once copied off the box.
+    """
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import landscape, A3
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    except ImportError:
+        sys.exit("ERROR: reportlab is required for PDF reports. Install it with:\n  pip install reportlab")
+
+    styles = getSampleStyleSheet()
+    cell_style = ParagraphStyle("cell", parent=styles["BodyText"], fontSize=7, leading=9)
+    header_style = ParagraphStyle("header", parent=styles["BodyText"], fontSize=8,
+                                   leading=10, textColor=colors.white, fontName="Helvetica-Bold")
+
+    doc = SimpleDocTemplate(path, pagesize=landscape(A3),
+                             leftMargin=24, rightMargin=24, topMargin=24, bottomMargin=24)
+    elements = [Paragraph(title, styles["Title"]), Spacer(1, 12)]
+
+    table_data = [[Paragraph(str(h), header_style) for h in headers]]
+    for row in rows:
+        table_data.append([Paragraph(str(c) if c is not None else "", cell_style) for c in row])
+
+    col_width = (landscape(A3)[0] - 48) / len(headers)
+    table = Table(table_data, colWidths=[col_width] * len(headers), repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#333333")),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f2f2f2")]),
+    ]))
+    elements.append(table)
+    doc.build(elements)
 
 
 def close_enough(a, b, tol=0.0015):

@@ -53,16 +53,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rubix_client as rc
 from test_cases import SmokeContext, TEST_CASES
 
-try:
-    from openpyxl import Workbook
-except ImportError:
-    sys.exit("ERROR: openpyxl is required. Install it with:\n  pip install openpyxl")
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXED_ROLES = {"fullnode", "explorer", "controller"}
 DEFAULT_HOSTS = os.path.join(HERE, "..", "..", "controller", "hosts.txt")
 ROLES_PATH = os.path.join(HERE, "smoke-test-roles.txt")
-REPORT_PATH = os.path.join(HERE, "smoke-test-report.xlsx")
 
 
 # ---------------------------------------------------------------------------
@@ -95,17 +89,11 @@ class Report:
         return passed
 
     def save(self, path):
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Smoke Test"
-        ws.append(["Step", "Pass/Fail", "Actual Result", "Failure Reason",
-                   "Seconds", "Params Used", "Timestamp"])
-        for r in self.rows:
-            ws.append([r["step"], "PASS" if r["passed"] else "FAIL", r["actual"],
-                       r["reason"], r["seconds"], r["params"], r["timestamp"]])
-        for col, width in zip("ABCDEFG", (26, 10, 40, 40, 8, 70, 20)):
-            ws.column_dimensions[col].width = width
-        wb.save(path)
+        headers = ["Step", "Pass/Fail", "Actual Result", "Failure Reason",
+                   "Seconds", "Params Used", "Timestamp"]
+        rows = [[r["step"], "PASS" if r["passed"] else "FAIL", r["actual"],
+                 r["reason"], r["seconds"], r["params"], r["timestamp"]] for r in self.rows]
+        rc.write_pdf_report(path, "Rubix Lab - Smoke Test Report", headers, rows)
         passed = sum(1 for r in self.rows if r["passed"])
         print("\n{}/{} steps passed. Report: {}".format(passed, len(self.rows), path))
 
@@ -272,7 +260,7 @@ def main():
         case_fn(ctx, report)
 
     print()
-    report.save(REPORT_PATH)
+    report.save(rc.new_report_path("smoke_test"))
 
 
 if __name__ == "__main__":

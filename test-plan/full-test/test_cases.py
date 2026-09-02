@@ -49,7 +49,7 @@ def run_rbt_transfers(ctx, report):
             ok_s0, bal_s0, _ = rc.get_rbt_balance(s["host"], s["did"], ctx.port)
             ok_r0, bal_r0, _ = rc.get_rbt_balance(r["host"], r["did"], ctx.port)
             status, msg, _ = rc.initiate_transaction(
-                s["host"], s["did"], s["did"], rbt=ctx.args.rbt_amount,
+                s["host"], s["did"], r["did"], rbt=ctx.args.rbt_amount,
                 memo="smoke-test-rbt", port=ctx.port)
             if not status:
                 return False, "rejected", msg
@@ -88,7 +88,7 @@ def run_ft_mint_transfer(ctx, report):
         def do_transfer(s=s, r=r, ft_name=ft_name):
             send_count = max(1, ctx.args.ft_count // 2)
             status, msg, _ = rc.initiate_transaction(
-                s["host"], s["did"], s["did"],
+                s["host"], s["did"], r["did"],
                 ft=[{"ftName": ft_name, "numberOfFts": send_count, "creatorDID": s["did"]}],
                 memo="smoke-test-ft", port=ctx.port)
             if not status:
