@@ -22,6 +22,7 @@
 #   ./restart-nodes.sh                                  # every host in hosts.txt, skip already-up ones
 #   ./restart-nodes.sh --host 192.168.1.104              # just one
 #   ./restart-nodes.sh --force                           # bounce everyone, even already-healthy hosts
+#   ./restart-nodes.sh --attempts 30                     # more patience (post-wipe cold starts)
 #   ./restart-nodes.sh --remote-dir '~/Desktop/rubix' --node-name node
 
 set -euo pipefail
@@ -31,10 +32,15 @@ HOSTS_FILE="$HERE/hosts.txt"
 SSH_USER="rubix"
 REMOTE_DIR='~/Desktop/rubix'
 NODE_NAME="node"
-READY_TIMEOUT=90  # first boot after a DB/localnet wipe re-inits IPFS + runs fresh DB
-                   # migrations from scratch, and can genuinely take longer than a
-                   # normal restart - 30s was seen to false-flag a node that was
-                   # still coming up, not actually stuck
+# Readiness probe: wait INITIAL_WAIT once (no point polling at t=1s when a
+# normal start takes ~15s to reach "Server running at 0.0.0.0:20000"), then
+# poll every POLL_INTERVAL up to ATTEMPTS times. Breaks the moment it answers.
+# Defaults give ~30s worst case, which covers a normal systemd restart.
+# A cold start right after a DB/localnet wipe (fresh IPFS init + migrations)
+# is slower - use --attempts 30 for those runs.
+INITIAL_WAIT=10
+POLL_INTERVAL=2
+ATTEMPTS=10
 SINGLE_HOST=""
 FORCE=0
 
@@ -45,7 +51,9 @@ while [ $# -gt 0 ]; do
     --user) SSH_USER="$2"; shift 2 ;;
     --remote-dir) REMOTE_DIR="$2"; shift 2 ;;
     --node-name) NODE_NAME="$2"; shift 2 ;;
-    --ready-timeout) READY_TIMEOUT="$2"; shift 2 ;;
+    --initial-wait) INITIAL_WAIT="$2"; shift 2 ;;
+    --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
+    --attempts) ATTEMPTS="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
@@ -106,18 +114,22 @@ REMOTE_SCRIPT
     continue
   fi
 
-  echo "  waiting for the API..."
+  echo "  waiting ${INITIAL_WAIT}s, then checking every ${POLL_INTERVAL}s (up to ${ATTEMPTS}x)..."
   UP=0
-  for i in $(seq 1 "$READY_TIMEOUT"); do
+  STARTED_AT=$(date +%s)
+  sleep "$INITIAL_WAIT"
+  for ((attempt = 1; attempt <= ATTEMPTS; attempt++)); do
     if curl -s -o /dev/null --max-time 2 "http://${ip}:20000/rubix/v1/dids" 2>/dev/null; then
       UP=1; break
     fi
-    sleep 1
+    [ "$attempt" -lt "$ATTEMPTS" ] && sleep "$POLL_INTERVAL"
   done
+  ELAPSED=$(( $(date +%s) - STARTED_AT ))
   if [ "$UP" -eq 1 ]; then
-    echo "  up and answering"
+    echo "  up and answering (${ELAPSED}s)"
   else
-    echo "  WARNING: not answering after ${READY_TIMEOUT}s — check node-restart.log on that host"
+    echo "  WARNING: not answering after ${ELAPSED}s — check: ssh ${SSH_USER}@${ip} journalctl -u rubixgoplatform -n 100"
+    echo "           (if it was still starting, retry with: --attempts 30)"
     FAILED+=("$ip")
   fi
   echo
