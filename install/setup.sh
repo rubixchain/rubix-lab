@@ -155,7 +155,7 @@ fi
 # ---------------------------------------------------------------------------
 # systemd service — always on, restarts on crash and on boot
 # ---------------------------------------------------------------------------
-sed -e "s#{{NODE_DIR}}#$NODE_DIR#g" -e "s#{{USER}}#$(whoami)#g" \
+sed -e "s#{{NODE_DIR}}#$NODE_DIR#g" -e "s#{{PROFILE}}#$NODE_DIR#g" -e "s#{{USER}}#$(whoami)#g" \
   "$BUNDLE_DIR/rubixgoplatform.service" | sudo tee /etc/systemd/system/rubixgoplatform.service >/dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable --now rubixgoplatform

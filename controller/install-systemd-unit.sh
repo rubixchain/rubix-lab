@@ -15,16 +15,25 @@
 # Per host:
 #   1. Stop whatever's running now (systemd or the ad hoc process) so
 #      nothing is fighting over the API port when the service starts.
-#   2. Confirm the binary actually exists at the expected node dir - refuses
-#      to install a unit pointing at a path with nothing there.
+#   2. Confirm the binary actually exists where expected - refuses to
+#      install a unit pointing at a path with nothing there.
 #   3. Copy + render the unit template, install it, daemon-reload,
 #      enable --now.
 #   4. Poll the API to confirm it actually came up.
 #
+# This fleet's ad hoc layout has the BINARY and the -p PROFILE (data/config
+# dir) in different places: binary at ~/Desktop/rubix/rubixgoplatform,
+# profile data at ~/Desktop/rubix/node/ (a subdirectory, not the same dir -
+# confirmed by ls on rbxtk-004). install/setup.sh's own layout keeps both
+# together, which is why the shared template has separate {{NODE_DIR}}
+# (binary + WorkingDirectory) and {{PROFILE}} (the -p argument) placeholders
+# - setup.sh substitutes both with the same value; this script substitutes
+# them differently to match how this fleet actually looks.
+#
 # Usage:
 #   ./install-systemd-unit.sh                              # every host in hosts.txt
 #   ./install-systemd-unit.sh --host 192.168.1.104          # just one — do this first
-#   ./install-systemd-unit.sh --remote-dir '~/Desktop/rubix/node'
+#   ./install-systemd-unit.sh --binary-dir '~/Desktop/rubix' --node-name node
 
 set -euo pipefail
 
@@ -33,7 +42,8 @@ REPO_ROOT="$(cd "$HERE/.." && pwd)"
 TEMPLATE="$REPO_ROOT/install/rubixgoplatform.service"
 HOSTS_FILE="$HERE/hosts.txt"
 SSH_USER="rubix"
-REMOTE_DIR='~/Desktop/rubix/node'
+BINARY_DIR='~/Desktop/rubix'
+NODE_NAME="node"
 READY_TIMEOUT=90
 SINGLE_HOST=""
 
@@ -42,7 +52,8 @@ while [ $# -gt 0 ]; do
     --host) SINGLE_HOST="$2"; shift 2 ;;
     --hosts) HOSTS_FILE="$2"; shift 2 ;;
     --user) SSH_USER="$2"; shift 2 ;;
-    --remote-dir) REMOTE_DIR="$2"; shift 2 ;;
+    --binary-dir) BINARY_DIR="$2"; shift 2 ;;
+    --node-name) NODE_NAME="$2"; shift 2 ;;
     --ready-timeout) READY_TIMEOUT="$2"; shift 2 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
@@ -71,13 +82,18 @@ for ip in "${HOSTS[@]}"; do
     continue
   fi
 
-  if ! ssh -o ConnectTimeout=8 "${SSH_USER}@${ip}" bash -s -- "$REMOTE_DIR" <<'REMOTE_SCRIPT'
+  if ! ssh -o ConnectTimeout=8 "${SSH_USER}@${ip}" bash -s -- "$BINARY_DIR" "$NODE_NAME" <<'REMOTE_SCRIPT'
 set -euo pipefail
-REMOTE_DIR="$1"
-NODE_DIR="$(eval echo "$REMOTE_DIR")"
+BINARY_DIR_RAW="$1"; NODE_NAME="$2"
+NODE_DIR="$(eval echo "$BINARY_DIR_RAW")"   # binary location + WorkingDirectory
+PROFILE="$NODE_DIR/$NODE_NAME"              # the -p argument (data/config dir)
 
 if [ ! -x "$NODE_DIR/rubixgoplatform" ]; then
   echo "  ERROR: no rubixgoplatform binary at $NODE_DIR — refusing to install a unit pointing nowhere"
+  exit 1
+fi
+if [ ! -d "$PROFILE" ]; then
+  echo "  ERROR: no profile/data directory at $PROFILE — refusing to install a unit pointing nowhere"
   exit 1
 fi
 
@@ -86,8 +102,8 @@ sudo systemctl stop rubixgoplatform >/dev/null 2>&1 || true
 pkill -f "rubixgoplatform run" >/dev/null 2>&1 || true
 sleep 2
 
-echo "  installing the unit (NODE_DIR=$NODE_DIR, USER=$(whoami))..."
-sed -e "s#{{NODE_DIR}}#$NODE_DIR#g" -e "s#{{USER}}#$(whoami)#g" \
+echo "  installing the unit (NODE_DIR=$NODE_DIR, PROFILE=$PROFILE, USER=$(whoami))..."
+sed -e "s#{{NODE_DIR}}#$NODE_DIR#g" -e "s#{{PROFILE}}#$PROFILE#g" -e "s#{{USER}}#$(whoami)#g" \
   /tmp/rubixgoplatform.service.template | sudo tee /etc/systemd/system/rubixgoplatform.service >/dev/null
 rm -f /tmp/rubixgoplatform.service.template
 

@@ -7,8 +7,12 @@ Requires=docker.service
 [Service]
 Type=simple
 User={{USER}}
+# NODE_DIR is where the rubixgoplatform binary lives (and the working dir).
+# PROFILE is the -p argument (the node's data/config dir) - usually the same
+# as NODE_DIR (install/setup.sh's layout), but not always: a fleet brought
+# up by hand can have the binary and the -p data dir in different places.
 WorkingDirectory={{NODE_DIR}}
-ExecStart={{NODE_DIR}}/rubixgoplatform run -p {{NODE_DIR}}
+ExecStart={{NODE_DIR}}/rubixgoplatform run -p {{PROFILE}}
 Restart=always
 RestartSec=5
 
