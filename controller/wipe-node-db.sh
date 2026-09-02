@@ -91,9 +91,25 @@ set -euo pipefail
 REMOTE_DIR="$1"; CONTAINER="$2"; VOLUME="$3"; DB_PORT="$4"
 
 echo "  stopping node process..."
-sudo systemctl stop rubixgoplatform >/dev/null 2>&1 || true
-pkill -f rubixgoplatform >/dev/null 2>&1 || true
-sleep 1
+# Must go through systemd where a unit exists. The unit has Restart=always,
+# so a bare pkill would just make systemd relaunch the node ~5s later -
+# mid-wipe, against a half-deleted localnet/ and a being-recreated DB.
+# pkill is only safe as a fallback on hosts with no unit installed.
+if systemctl list-unit-files rubixgoplatform.service >/dev/null 2>&1; then
+  sudo systemctl stop rubixgoplatform
+else
+  pkill -f "rubixgoplatform run" >/dev/null 2>&1 || true
+fi
+
+# Verify it's really gone before deleting anything underneath it.
+for i in $(seq 1 15); do
+  pgrep -f "rubixgoplatform run" >/dev/null 2>&1 || break
+  sleep 1
+done
+if pgrep -f "rubixgoplatform run" >/dev/null 2>&1; then
+  echo "  ERROR: node process still running after stop - refusing to wipe data underneath it"
+  exit 1
+fi
 
 echo "  wiping Postgres (container + volume)..."
 docker stop "$CONTAINER" >/dev/null 2>&1 || true
