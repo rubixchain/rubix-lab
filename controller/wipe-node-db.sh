@@ -47,6 +47,10 @@ DB_PORT=5433
 DRY_RUN=1
 SINGLE_HOST=""
 INCLUDE_FIXED=0
+# Concurrent hosts. 0 = all at once (default) - separate machines, one SSH
+# connection each, no shared bottleneck at lab scale. --jobs N to cap it
+# (--jobs 1 = serial, easier to watch a partial failure).
+JOBS=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -58,6 +62,7 @@ while [ $# -gt 0 ]; do
     --container) CONTAINER="$2"; shift 2 ;;
     --volume) VOLUME="$2"; shift 2 ;;
     --include-fixed) INCLUDE_FIXED=1; shift ;;
+    --jobs) JOBS="$2"; shift 2 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -79,24 +84,24 @@ else
   fi
 fi
 
+[ "$JOBS" -le 0 ] && JOBS=${#HOSTS[@]}
+
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "== DRY RUN — nothing will be changed. Pass --yes to actually wipe. =="
 else
   echo "== LIVE RUN — this WILL permanently delete DID keys and wallet data on ${#HOSTS[@]} host(s). =="
   echo "Container: $CONTAINER   Volume: $VOLUME   Remote dir: $REMOTE_DIR"
+  echo "Running ${JOBS} host(s) at a time; output is buffered per host and printed together at the end."
   read -r -p "Type 'wipe' to confirm: " CONFIRM
   [ "$CONFIRM" = "wipe" ] || { echo "Not confirmed, aborting."; exit 1; }
 fi
 echo
 
-FAILED=()
-for ip in "${HOSTS[@]}"; do
-  echo "== $ip =="
-  if [ "$DRY_RUN" -eq 1 ]; then
-    echo "  would: stop node process, docker rm -f $CONTAINER, docker volume rm $VOLUME,"
-    echo "         rm -rf ${REMOTE_DIR}/localnet, recreate a fresh $CONTAINER Postgres container"
-    continue
-  fi
+# Handles one host. Runs in a background subshell, so it reports its result
+# ONLY via exit code (array appends in a subshell wouldn't propagate):
+# 0 = wiped cleanly, 1 = failed.
+wipe_one() {
+  local ip="$1"
 
   if ! ssh -o ConnectTimeout=8 "${SSH_USER}@${ip}" bash -s -- "$REMOTE_DIR" "$CONTAINER" "$VOLUME" "$DB_PORT" <<'REMOTE_SCRIPT'
 set -euo pipefail
@@ -140,24 +145,79 @@ docker run --name "$CONTAINER" \
   -d postgres:18 >/dev/null
 
 echo "  waiting for Postgres..."
-until docker exec "$CONTAINER" pg_isready -U rubix >/dev/null 2>&1; do sleep 2; done
+# Bounded, not `until ... done` - an unbounded wait would hang this host
+# forever if Postgres never comes up, which is invisible during a parallel run.
+PG_READY=0
+for i in $(seq 1 30); do
+  if docker exec "$CONTAINER" pg_isready -U rubix >/dev/null 2>&1; then PG_READY=1; break; fi
+  sleep 2
+done
+if [ "$PG_READY" -ne 1 ]; then
+  echo "  ERROR: Postgres did not become ready within 60s"
+  exit 1
+fi
 echo "  done — node stopped, DB fresh, DID/NFT/SC dir gone. Bring the node back up when ready."
 REMOTE_SCRIPT
   then
-    echo "  FAILED on $ip"
-    FAILED+=("$ip")
+    echo "  FAILED"
+    return 1
   fi
+  return 0
+}
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  for ip in "${HOSTS[@]}"; do
+    echo "== $ip =="
+    echo "  would: stop node process, docker rm -f $CONTAINER, docker volume rm $VOLUME,"
+    echo "         rm -rf ${REMOTE_DIR}/localnet, recreate a fresh $CONTAINER Postgres container"
+    echo
+  done
+  echo "----------------------------------------"
+  echo "DRY RUN — nothing was changed. Pass --yes to actually wipe."
+  exit 0
+fi
+
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+running=0
+for ip in "${HOSTS[@]}"; do
+  {
+    # set +e inside the subshell: errexit would abort it before the .rc file
+    # is written, losing this host's real result. Same reason `wait -n` is
+    # guarded below.
+    set +e
+    wipe_one "$ip" > "$WORKDIR/$ip.out" 2>&1
+    echo $? > "$WORKDIR/$ip.rc"
+  } &
+  running=$(( running + 1 ))
+  if [ "$running" -ge "$JOBS" ]; then
+    wait -n || true
+    running=$(( running - 1 ))
+  fi
+done
+wait || true
+
+FAILED=()
+for ip in "${HOSTS[@]}"; do
+  echo "== $ip =="
+  cat "$WORKDIR/$ip.out" 2>/dev/null || echo "  (no output captured)"
+  rc="$(cat "$WORKDIR/$ip.rc" 2>/dev/null || echo 1)"
+  [ "$rc" = "0" ] || FAILED+=("$ip")
   echo
 done
 
-if [ "$DRY_RUN" -eq 0 ] && [ "${#FAILED[@]}" -gt 0 ]; then
-  echo "These hosts failed and need manual attention: ${FAILED[*]}"
+echo "----------------------------------------"
+WIPED=$(( ${#HOSTS[@]} - ${#FAILED[@]} ))
+echo "${#HOSTS[@]} host(s) total: $WIPED wiped cleanly, ${#FAILED[@]} need attention."
+if [ "${#FAILED[@]}" -gt 0 ]; then
+  echo "Needs attention: ${FAILED[*]}"
+  echo "(re-run against just those with: --yes --host <ip>)"
   exit 1
 fi
 
-if [ "$DRY_RUN" -eq 0 ]; then
-  echo "All done. Every wiped node needs to be brought back up before anything else:"
-  echo "  ./restart-nodes.sh          # brings every node back up, from the controller, over SSH"
-  echo "Then controller/dids-to-excel.py to re-create DIDs (SSH keys weren't touched by this,"
-  echo "no need to re-run setup-ssh.sh)."
-fi
+echo
+echo "Every wiped node needs to be brought back up before anything else:"
+echo "  ./restart-nodes.sh --attempts 30   # cold start after a wipe is slower than a normal restart"
+echo "Then controller/dids-to-excel.py to re-create DIDs (SSH keys weren't touched by this,"
+echo "no need to re-run setup-ssh.sh)."

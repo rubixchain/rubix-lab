@@ -18,11 +18,18 @@
 # touched. Pass --force to bounce everyone regardless (e.g. right after a
 # fleet-wide wipe, or to pick up a freshly deployed binary).
 #
+# Hosts are processed in PARALLEL (they're independent machines with no
+# shared state), so a fleet-wide restart takes about as long as the slowest
+# single host rather than the sum of all of them. Each host's output is
+# buffered to a temp file and printed in host order at the end, so parallel
+# runs stay readable instead of interleaving into noise.
+#
 # Usage:
 #   ./restart-nodes.sh                                  # every host in hosts.txt, skip already-up ones
 #   ./restart-nodes.sh --host 192.168.1.104              # just one
 #   ./restart-nodes.sh --force                           # bounce everyone, even already-healthy hosts
 #   ./restart-nodes.sh --attempts 30                     # more patience (post-wipe cold starts)
+#   ./restart-nodes.sh --jobs 1                          # serial, if you need to watch one at a time
 #   ./restart-nodes.sh --remote-dir '~/Desktop/rubix' --node-name node
 
 set -euo pipefail
@@ -44,6 +51,10 @@ ATTEMPTS=10
 SINGLE_HOST=""
 FORCE=0
 INCLUDE_FIXED=0
+# Concurrent hosts. 0 = all at once, which is the default: these are separate
+# machines, one SSH connection each, so there's no shared bottleneck to
+# throttle for at lab scale. --jobs N to cap it (--jobs 1 = serial).
+JOBS=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -55,6 +66,7 @@ while [ $# -gt 0 ]; do
     --initial-wait) INITIAL_WAIT="$2"; shift 2 ;;
     --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
     --attempts) ATTEMPTS="$2"; shift 2 ;;
+    --jobs) JOBS="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
     --include-fixed) INCLUDE_FIXED=1; shift ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
@@ -76,23 +88,26 @@ else
   fi
 fi
 
+[ "$JOBS" -le 0 ] && JOBS=${#HOSTS[@]}
+
 if [ "$FORCE" -eq 1 ]; then
-  echo "Checking ${#HOSTS[@]} host(s) - --force set, bouncing every one regardless of current state..."
+  echo "Checking ${#HOSTS[@]} host(s), ${JOBS} at a time - --force set, bouncing every one regardless of current state..."
 else
-  echo "Checking ${#HOSTS[@]} host(s) - already-up ones are left alone, only down ones get restarted..."
+  echo "Checking ${#HOSTS[@]} host(s), ${JOBS} at a time - already-up ones are left alone, only down ones get restarted..."
 fi
+echo "(output is buffered per host and printed together when all are done)"
 echo
 
-FAILED=()
-SKIPPED=()
-for ip in "${HOSTS[@]}"; do
-  echo "== $ip =="
+# Handles one host. Runs in a background subshell, so it communicates
+# results ONLY via its exit code (array appends in a subshell wouldn't
+# propagate back to the parent): 0 = restarted and answering,
+# 2 = already up and left alone, 1 = needs attention.
+restart_one() {
+  local ip="$1"
 
   if [ "$FORCE" -eq 0 ] && curl -s -o /dev/null --max-time 3 "http://${ip}:20000/rubix/v1/dids" 2>/dev/null; then
     echo "  already up, skipping (use --force to bounce it anyway)"
-    SKIPPED+=("$ip")
-    echo
-    continue
+    return 2
   fi
 
   if ! ssh -o ConnectTimeout=8 "${SSH_USER}@${ip}" bash -s -- "$REMOTE_DIR" "$NODE_NAME" <<'REMOTE_SCRIPT'
@@ -118,30 +133,63 @@ else
 fi
 REMOTE_SCRIPT
   then
-    echo "  FAILED to launch on $ip"
-    FAILED+=("$ip")
-    echo
-    continue
+    echo "  FAILED to launch"
+    return 1
   fi
 
   echo "  waiting ${INITIAL_WAIT}s, then checking every ${POLL_INTERVAL}s (up to ${ATTEMPTS}x)..."
-  UP=0
-  STARTED_AT=$(date +%s)
+  local up=0 started_at elapsed attempt
+  started_at=$(date +%s)
   sleep "$INITIAL_WAIT"
   for ((attempt = 1; attempt <= ATTEMPTS; attempt++)); do
     if curl -s -o /dev/null --max-time 2 "http://${ip}:20000/rubix/v1/dids" 2>/dev/null; then
-      UP=1; break
+      up=1; break
     fi
     [ "$attempt" -lt "$ATTEMPTS" ] && sleep "$POLL_INTERVAL"
   done
-  ELAPSED=$(( $(date +%s) - STARTED_AT ))
-  if [ "$UP" -eq 1 ]; then
-    echo "  up and answering (${ELAPSED}s)"
-  else
-    echo "  WARNING: not answering after ${ELAPSED}s — check: ssh ${SSH_USER}@${ip} journalctl -u rubixgoplatform -n 100"
-    echo "           (if it was still starting, retry with: --attempts 30)"
-    FAILED+=("$ip")
+  elapsed=$(( $(date +%s) - started_at ))
+  if [ "$up" -eq 1 ]; then
+    echo "  up and answering (${elapsed}s)"
+    return 0
   fi
+  echo "  WARNING: not answering after ${elapsed}s — check: ssh ${SSH_USER}@${ip} journalctl -u rubixgoplatform -n 100"
+  echo "           (if it was still starting, retry with: --attempts 30)"
+  return 1
+}
+
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+running=0
+for ip in "${HOSTS[@]}"; do
+  {
+    # set +e inside the subshell: without it, errexit aborts this subshell the
+    # moment restart_one returns non-zero, so the .rc file never gets written
+    # and the host's real result is lost. Likewise `wait -n` propagates a
+    # failed job's status, which would kill the parent under set -e.
+    set +e
+    restart_one "$ip" > "$WORKDIR/$ip.out" 2>&1
+    echo $? > "$WORKDIR/$ip.rc"
+  } &
+  running=$(( running + 1 ))
+  if [ "$running" -ge "$JOBS" ]; then
+    wait -n || true
+    running=$(( running - 1 ))
+  fi
+done
+wait || true
+
+FAILED=()
+SKIPPED=()
+for ip in "${HOSTS[@]}"; do
+  echo "== $ip =="
+  cat "$WORKDIR/$ip.out" 2>/dev/null || echo "  (no output captured)"
+  rc="$(cat "$WORKDIR/$ip.rc" 2>/dev/null || echo 1)"
+  case "$rc" in
+    0) ;;
+    2) SKIPPED+=("$ip") ;;
+    *) FAILED+=("$ip") ;;
+  esac
   echo
 done
 
