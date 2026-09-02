@@ -48,6 +48,9 @@ def run_rbt_transfers(ctx, report):
         def do_rbt(s=s, r=r):
             ok_s0, bal_s0, _ = rc.get_rbt_balance(s["host"], s["did"], ctx.port)
             ok_r0, bal_r0, _ = rc.get_rbt_balance(r["host"], r["did"], ctx.port)
+            # RBT transfer: sender S sends ctx.args.rbt_amount RBT to receiver R.
+            # initiator=S (must be local to s["host"]), receiver=R's DID (the
+            # "owner" field - who ends up holding it after this transaction).
             status, msg, _ = rc.initiate_transaction(
                 s["host"], s["did"], r["did"], rbt=ctx.args.rbt_amount,
                 memo="smoke-test-rbt", port=ctx.port)
@@ -86,6 +89,9 @@ def run_ft_mint_transfer(ctx, report):
             continue
 
         def do_transfer(s=s, r=r, ft_name=ft_name):
+            # FT transfer: sender S sends half of the FT series it just minted
+            # to receiver R. creatorDID stays S even after the FT moves - FT
+            # identity is (ftName, creatorDID), ownership is separate from that.
             send_count = max(1, ctx.args.ft_count // 2)
             status, msg, _ = rc.initiate_transaction(
                 s["host"], s["did"], r["did"],
@@ -123,6 +129,9 @@ def run_nft_flow(ctx, report):
     nft_id = nft_id_holder["id"]
 
     def do_deploy(s=host, nft_id=nft_id):
+        # NFT deploy: first on-chain transaction for this NFT ID. initiator
+        # and receiver are the same DID on purpose - the deployer becomes the
+        # owner (the product pins owner=initiator for deploys regardless).
         status, msg, _ = rc.initiate_transaction(
             s["host"], s["did"], s["did"],
             nft=[{"nftId": nft_id, "value": 1, "data": "smoke-test-deploy"}],
@@ -134,6 +143,8 @@ def run_nft_flow(ctx, report):
         return
 
     def do_execute(s=host, nft_id=nft_id):
+        # NFT execute: same DID re-invokes its own already-deployed NFT (no
+        # ownership change) - just advances the chain by one entry.
         status, msg, _ = rc.initiate_transaction(
             s["host"], s["did"], s["did"],
             nft=[{"nftId": nft_id, "value": 1, "data": "smoke-test-execute"}],
@@ -166,6 +177,8 @@ def run_sc_flow(ctx, report):
     sc_id = sc_id_holder["id"]
 
     def do_deploy(s=host, sc_id=sc_id):
+        # SC deploy: first on-chain transaction for this contract ID, same
+        # deployer-becomes-owner pinning as NFT deploy above.
         status, msg, _ = rc.initiate_transaction(
             s["host"], s["did"], s["did"],
             smart_contract=[{"smartContractId": sc_id, "value": 1, "data": "smoke-test-deploy"}],
@@ -177,6 +190,8 @@ def run_sc_flow(ctx, report):
         return
 
     def do_execute(s=host, sc_id=sc_id):
+        # SC execute: same DID re-invokes its own deployed contract - chain
+        # advances by one entry, no callback URL registered (out of scope here).
         status, msg, _ = rc.initiate_transaction(
             s["host"], s["did"], s["did"],
             smart_contract=[{"smartContractId": sc_id, "value": 1, "data": "smoke-test-execute"}],

@@ -126,6 +126,7 @@ def main():
     def case_send_a_to_b():
         ok_a0, bal_a0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
         ok_b0, bal_b0, _ = rc.get_rbt_balance(b["host"], b["did"], port)
+        # A sends 1 RBT to B: initiator=A (local to a["host"]), receiver=B's DID.
         status, message, _ = rc.initiate_transaction(a["host"], a["did"], b["did"],
                                                        rbt=1, memo="RBT-005 pilot", port=port)
         if not status:
@@ -142,6 +143,7 @@ def main():
     def case_send_b_to_a():
         ok_a0, bal_a0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
         ok_b0, bal_b0, _ = rc.get_rbt_balance(b["host"], b["did"], port)
+        # B sends 1 RBT back to A: initiator=B (local to b["host"]), receiver=A's DID.
         status, message, _ = rc.initiate_transaction(b["host"], b["did"], a["did"],
                                                        rbt=1, memo="RBT-006 pilot", port=port)
         if not status:
@@ -157,6 +159,8 @@ def main():
     # --- RBT-007: Send RBT to a DID that does not exist ---
     def case_send_nonexistent_did():
         ok0, bal0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
+        # A tries to send to a well-formed but never-created DID - initiator=A
+        # (real, local), receiver=a DID that doesn't exist anywhere. Expect reject.
         status, message, _ = rc.initiate_transaction(a["host"], a["did"], FAKE_BUT_WELLFORMED_DID,
                                                        rbt=1, memo="RBT-007 pilot", port=port)
         ok1, bal1, _ = rc.get_rbt_balance(a["host"], a["did"], port)
@@ -170,6 +174,7 @@ def main():
     # --- RBT-008: Send RBT to a badly formatted DID ---
     def case_send_badly_formatted_did():
         ok0, bal0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
+        # A tries to send to a garbage (not even DID-shaped) receiver string. Expect reject.
         status, message, _ = rc.initiate_transaction(a["host"], a["did"], BADLY_FORMATTED_DID,
                                                        rbt=1, memo="RBT-008 pilot", port=port)
         ok1, bal1, _ = rc.get_rbt_balance(a["host"], a["did"], port)
@@ -183,6 +188,7 @@ def main():
     # --- RBT-024: Send 0 RBT ---
     def case_send_zero():
         ok0, bal0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
+        # A tries to send exactly 0 RBT to B - a real receiver, only the amount is invalid. Expect reject.
         status, message, _ = rc.initiate_transaction(a["host"], a["did"], b["did"],
                                                        rbt=0, memo="RBT-024 pilot", port=port)
         ok1, bal1, _ = rc.get_rbt_balance(a["host"], a["did"], port)
@@ -196,6 +202,7 @@ def main():
     # --- RBT-025: Send a negative amount ---
     def case_send_negative():
         ok0, bal0, _ = rc.get_rbt_balance(a["host"], a["did"], port)
+        # A tries to send -1 RBT to B - same idea as RBT-024, negative instead of zero. Expect reject.
         status, message, _ = rc.initiate_transaction(a["host"], a["did"], b["did"],
                                                        rbt=-1, memo="RBT-025 pilot", port=port)
         ok1, bal1, _ = rc.get_rbt_balance(a["host"], a["did"], port)
@@ -210,6 +217,7 @@ def main():
     def case_send_more_than_held():
         ok0, bal0, _ = rc.get_rbt_balance(b["host"], b["did"], port)
         huge = (bal0 or 0) + 1_000_000
+        # B tries to send far more RBT than its own wallet holds, to A. Expect reject for insufficient balance.
         status, message, _ = rc.initiate_transaction(b["host"], b["did"], a["did"],
                                                        rbt=huge, memo="RBT-026 pilot", port=port)
         ok1, bal1, _ = rc.get_rbt_balance(b["host"], b["did"], port)
