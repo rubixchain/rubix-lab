@@ -43,6 +43,7 @@ POLL_INTERVAL=2
 ATTEMPTS=10
 SINGLE_HOST=""
 FORCE=0
+INCLUDE_FIXED=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -55,6 +56,7 @@ while [ $# -gt 0 ]; do
     --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
     --attempts) ATTEMPTS="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
+    --include-fixed) INCLUDE_FIXED=1; shift ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -63,7 +65,15 @@ if [ -n "$SINGLE_HOST" ]; then
   HOSTS=("$SINGLE_HOST")
 else
   [ -f "$HOSTS_FILE" ] || { echo "ERROR: $HOSTS_FILE not found."; exit 1; }
-  mapfile -t HOSTS < <(grep -v '^\s*#' "$HOSTS_FILE" | awk 'NF {print $1}')
+  # Skip fixed-role hosts by default: the fullnode is the bootstrap seed every
+  # other node points at, and the explorer/controller don't run a rubix node at
+  # all. Filters on hosts.txt's role column, same as smoke_test.py's FIXED_ROLES.
+  if [ "$INCLUDE_FIXED" -eq 1 ]; then
+    mapfile -t HOSTS < <(grep -v '^\s*#' "$HOSTS_FILE" | awk 'NF {print $1}')
+  else
+    mapfile -t HOSTS < <(grep -v '^\s*#' "$HOSTS_FILE" \
+      | awk 'NF && $2 != "fullnode" && $2 != "explorer" && $2 != "controller" {print $1}')
+  fi
 fi
 
 if [ "$FORCE" -eq 1 ]; then

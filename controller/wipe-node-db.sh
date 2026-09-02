@@ -46,6 +46,7 @@ VOLUME="pgdata_node"
 DB_PORT=5433
 DRY_RUN=1
 SINGLE_HOST=""
+INCLUDE_FIXED=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -56,6 +57,7 @@ while [ $# -gt 0 ]; do
     --remote-dir) REMOTE_DIR="$2"; shift 2 ;;
     --container) CONTAINER="$2"; shift 2 ;;
     --volume) VOLUME="$2"; shift 2 ;;
+    --include-fixed) INCLUDE_FIXED=1; shift ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -64,7 +66,17 @@ if [ -n "$SINGLE_HOST" ]; then
   HOSTS=("$SINGLE_HOST")
 else
   [ -f "$HOSTS_FILE" ] || { echo "ERROR: $HOSTS_FILE not found."; exit 1; }
-  mapfile -t HOSTS < <(grep -v '^\s*#' "$HOSTS_FILE" | awk 'NF {print $1}')
+  # NEVER wipe fixed-role hosts by default. The fullnode is the bootstrap seed
+  # whose peer ID is baked into every other node's localnet_bootstrap_nodes -
+  # wiping it would break the whole swarm's bootstrap path. The explorer and
+  # controller don't run a rubix node at all. Filters on hosts.txt's role
+  # column, same as smoke_test.py's FIXED_ROLES.
+  if [ "$INCLUDE_FIXED" -eq 1 ]; then
+    mapfile -t HOSTS < <(grep -v '^\s*#' "$HOSTS_FILE" | awk 'NF {print $1}')
+  else
+    mapfile -t HOSTS < <(grep -v '^\s*#' "$HOSTS_FILE" \
+      | awk 'NF && $2 != "fullnode" && $2 != "explorer" && $2 != "controller" {print $1}')
+  fi
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
