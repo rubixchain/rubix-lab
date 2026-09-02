@@ -23,5 +23,6 @@ controller/versions.xlsx
 # Written by test-plan/full-test/preflight.py and the asset runners —
 # point-in-time snapshots with real IPs and DIDs, and per-cycle test reports.
 test-plan/full-test/preflight-context.json
+test-plan/full-test/smoke-test-roles.txt
 test-plan/*/*-report.xlsx
 test-plan/*/*-pilot-report.xlsx

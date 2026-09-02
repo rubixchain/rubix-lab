@@ -42,6 +42,10 @@ EP_QUORUM_SETUP = "/rubix/v1/quorums/setup"
 EP_QUORUM_ADD = "/rubix/v1/quorums/add"
 EP_QUORUM_LIST = "/rubix/v1/quorums"
 EP_TRANSACTION = "/rubix/v1/transaction"
+EP_FT_MINT = "/rubix/v1/fts/mint"
+EP_FT_BALANCE = "/rubix/v1/dids/{did}/balances/ft"
+EP_CREATE_NFT = "/rubix/v1/nfts/generate"
+EP_GENERATE_SC = "/rubix/v1/smart_contracts/generate"
 
 
 def base_url(host, port=DEFAULT_PORT):
@@ -90,6 +94,118 @@ def signed_action(host, action_path, body, port=DEFAULT_PORT, timeout=SIGNATURE_
     if not ok or not isinstance(payload, dict):
         return False, "signature step failed: {}".format(payload), None
     return bool(payload.get("status")), payload.get("message", ""), payload.get("result")
+
+
+def multipart_post(url, fields, files, timeout=SIGNATURE_TIMEOUT):
+    """
+    POST multipart/form-data (stdlib only, no 'requests' dependency).
+    fields: {name: str}. files: {form_field_name: (filename, bytes_content)}.
+    Returns (ok, payload_or_error_string) - same shape as http_json.
+    """
+    boundary = "----rubixlab{}".format(int(time.time() * 1000))
+    parts = []
+    for name, value in fields.items():
+        parts.append(
+            "--{}\r\nContent-Disposition: form-data; name=\"{}\"\r\n\r\n{}\r\n".format(
+                boundary, name, value).encode("utf-8"))
+    for field_name, (filename, content) in files.items():
+        header = (
+            "--{}\r\nContent-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\n"
+            "Content-Type: application/octet-stream\r\n\r\n".format(boundary, field_name, filename)
+        ).encode("utf-8")
+        parts.append(header + content + b"\r\n")
+    parts.append("--{}--\r\n".format(boundary).encode("utf-8"))
+    body = b"".join(parts)
+
+    headers = {"Content-Type": "multipart/form-data; boundary={}".format(boundary)}
+    try:
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status != 200:
+                return False, "HTTP {}".format(resp.status)
+            return True, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return False, "HTTP {}".format(e.code)
+    except urllib.error.URLError as e:
+        return False, "unreachable ({})".format(e.reason)
+    except TimeoutError:
+        return False, "timeout"
+    except Exception as e:
+        return False, "{}: {}".format(type(e).__name__, e)
+
+
+def signed_multipart_action(host, action_path, fields, files, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """Same password-challenge pattern as signed_action(), but the first
+    call is multipart/form-data (NFT/SC creation both need real file
+    uploads, confirmed against server/nft.go and server/smart_contract.go -
+    they are NOT plain JSON despite everything else being JSON)."""
+    base = base_url(host, port)
+    ok, payload = multipart_post(base + action_path, fields, files, timeout)
+    if not ok or not isinstance(payload, dict):
+        return False, "request failed: {}".format(payload), None
+
+    result = payload.get("result")
+    req_id = result.get("id") if isinstance(result, dict) else None
+    if not req_id:
+        return bool(payload.get("status")), payload.get("message", ""), result
+
+    ok, payload = http_json("POST", base + EP_SIGNATURE, timeout,
+                             {"id": req_id, "password": DID_PASSWORD})
+    if not ok or not isinstance(payload, dict):
+        return False, "signature step failed: {}".format(payload), None
+    return bool(payload.get("status")), payload.get("message", ""), payload.get("result")
+
+
+def create_did(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Create a brand-new DID. Synchronous, no password challenge (confirmed:
+    server.APICreateDID calls core.CreateDID directly, not via AddWebReq).
+    HARD GATE: only ever call this when a host is confirmed to have ZERO
+    DIDs. CreateDID has no idempotency in the product code - calling it on a
+    host that already has one silently mints a second identity, no error."""
+    ok, payload = http_json("POST", base_url(host, port) + EP_CREATE_DID, timeout,
+                             {"password": DID_PASSWORD})
+    if not ok or not isinstance(payload, dict) or not payload.get("status"):
+        return None, "create failed: {}".format(payload if not ok else payload.get("message"))
+    did = (payload.get("result") or {}).get("did")
+    if not did:
+        return None, "create failed: no DID in response"
+    return did, "created"
+
+
+def mint_ft(host, did, ft_name, ft_count, token_count, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """Mint a new FT series. token_count is RBT burnt (FTCount <= TokenCount*1000)."""
+    body = {"did": did, "ft_name": ft_name, "ft_count": int(ft_count),
+            "token_count": int(token_count), "ft_num_start_index": 0}
+    return signed_action(host, EP_FT_MINT, body, port, timeout)
+
+
+def get_ft_balance(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Returns (ok, {ft_name: count} or raw result, note)."""
+    url = base_url(host, port) + EP_FT_BALANCE.format(did=did)
+    ok, payload = http_json("GET", url, timeout)
+    if not ok:
+        return False, None, payload
+    return True, payload.get("result") if isinstance(payload, dict) else None, ""
+
+
+def create_nft(host, did, metadata_bytes, artifact_bytes, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """multipart/form-data: did, metadata file, artifact file -> returns the
+    new NFT's ID as a plain string in `result` (core/nft.go createNFT)."""
+    fields = {"did": did}
+    files = {"metadata": ("metadata.json", metadata_bytes),
+             "artifact": ("artifact.bin", artifact_bytes)}
+    return signed_multipart_action(host, EP_CREATE_NFT, fields, files, port, timeout)
+
+
+def create_smart_contract(host, did, wasm_bytes, raw_bytes, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """multipart/form-data: did, binaryCodePath (.wasm), rawCodePath (source)
+    -> returns the new contract's ID as a plain string in `result`
+    (confirmed against server/smart_contract.go - both files required,
+    extension on binaryCodePath must be literally '.wasm')."""
+    fields = {"did": did}
+    files = {"binaryCodePath": ("contract.wasm", wasm_bytes),
+             "rawCodePath": ("contract.src", raw_bytes)}
+    return signed_multipart_action(host, EP_GENERATE_SC, fields, files, port, timeout)
 
 
 def get_dids(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
@@ -205,6 +321,14 @@ def load_hosts(path):
     if not hosts:
         sys.exit("ERROR: no hosts listed in {}".format(path))
     return hosts
+
+
+def close_enough(a, b, tol=0.0015):
+    """3-decimal-place precision (math/math.go FloatPrecision) leaves room
+    for float rounding - compare with a small tolerance, never ==."""
+    if a is None or b is None:
+        return False
+    return abs(a - b) <= tol
 
 
 def wait_for_balance(host, did, min_amount, port=DEFAULT_PORT, attempts=10, delay=2):
