@@ -35,3 +35,13 @@ test-plan/full-test/token_index_registry.json
 # Every test-plan script's report lands here (repo-root reports/), timestamped
 # per run — real fleet data, not something to commit.
 /reports/
+
+# Python runtime artifacts and local virtualenvs — regenerated on every run,
+# never meant to be tracked.
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# direnv's local, per-machine env config.
+.envrc
