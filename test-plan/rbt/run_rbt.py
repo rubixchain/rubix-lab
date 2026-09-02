@@ -221,14 +221,13 @@ def main():
     run_case("RBT-026", case_send_more_than_held, results)
 
     # --- Report ---
-    headers = ["Test ID", "Test Case", "Expected Result", "Pass/Fail", "Actual", "Note", "Seconds", "Run At"]
-    run_at = datetime.datetime.now().isoformat(timespec="seconds")
+    headers = ["Test ID", "Test Case", "Expected Result", "Pass/Fail", "Actual", "Note", "Seconds"]
     rows = []
     for r in results:
         m = lookup.get(r["test_id"], {})
         rows.append([r["test_id"], m.get("case", ""), m.get("expected", ""),
                      "PASS" if r["passed"] else "FAIL", r["actual"], r["note"],
-                     r["seconds"], run_at])
+                     r["seconds"]])
     report_path = rc.new_report_path("run_rbt")
     rc.write_pdf_report(report_path, "Rubix Lab - RBT Pilot Report", headers, rows)
 

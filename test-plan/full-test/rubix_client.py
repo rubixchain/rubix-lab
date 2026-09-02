@@ -252,9 +252,64 @@ def get_rbt_balance(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
     return False, None, "no balance field in response: {}".format(payload)
 
 
+# --- Fleet-wide token index registry -----------------------------------
+# generate_local_rbt's token IDs are "<level>_<numberInLevel>", derived from
+# a flat integer index (core/token.go GetTokenLevelAndNumberForGlobalIndex).
+# start_index=0 asks the SERVER for a safe, atomic, but PER-NODE counter
+# that starts at 1 on every node independently - so node A's 12th local
+# mint and node B's 12th local mint are both literally called "10001_12".
+# That's harmless in isolation, but once a transaction touches a shared
+# quorum, TokenChainIntigrityCheck (core/consensus/checks.go) looks the
+# token up by that bare ID with NO per-DID scoping
+# (GetLatestTransactionIdByTokenId(tokenID, ...)) - if the quorum has ITS
+# OWN unrelated local token with the same ID, it finds that instead of the
+# sender's, and correctly reports a chain mismatch. Confirmed by evidence:
+# every failing transfer's "local latest" hash matched exactly by which
+# quorum was involved, not which sender.
+#
+# Fix: never use start_index=0 for fleet minting. Instead allocate a
+# strictly increasing GLOBAL range ourselves, seeded far above anything any
+# node could plausibly have minted via the old start_index=0 path, so no
+# two nodes anywhere in the fleet - across any script, any run - ever
+# produce the same token ID.
+#
+# The registry file is the only record of "how far allocated so far" -
+# unlike dids.xlsx/inventory.json it can't be regenerated from the live
+# network, so treat it like DID key material: don't delete it, and if it's
+# ever lost, re-seed well above the highest index any node has reached
+# rather than restarting at the same seed (that would just reintroduce the
+# same collision for everything minted since).
+TOKEN_INDEX_REGISTRY_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "token_index_registry.json")
+TOKEN_INDEX_SEED = 10_000_000  # comfortably above anything minted so far fleet-wide
+
+
+def allocate_token_index_range(count, registry_path=TOKEN_INDEX_REGISTRY_PATH):
+    """Reserve `count` consecutive global indices, atomically-enough for a
+    lab that runs one test cycle at a time (simple read-modify-write, no
+    file lock - if you ever run two mint-heavy scripts concurrently against
+    the same fleet, that assumption breaks). Returns the first index of the
+    reserved range - pass it as start_index to generate_local_rbt."""
+    if os.path.exists(registry_path):
+        with open(registry_path, encoding="utf-8") as fh:
+            state = json.load(fh)
+        next_index = state.get("next_index", TOKEN_INDEX_SEED)
+    else:
+        next_index = TOKEN_INDEX_SEED
+
+    start = next_index
+    with open(registry_path, "w", encoding="utf-8") as fh:
+        json.dump({"next_index": start + count,
+                   "last_allocated_at": datetime.datetime.now().isoformat(timespec="seconds")}, fh, indent=2)
+    return start
+
+
 def fund_did(host, did, amount, port=DEFAULT_PORT):
-    """Mint local RBT for a DID. Returns (status, message)."""
-    body = {"did": did, "number_of_tokens": int(amount), "start_index": 0}
+    """Mint local RBT for a DID, using a fleet-wide-unique index range (see
+    allocate_token_index_range above - never start_index=0 here). Returns
+    (status, message)."""
+    start_index = allocate_token_index_range(int(amount))
+    body = {"did": did, "number_of_tokens": int(amount), "start_index": start_index}
     status, message, _ = signed_action(host, EP_GENERATE_LOCAL_RBT, body, port)
     return status, message
 

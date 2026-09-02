@@ -58,6 +58,17 @@ FIXED_ROLES = {"fullnode", "explorer", "controller"}
 DEFAULT_HOSTS = os.path.join(HERE, "..", "..", "controller", "hosts.txt")
 ROLES_PATH = os.path.join(HERE, "smoke-test-roles.txt")
 
+# Delays at genuine async-propagation points. These do NOT fix the token-ID
+# collision bug (that's a product-level issue, see rubix_client.py's
+# allocate_token_index_range comment) - they're for the separate, real gaps
+# where this script fires the next step before the network has had any
+# chance to catch up: pubsub announce propagation, and a stagger so a batch
+# of senders doesn't hit the same quorum in the same instant.
+ANNOUNCE_SETTLE_SECONDS = 3     # after the DID/peer announce pass
+QUORUM_SETTLE_SECONDS = 2       # after quorum setup+funding, before senders register against them
+INTER_SENDER_DELAY_SECONDS = 0.3  # between each sender's assign+fund, inside the loop
+PRE_TESTCASE_SETTLE_SECONDS = 3   # after all common setup, before the first test case fires
+
 
 # ---------------------------------------------------------------------------
 # Reporting - shared by the common part and every test case
@@ -80,7 +91,6 @@ class Report:
             "step": step, "passed": passed, "actual": actual,
             "reason": "" if passed else reason, "seconds": elapsed,
             "params": json.dumps(params, default=str),
-            "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
         }
         self.rows.append(row)
         print("  [{:<6}] {:<28} {:>6.2f}s  {}{}".format(
@@ -90,9 +100,9 @@ class Report:
 
     def save(self, path):
         headers = ["Step", "Pass/Fail", "Actual Result", "Failure Reason",
-                   "Seconds", "Params Used", "Timestamp"]
+                   "Seconds", "Params Used"]
         rows = [[r["step"], "PASS" if r["passed"] else "FAIL", r["actual"],
-                 r["reason"], r["seconds"], r["params"], r["timestamp"]] for r in self.rows]
+                 r["reason"], r["seconds"], r["params"]] for r in self.rows]
         rc.write_pdf_report(path, "Rubix Lab - Smoke Test Report", headers, rows)
         passed = sum(1 for r in self.rows if r["passed"])
         print("\n{}/{} steps passed. Report: {}".format(passed, len(self.rows), path))
@@ -132,6 +142,10 @@ def sweep_and_prepare(pool, port, timeout):
 
     for entry in ready:
         rc.announce_did(entry["host"], entry["did"], port)
+
+    if ready:
+        print("Letting the announce pass propagate ({}s)...".format(ANNOUNCE_SETTLE_SECONDS))
+        time.sleep(ANNOUNCE_SETTLE_SECONDS)
 
     return ready, excluded
 
@@ -214,6 +228,7 @@ def assign_and_fund_senders(quorum_hosts, senders, args, report):
                 return False, "balance did not reach target", "before={} after={}".format(bal0, bal1)
             return True, "{} -> {}".format(bal0, bal1), ""
         report.record("fund-sender-{}".format(i + 1), do_fund, host=s["host"], target_rbt=args.fund_sender)
+        time.sleep(INTER_SENDER_DELAY_SECONDS)
     return sender_quorum
 
 
@@ -250,11 +265,16 @@ def main():
 
     print("\n== Common: quorum setup + funding ==")
     setup_quorums(quorum_hosts, args, report)
+    print("Letting quorum funding settle ({}s)...".format(QUORUM_SETTLE_SECONDS))
+    time.sleep(QUORUM_SETTLE_SECONDS)
 
     print("\n== Common: assign quorum to each sender (round-robin) + fund senders ==")
     sender_quorum = assign_and_fund_senders(quorum_hosts, senders, args, report)
 
     print("\n== Test cases (test_cases.py) ==")
+    print("Letting everything settle before the first test case fires ({}s)...".format(
+        PRE_TESTCASE_SETTLE_SECONDS))
+    time.sleep(PRE_TESTCASE_SETTLE_SECONDS)
     ctx = SmokeContext(args.port, quorum_hosts, senders, receivers, sender_quorum, args)
     for case_fn in TEST_CASES:
         case_fn(ctx, report)
