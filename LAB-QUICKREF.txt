@@ -41,7 +41,66 @@ curl -s http://localhost:20000/rubix/v1/node/ping
 IPFS_PATH=<node-dir>/.ipfs <node-dir>/ipfs swarm peers
 # should list the fullnode's peer ID (and vice versa on the fullnode)
 
-6. Controller — sweep the fleet for DIDs, save to Excel
+6. Make the node systemd-managed (run ON each node, one password prompt)
+----------------------------------------
+Only needed on machines brought up BY HAND (binary downloaded to
+~/Desktop/rubix, no repo clone). Machines set up via install/setup.sh in
+steps 3-4 already have this unit — skip them.
+
+Until a node is systemd-managed, restarts from the controller are
+unreliable (detached background processes) and need a password. This block
+fixes both: installs the unit, and grants passwordless sudo for exactly the
+five systemctl commands the controller scripts use on this one unit.
+
+Paste the whole block as-is. Nothing needs editing per machine.
+
+```
+sudo systemctl stop rubixgoplatform 2>/dev/null
+pkill -f "rubixgoplatform run" 2>/dev/null
+sleep 2
+
+sudo tee /etc/systemd/system/rubixgoplatform.service > /dev/null <<EOF
+[Unit]
+Description=Rubix Node (office lab fleet)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=$(whoami)
+WorkingDirectory=$HOME/Desktop/rubix
+ExecStart=$HOME/Desktop/rubix/rubixgoplatform run -p $HOME/Desktop/rubix/node
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /tmp/rubix-sudoers <<'EOF'
+rubix ALL=(root) NOPASSWD: /usr/bin/systemctl start rubixgoplatform, /usr/bin/systemctl stop rubixgoplatform, /usr/bin/systemctl restart rubixgoplatform, /usr/bin/systemctl daemon-reload, /usr/bin/systemctl enable --now rubixgoplatform
+EOF
+sudo visudo -cf /tmp/rubix-sudoers && sudo install -m 0440 /tmp/rubix-sudoers /etc/sudoers.d/rubix-exec-update
+rm -f /tmp/rubix-sudoers
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now rubixgoplatform
+systemctl status rubixgoplatform --no-pager
+```
+
+# Expect: Active: active (running).  If it says failed, that machine's paths
+# differ from ~/Desktop/rubix — check with: ls ~/Desktop/rubix
+# Live log from then on:  journalctl -u rubixgoplatform -f
+
+7. Controller — restart nodes fleet-wide
+----------------------------------------
+cd ~/rubix-lab/controller
+./restart-nodes.sh                  # skips hosts already up, restarts only what's down
+./restart-nodes.sh --force          # bounce every host regardless
+./restart-nodes.sh --host <ip>      # just one
+
+8. Controller — sweep the fleet for DIDs, save to Excel
 ----------------------------------------
 cd ~/rubix-lab/controller
 pip install openpyxl        # one-time, not stdlib
@@ -57,7 +116,7 @@ docker run --name node -e POSTGRES_PASSWORD=rubixpass -e POSTGRES_USER=rubix -e 
 Version check (SSH-based) moved to controller/VERSION-CHECK.txt — separate
 doc since it needs its own SSH setup walkthrough.
 
-7. Planned — more inventory columns (not built yet, notes for later)
+9. Planned — more inventory columns (not built yet, notes for later)
 ----------------------------------------
 - Multi-port / multi-DID per system: today the script assumes one node per
   host, fixed port 20000, one DID. When a host can run several nodes on

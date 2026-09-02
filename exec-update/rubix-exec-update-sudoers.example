@@ -6,11 +6,16 @@
 #   sudo visudo -cf rubix-exec-update-sudoers.example
 #   sudo install -m 0440 rubix-exec-update-sudoers.example /etc/sudoers.d/rubix-exec-update
 #
-# Grants the controller's SSH user passwordless sudo for exactly two
-# commands — starting and stopping this one systemd unit — nothing broader.
-# Every desktop uses the same OS user (Rubix), so this file doesn't need
-# per-machine editing — just confirm the systemctl path matches
-# (`which systemctl` on the target; usually /usr/bin/systemctl on Ubuntu,
-# but verify rather than assume).
+# Grants the controller's SSH user passwordless sudo for exactly the
+# systemctl invocations the controller scripts actually run against this one
+# unit (exec-update's start/stop, restart-nodes.sh's restart,
+# install-systemd-unit.sh's daemon-reload + enable --now) — nothing
+# broader, and no wildcards (a wildcard like "systemctl * rubixgoplatform"
+# would also silently permit disable/mask). Every desktop uses the same OS
+# user (rubix, lowercase — verify with `whoami` on the target; an earlier
+# version of this file had it capitalized and the grant never matched
+# anyone), so this file doesn't need per-machine editing beyond confirming
+# the systemctl path (`which systemctl`; usually /usr/bin/systemctl on
+# Ubuntu, but verify rather than assume).
 
-Rubix ALL=(root) NOPASSWD: /usr/bin/systemctl stop rubixgoplatform, /usr/bin/systemctl start rubixgoplatform
+rubix ALL=(root) NOPASSWD: /usr/bin/systemctl start rubixgoplatform, /usr/bin/systemctl stop rubixgoplatform, /usr/bin/systemctl restart rubixgoplatform, /usr/bin/systemctl daemon-reload, /usr/bin/systemctl enable --now rubixgoplatform
