@@ -69,6 +69,16 @@ fi
 
 [ "$JOBS" -le 0 ] && JOBS=${#HOSTS[@]}
 
+# Without curl every API check silently fails and EVERY host gets reported as
+# down - which looks like a fleet-wide outage rather than a missing tool.
+# (The Python tooling uses urllib and is unaffected, which makes the
+# discrepancy especially confusing.)
+command -v curl >/dev/null 2>&1 || {
+  echo "ERROR: curl is not installed on this controller, so no API check can run."
+  echo "       Install it first:  sudo apt install -y curl"
+  exit 1
+}
+
 check_one() {
   local ip="$1"
   local ssh_ok=FAIL docker_ok=- pg_ok=- unit_ok=- sudo_ok=- bin_ok=- api_ok=FAIL dids="-"

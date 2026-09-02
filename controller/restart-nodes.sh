@@ -90,6 +90,14 @@ fi
 
 [ "$JOBS" -le 0 ] && JOBS=${#HOSTS[@]}
 
+# Without curl the readiness probe silently fails for every host: already-up
+# nodes are never skipped, and healthy nodes get reported as "not answering".
+command -v curl >/dev/null 2>&1 || {
+  echo "ERROR: curl is not installed on this controller, so readiness can't be checked."
+  echo "       Install it first:  sudo apt install -y curl"
+  exit 1
+}
+
 if [ "$FORCE" -eq 1 ]; then
   echo "Checking ${#HOSTS[@]} host(s), ${JOBS} at a time - --force set, bouncing every one regardless of current state..."
 else
