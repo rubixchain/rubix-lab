@@ -129,8 +129,7 @@ fi
 
 if [ "$DRY_RUN" -eq 0 ]; then
   echo "All done. Every wiped node needs to be brought back up before anything else:"
-  echo "  - if systemd-managed: sudo systemctl start rubixgoplatform"
-  echo "  - if run by hand: cd ~/Desktop/rubix && ./rubixgoplatform run -p node"
-  echo "Then re-run controller/setup-ssh.sh (if SSH keys got wiped too — they didn't, this"
-  echo "only touched Postgres and localnet/) and controller/dids-to-excel.py to re-create DIDs."
+  echo "  ./restart-nodes.sh          # brings every node back up, from the controller, over SSH"
+  echo "Then controller/dids-to-excel.py to re-create DIDs (SSH keys weren't touched by this,"
+  echo "no need to re-run setup-ssh.sh)."
 fi
