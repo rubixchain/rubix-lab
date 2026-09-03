@@ -216,10 +216,17 @@ def main():
                    help="RBT-029 values per decimal place (catalogue asks 10)")
     p.add_argument("--repeat-count", type=int, default=25,
                    help="RBT-032 repetitions (catalogue asks 1000, ~33 min)")
-    p.add_argument("--version-label", default="not recorded (no version API; "
-                                               "get it with controller/node-versions.py)",
-                   help="fleet build under test, e.g. '1.0.4' or a branch name. Recorded "
-                        "in the report so runs can be compared across releases.")
+    p.add_argument("--version-label", default="",
+                   help="manual fleet build label, e.g. '1.0.4' or a branch name. Only "
+                        "used when --collect-versions is off.")
+    p.add_argument("--collect-versions", action="store_true",
+                   help="SSH each participating host and record its build PER ROLE. "
+                        "Required for the mixed-fleet cases, where sender, receiver and "
+                        "quorum can legitimately be on different versions and a single "
+                        "fleet-wide label would be wrong. Adds a few seconds.")
+    p.add_argument("--ssh-user", default="rubix", help="SSH user for --collect-versions")
+    p.add_argument("--remote-dir", default="~/Desktop/rubix",
+                   help="directory holding the rubixgoplatform binary on each host")
     args = p.parse_args()
 
     module = load_case_module(args.cases)
@@ -271,6 +278,46 @@ def main():
         report.record(ci, module.CASES[test_id], ctx)
     duration = time.time() - started
 
+    # Versions PER ROLE, not one fleet-wide label. In the mixed-fleet cases a
+    # sender, receiver and quorum can each be on a different build, and the
+    # result only means something if the report says which build each role
+    # was actually running.
+    version_rows = []
+    if args.collect_versions:
+        print("\nCollecting per-host versions over SSH...")
+        role_of = {}
+        for q in quorum_hosts:
+            role_of[q["host"]] = "quorum"
+        for s in senders:
+            role_of.setdefault(s["host"], "sender")
+        for r in receivers:
+            role_of.setdefault(r["host"], "receiver")
+        versions = rc.collect_versions(list(role_of), args.ssh_user, args.remote_dir)
+        by_role = {}
+        for host, ver in versions.items():
+            by_role.setdefault(role_of[host], []).append((host, ver))
+        for role in ("quorum", "sender", "receiver"):
+            entries = sorted(by_role.get(role, []))
+            if not entries:
+                continue
+            distinct = sorted({v for _h, v in entries})
+            summary = "{}  [{}]".format(
+                ", ".join("{}={}".format(h, v) for h, v in entries),
+                "uniform: {}".format(distinct[0]) if len(distinct) == 1
+                else "MIXED: {}".format(", ".join(distinct)))
+            version_rows.append(("Version - {}s".format(role), summary))
+        all_versions = sorted({v for v in versions.values()})
+        version_rows.append((
+            "Version - fleet",
+            "uniform across all roles: {}".format(all_versions[0]) if len(all_versions) == 1
+            else "MIXED FLEET: {} - per-role breakdown above".format(", ".join(all_versions))))
+    else:
+        version_rows.append((
+            "Version",
+            args.version_label or
+            "not recorded. Re-run with --collect-versions to capture the build PER ROLE "
+            "(needed for mixed-fleet cases), or pass --version-label for a manual note."))
+
     # Run conditions - without these a report can't be compared against
     # another run, which is the whole point of a regression lab.
     meta = {
@@ -282,7 +329,7 @@ def main():
             ("Duration", "{:.0f}s".format(duration)),
             ("Asset / cases run", "{} - {} of {} in the catalogue".format(
                 args.cases.upper(), len(order), len(module.ORDER))),
-            ("Fleet version", args.version_label),
+        ] + version_rows + [
             ("Hosts file", args.hosts),
             ("Pool hosts ready", "{} (of {} in pool); excluded: {}".format(
                 len(ready), len(pool), len(excluded) or "none")),

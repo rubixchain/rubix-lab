@@ -504,6 +504,59 @@ def write_pdf_report(path, title, headers, rows):
     doc.build(elements)
 
 
+VERSION_RE = None  # compiled lazily; see get_node_version
+
+
+def get_node_version(host, ssh_user="rubix", remote_dir="~/Desktop/rubix", timeout=8):
+    """Read one node's Rubix build over SSH.
+
+    There is NO version API - checked every route in server/server.go. The
+    only source is `./rubixgoplatform -v`, which prints and exits without
+    touching the running node, so it is safe while the service is live.
+    Same mechanism as controller/node-versions.py.
+
+    This matters for the mixed-fleet cases (GEN): sender, receiver and quorum
+    can legitimately be on DIFFERENT builds, and a result is meaningless
+    unless the report says which build each role was actually running.
+
+    Returns (version_or_None, note).
+    """
+    global VERSION_RE
+    if VERSION_RE is None:
+        import re
+        VERSION_RE = re.compile(r"Rubix Core Version\s*:\s*(\S+)")
+    import subprocess
+    cmd = [
+        "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "ConnectTimeout={}".format(timeout),
+        "{}@{}".format(ssh_user, host),
+        "cd {} && ./rubixgoplatform -v".format(remote_dir),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
+    except subprocess.TimeoutExpired:
+        return None, "ssh timeout"
+    except FileNotFoundError:
+        return None, "ssh not available on this controller"
+    if proc.returncode != 0:
+        err = (proc.stderr or "").strip().splitlines()
+        return None, "ssh failed: {}".format(err[-1] if err else proc.returncode)
+    m = VERSION_RE.search(proc.stdout)
+    return (m.group(1), "") if m else (None, "version line not found")
+
+
+def collect_versions(hosts, ssh_user="rubix", remote_dir="~/Desktop/rubix", workers=20):
+    """Versions for many hosts at once -> {host: version_or_error_string}."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(h):
+        v, note = get_node_version(h, ssh_user, remote_dir)
+        return h, (v or "UNKNOWN ({})".format(note))
+
+    with ThreadPoolExecutor(max_workers=min(workers, max(1, len(hosts)))) as ex:
+        return dict(ex.map(one, hosts))
+
+
 def close_enough(a, b, tol=0.0015):
     """3-decimal-place precision (math/math.go FloatPrecision) leaves room
     for float rounding - compare with a small tolerance, never ==."""
