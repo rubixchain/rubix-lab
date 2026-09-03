@@ -234,23 +234,47 @@ def get_dids(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
     return True, (result if isinstance(result, list) else []), ""
 
 
-def get_rbt_balance(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
-    """Returns (ok, balance_float_or_None, note)."""
+def get_rbt_balance_detail(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Full RBT balance breakdown.
+
+    Confirmed against types/balance.go RBTBalance, whose JSON tags are
+    exactly {"balance", "pledged", "locked"} - NOT rbt_amount/rbtAmount.
+    `balance` is the FREE (spendable) portion only; tokens that are locked
+    for an in-flight transfer or pledged as quorum collateral are reported
+    separately and are NOT part of it.
+
+    That distinction matters: several catalogue cases assert "tokens released
+    if locked" after a rejection, which is invisible if you only read
+    `balance`.
+
+    Returns (ok, {"balance": f, "locked": f, "pledged": f}, note).
+    """
     url = base_url(host, port) + EP_RBT_BALANCE.format(did=did)
     ok, payload = http_json("GET", url, timeout)
     if not ok:
         return False, None, payload
     result = payload.get("result") if isinstance(payload, dict) else None
     if isinstance(result, dict):
-        for key in ("rbt_amount", "rbtAmount", "balance", "value"):
-            if key in result:
-                try:
-                    return True, float(result[key]), ""
-                except (TypeError, ValueError):
-                    return False, None, "unparseable balance: {}".format(result[key])
+        out = {}
+        for key in ("balance", "locked", "pledged"):
+            try:
+                out[key] = float(result.get(key) or 0)
+            except (TypeError, ValueError):
+                return False, None, "unparseable {}: {}".format(key, result.get(key))
+        return True, out, ""
+    # A bare number is still accepted as the free balance, for robustness.
     if isinstance(result, (int, float)):
-        return True, float(result), ""
-    return False, None, "no balance field in response: {}".format(payload)
+        return True, {"balance": float(result), "locked": 0.0, "pledged": 0.0}, ""
+    return False, None, "no balance fields in response: {}".format(payload)
+
+
+def get_rbt_balance(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Free (spendable) RBT balance. Returns (ok, balance_or_None, note).
+    Use get_rbt_balance_detail() when locked/pledged matter."""
+    ok, detail, note = get_rbt_balance_detail(host, did, port, timeout)
+    if not ok:
+        return False, None, note
+    return True, detail["balance"], ""
 
 
 # --- Fleet-wide token index registry -----------------------------------
