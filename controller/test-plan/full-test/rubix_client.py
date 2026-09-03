@@ -80,6 +80,23 @@ EP_FT_BALANCE = "/rubix/v1/dids/{did}/balances/ft"
 EP_CREATE_NFT = "/rubix/v1/nfts/generate"
 EP_GENERATE_SC = "/rubix/v1/smart_contracts/generate"
 
+# Read-side + subscription endpoints. Needed by the core-derived cases, which
+# assert END STATE (chain length, ownership, cross-node sync) rather than just
+# a 200 on the write. Paths taken from the product's own integration client.
+EP_NFT_LIST = "/rubix/v1/nfts"
+EP_NFT_BALANCE = "/rubix/v1/dids/{did}/balances/nft"
+EP_NFT_CHAIN = "/rubix/v1/nfts/{nft}/chain"
+EP_NFT_CHILDREN = "/rubix/v1/nfts/{nft}/children"
+EP_NFT_PARENT = "/rubix/v1/nfts/{nft}/parent"
+EP_NFT_SUBSCRIBE = "/rubix/v1/nfts/subscribe?nft={nft}"
+EP_SC_LIST = "/rubix/v1/smart_contracts"
+EP_SC_CHAIN = "/rubix/v1/smart_contracts/{sc}/chain"
+EP_SC_SUBSCRIBE = "/rubix/v1/smart_contracts/subscribe?smartContractToken={sc}"
+EP_SC_REGISTER_CALLBACK = "/rubix/v1/smart_contracts/register_callback"
+EP_FT_LIST = "/rubix/v1/fts"
+# token_type is one of: rbt, nft, ft, smartContract
+EP_TX_BY_DID = "/rubix/v1/tx/{did}/{token_type}"
+
 
 def base_url(host, port=DEFAULT_PORT):
     return "http://{}:{}".format(host, port)
@@ -240,6 +257,190 @@ def create_smart_contract(host, did, wasm_bytes, raw_bytes, port=DEFAULT_PORT, t
     files = {"binaryCodePath": ("contract.wasm", wasm_bytes),
              "rawCodePath": ("contract.rs", raw_bytes)}
     return signed_multipart_action(host, EP_GENERATE_SC, fields, files, port, timeout)
+
+
+# ---------------------------------------------------------------------------
+# NFT / SC / FT read side + subscriptions
+#
+# The core-derived cases assert end state, so they need the read endpoints as
+# much as the write ones. Payload shapes below mirror the product's own
+# integration client exactly - where a field looks redundant or oddly named,
+# it is reproduced rather than "cleaned up", because the server reads it
+# literally and a tidier body is a different test.
+# ---------------------------------------------------------------------------
+
+def _get_list(host, path, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """GET a path whose `result` is a list. Returns (ok, list, note).
+
+    A null `result` is normal for 'nothing yet' (no NFTs, empty chain) and
+    comes back as [], not an error - distinguishing 'empty' from 'failed'
+    matters, since an empty chain is a legitimate assertion target.
+    """
+    ok, payload = http_json("GET", base_url(host, port) + path, timeout)
+    if not ok:
+        return False, [], payload
+    result = payload.get("result") if isinstance(payload, dict) else None
+    return True, (result if isinstance(result, list) else []), ""
+
+
+def list_nfts(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    return _get_list(host, EP_NFT_LIST, port, timeout)
+
+
+def get_nft_balance(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """NFTs owned by did (Free status only)."""
+    return _get_list(host, EP_NFT_BALANCE.format(did=did), port, timeout)
+
+
+def get_nft_chain(host, nft_id, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Ordered chain for one NFT. Length grows by one per deploy/execute/transfer,
+    which is what the chain-length checks assert."""
+    return _get_list(host, EP_NFT_CHAIN.format(nft=nft_id), port, timeout)
+
+
+def get_nft_children(host, nft_id, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    return _get_list(host, EP_NFT_CHILDREN.format(nft=nft_id), port, timeout)
+
+
+def get_nft_parent(host, nft_id, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Returns (ok, result, note). `result` is null when the NFT has no parent,
+    so this returns the raw value rather than coercing it to a list."""
+    ok, payload = http_json("GET", base_url(host, port) + EP_NFT_PARENT.format(nft=nft_id), timeout)
+    if not ok:
+        return False, None, payload
+    return True, (payload.get("result") if isinstance(payload, dict) else None), ""
+
+
+def subscribe_nft(host, nft_id, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """Subscribe so this node can execute an NFT it does not own.
+
+    Subscription is the gate for NFT/SC execute, not ownership
+    (core/consensus/checks.go:122) - which is exactly what the cross-node
+    execute cases exist to prove.
+    """
+    ok, payload = http_json("GET", base_url(host, port) + EP_NFT_SUBSCRIBE.format(nft=nft_id), timeout)
+    if not ok:
+        return False, payload
+    return bool(payload.get("status")), payload.get("message", "")
+
+
+def list_smart_contracts(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    return _get_list(host, EP_SC_LIST, port, timeout)
+
+
+def get_sc_chain(host, sc_id, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    return _get_list(host, EP_SC_CHAIN.format(sc=sc_id), port, timeout)
+
+
+def subscribe_smart_contract(host, sc_id, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    ok, payload = http_json("GET", base_url(host, port) + EP_SC_SUBSCRIBE.format(sc=sc_id), timeout)
+    if not ok:
+        return False, payload
+    return bool(payload.get("status")), payload.get("message", "")
+
+
+def register_sc_callback(host, sc_id, callback_url, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """Field names are exact: smartContractToken / callBackURL."""
+    return signed_action(host, EP_SC_REGISTER_CALLBACK,
+                         {"smartContractToken": sc_id, "callBackURL": callback_url},
+                         port, timeout)
+
+
+def list_fts(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    return _get_list(host, EP_FT_LIST, port, timeout)
+
+
+def get_transactions(host, did, token_type, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Transaction history for did, filtered. token_type: rbt|nft|ft|smartContract."""
+    return _get_list(host, EP_TX_BY_DID.format(did=did, token_type=token_type), port, timeout)
+
+
+# ---------------------------------------------------------------------------
+# NFT / SC transactions
+#
+# All go through POST /rubix/v1/tx. The bodies differ in ways the server reads
+# literally, so each shape is built explicitly instead of through one
+# "flexible" helper that would blur them.
+# ---------------------------------------------------------------------------
+
+def _tx(host, body, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """POST a fully-formed TransactionRequest and complete the password challenge."""
+    return signed_action(host, EP_TRANSACTION, body, port, timeout)
+
+
+def nft_transaction(host, initiator_did, owner_did, nft_id, value=1.0,
+                    data="NFT transaction", transfer_ownership=False,
+                    port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """Deploy / execute / transfer an NFT - the same call, three meanings.
+
+    transfer_ownership=False with owner==initiator is a self-execute (or the
+    initial deploy). transfer_ownership=True with a different owner moves it.
+    Ownership only changes when the flag is set, regardless of `owner`.
+    """
+    body = {
+        "initiator": initiator_did,
+        "owner": owner_did,
+        "tokens": {
+            "rbt": 0, "ft": [],
+            "nft": [{"nftId": nft_id, "value": value, "data": data}],
+            "smartContract": [],
+            "transferNftOwnership": transfer_ownership,
+        },
+        "memo": data,
+    }
+    return _tx(host, body, port, timeout)
+
+
+def mint_nft_children(host, initiator_did, parent_nft_id, count,
+                      data="child mint", port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """Mint `count` children under a parent NFT.
+
+    ONE nft entry PER CHILD - there is no numberOfChildren field. `nftId` is
+    omitted deliberately: it is IGNORED when parentNFTId is set, and supplying
+    the parent id there makes the server reject the call as "already exists".
+    No "owner" key at all, matching the product's own child-mint payload.
+    Response carries result.mintedNFTChildren = [{parentNFTId, childNFTId}].
+    """
+    body = {
+        "initiator": initiator_did,
+        "tokens": {
+            "rbt": 0, "ft": [],
+            "nft": [{"value": 0, "data": data, "parentNFTId": parent_nft_id}
+                    for _ in range(count)],
+            "smartContract": [],
+            "transferNftOwnership": False,
+        },
+        "memo": "mint {} children of {}".format(count, parent_nft_id[:8]),
+    }
+    return _tx(host, body, port, timeout)
+
+
+def sc_transaction(host, initiator_did, sc_id, value=1.0, data="SC transaction",
+                   port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+    """Deploy or execute a smart contract.
+
+    `owner` is ALWAYS the empty string for smart contracts - there is no
+    ownership transfer concept here, and sending a DID instead changes what
+    the server does.
+    """
+    body = {
+        "initiator": initiator_did,
+        "owner": "",
+        "tokens": {
+            "rbt": 0, "ft": [], "nft": [],
+            "smartContract": [{"smartContractId": sc_id, "value": value, "data": data}],
+            "transferNftOwnership": False,
+        },
+        "memo": data,
+    }
+    return _tx(host, body, port, timeout)
+
+
+def minted_children(result):
+    """Pull [{parentNFTId, childNFTId}] out of a child-mint result."""
+    if not isinstance(result, dict):
+        return []
+    return result.get("mintedNFTChildren") or []
 
 
 def get_dids(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):

@@ -230,7 +230,6 @@ def main():
     args = p.parse_args()
 
     module = load_case_module(args.cases)
-    master = load_master(MASTER_PATH)
 
     order = list(module.ORDER)
     if args.only:
@@ -241,6 +240,13 @@ def main():
             sys.exit("ERROR: unknown Test ID(s): {}".format(", ".join(sorted(missing))))
     if not order:
         sys.exit("ERROR: nothing to run.")
+
+    # A case module may carry its own catalogue text (CASE_INFO) instead of
+    # having rows in master-test-cases.xlsx - the core-derived cases come from
+    # the product's suite, not the sheet. Only read the workbook when some case
+    # actually needs it, so those runs don't require openpyxl at all.
+    case_info = getattr(module, "CASE_INFO", {})
+    master = load_master(MASTER_PATH) if any(t not in case_info for t in order) else {}
 
     print("== Common: pool + reachability + DID readiness ==")
     hosts = rc.load_hosts(args.hosts)
