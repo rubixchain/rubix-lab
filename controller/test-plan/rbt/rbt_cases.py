@@ -74,6 +74,85 @@ def _ensure_funded(ctx, entry, need):
     return True, bal, ""
 
 
+# --- PRECONDITIONS -----------------------------------------------------
+# A case must BUILD the state it needs, not assume the common setup left the
+# fleet in the right shape. Two conditions are easy to get wrong and produce
+# failures that look like product bugs but are pure fixture gaps:
+#
+#   1. Only SENDERS get a quorum registered during setup. The moment a case
+#      makes a RECEIVER send (send-back, send-right-after-receiving, two
+#      nodes sending to each other), that host has no quorum and the node
+#      answers "No quorums available for transaction".
+#   2. Quorum liquidity is CONSUMED as the run proceeds. A quorum must pledge
+#      >= the transfer value, so a case late in the run can fail purely
+#      because an earlier case drained its quorum - nothing to do with the
+#      behaviour under test.
+#
+# _ensure_can_send() and _ensure_quorum_liquidity() below fix both, and every
+# transfer helper calls them.
+
+_QUORUM_REGISTERED = set()   # hosts already given a quorum this run
+
+
+def _ensure_can_send(ctx, entry):
+    """Guarantee this host can initiate a transaction at all.
+
+    Registers a quorum on it if setup didn't (receivers never get one), using
+    the same round-robin spread as senders so load isn't all on quorum #1.
+    Idempotent - AddQuorum errors on repeat but rubix_client treats "already
+    exists" as success. Returns (ok, quorum_entry, note)."""
+    host = entry["host"]
+    q = ctx.sender_quorum.get(host)
+    if q is None:
+        # deterministic spread, stable across runs for the same host list
+        idx = abs(hash(host)) % len(ctx.quorum_hosts)
+        q = ctx.quorum_hosts[idx]
+        ctx.sender_quorum[host] = q
+    if host in _QUORUM_REGISTERED:
+        return True, q, ""
+    ok, msg = rc.quorum_add(host, q["did"], ctx.port)
+    if not ok:
+        return False, q, "could not register a quorum on {}: {}".format(host, msg)
+    _QUORUM_REGISTERED.add(host)
+    time.sleep(0.5)  # let the node settle before it is asked to transact
+    return True, q, ""
+
+
+def _ensure_quorum_liquidity(ctx, entry, amount):
+    """Guarantee the quorum backing `entry` can pledge `amount`.
+
+    A quorum must pledge at least the transfer value
+    (core/consensus/checks.go), and its free balance falls as the run
+    proceeds, so this tops it up rather than letting a later case fail on
+    someone else's spending. Returns (ok, quorum_free_balance, note)."""
+    q = ctx.sender_quorum.get(entry["host"])
+    if q is None:
+        return True, 0.0, "no quorum mapped yet"
+    free = _bal(q["host"], q["did"], ctx.port)
+    if free >= amount:
+        return True, free, ""
+    ok, bal, note = _ensure_funded(ctx, q, amount + 50)   # headroom for the next case
+    if not ok:
+        return False, bal, "quorum {} could not be topped up to {}: {}".format(
+            q["host"], amount, note)
+    return True, bal, ""
+
+
+def _prepare_sender(ctx, entry, amount):
+    """Everything a host needs before it can send `amount`: a registered
+    quorum, its own balance, and quorum pledge capacity."""
+    ok, _q, note = _ensure_can_send(ctx, entry)
+    if not ok:
+        return False, note
+    ok, _bal_, note = _ensure_funded(ctx, entry, amount)
+    if not ok:
+        return False, note
+    ok, _qbal, note = _ensure_quorum_liquidity(ctx, entry, amount)
+    if not ok:
+        return False, note
+    return True, ""
+
+
 def _transfer(ctx, s, r, amount, memo="catalogue"):
     """Fire one transfer. Returns (status, message)."""
     status, msg, _ = rc.initiate_transaction(
@@ -83,13 +162,16 @@ def _transfer(ctx, s, r, amount, memo="catalogue"):
 
 def _expect_success(ctx, s, r, amount, memo="catalogue"):
     """Transfer and verify BOTH sides moved by exactly `amount`.
-    Polls the receiver - the credit is asynchronous."""
+
+    Builds the preconditions first (quorum registered on the sending host,
+    sender funded, quorum able to pledge) so a fixture gap can never be
+    mistaken for a product failure. Polls the receiver - the credit is
+    asynchronous."""
+    ok, note = _prepare_sender(ctx, s, amount)
+    if not ok:
+        return False, "precondition not met", note
     s0 = _bal(s["host"], s["did"], ctx.port)
     r0 = _bal(r["host"], r["did"], ctx.port)
-    if s0 < amount:
-        ok, s0, note = _ensure_funded(ctx, s, amount)
-        if not ok:
-            return False, "could not fund sender", note
     status, msg = _transfer(ctx, s, r, amount, memo)
     if not status:
         return False, "rejected", msg
@@ -118,6 +200,12 @@ def _expect_rejection(ctx, s, receiver_did, amount, memo="catalogue"):
     stranded in Locked by a failed transfer would silently reduce it, and
     per CLAUDE.md a failure that leaves tokens Locked is a real bug, not a
     cosmetic one."""
+    # Register a quorum on the sending host first. Without it the node answers
+    # "No quorums available" - which IS a rejection, but not the one under
+    # test, and would make this case pass for entirely the wrong reason.
+    ok, _q, note = _ensure_can_send(ctx, s)
+    if not ok:
+        return False, "precondition not met", note
     s0 = _bal(s["host"], s["did"], ctx.port)
     locked0 = _locked(s["host"], s["did"], ctx.port)
     status, msg, _ = rc.initiate_transaction(

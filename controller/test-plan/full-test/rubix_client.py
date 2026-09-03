@@ -346,13 +346,24 @@ def allocate_token_index_range(count, registry_path=TOKEN_INDEX_REGISTRY_PATH):
     return start
 
 
-def fund_did(host, did, amount, port=DEFAULT_PORT):
+def fund_did(host, did, amount, port=DEFAULT_PORT, timeout=None):
     """Mint local RBT for a DID, using a fleet-wide-unique index range (see
-    allocate_token_index_range above - never start_index=0 here). Returns
-    (status, message)."""
-    start_index = allocate_token_index_range(int(amount))
-    body = {"did": did, "number_of_tokens": int(amount), "start_index": start_index}
-    status, message, _ = signed_action(host, EP_GENERATE_LOCAL_RBT, body, port)
+    allocate_token_index_range above - never start_index=0 here).
+
+    TIMEOUT MATTERS: minting is one token per unit in a server-side loop
+    (~15s per 1000). If the HTTP call times out the SERVER KEEPS MINTING -
+    the client just stops listening. Tokens then keep landing during later
+    work, corrupting any balance assertion that follows. So the timeout is
+    scaled to the amount rather than left at the default.
+
+    Returns (status, message)."""
+    n = int(amount)
+    if timeout is None:
+        # ~15s per 1000 tokens, plus generous headroom, floor at the default.
+        timeout = max(SIGNATURE_TIMEOUT, int(n * 0.05) + 30)
+    start_index = allocate_token_index_range(n)
+    body = {"did": did, "number_of_tokens": n, "start_index": start_index}
+    status, message, _ = signed_action(host, EP_GENERATE_LOCAL_RBT, body, port, timeout)
     return status, message
 
 
