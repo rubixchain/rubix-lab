@@ -1149,3 +1149,26 @@ CASES = {
 }
 
 ORDER = ["RBT-{:03d}".format(i) for i in range(1, 81)]
+
+# Cases where the MEASUREMENT is the result, not pass/fail. The catalogue
+# asks these to record a limit, a duration, or a curve - a PASS here only
+# means "it ran"; the number in the Actual column is the real output, and a
+# limit dropping between releases is the regression signal. The report gives
+# these their own section.
+TIMING_CASES = {
+    "RBT-003",  # largest single mint that works + how long it took
+    "RBT-023",  # value ladder - largest value that works
+    "RBT-046",  # baseline single-transfer time (everything else compares to this)
+    "RBT-050",  # 20-node pass rate + time
+    "RBT-052",  # node limit for one quorum
+    "RBT-053", "RBT-054", "RBT-055",  # same load across 2 / 5 / 10 quorums
+    "RBT-057",  # how fast a quorum frees up
+    "RBT-065",  # large values in parallel
+    "RBT-073",  # back-to-back throughput
+    "RBT-074",  # repeated high-value throughput
+    "RBT-075",  # parallel pass-rate curve
+    "RBT-076",  # multi-quorum throughput comparison
+    "RBT-077",  # split vs whole-token timing
+    "RBT-079",  # transfer time as chain history grows
+    "RBT-080",  # transfer time as wallet grows
+}

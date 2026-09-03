@@ -42,6 +42,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import rubix_client as rc
+import report_builder
 from smoke_test import (
     FIXED_ROLES, DEFAULT_HOSTS, ROLES_PATH,
     sweep_and_prepare, assign_roles, write_roles_file,
@@ -161,23 +162,32 @@ class CatalogueReport:
             status, ci.test_id, elapsed, actual, ("  -- " + note) if note else ""))
         return status
 
-    def save(self, path):
-        headers = ["Test ID", "Test Case", "Expected Result", "Status",
-                   "Actual", "Note", "Seconds"]
-        rows = [[r["test_id"], r["case"], r["expected"], r["status"],
-                 r["actual"], r["note"], r["seconds"]] for r in self.rows]
-        rc.write_pdf_report(path, "Rubix Lab - Catalogue Run", headers, rows)
+    def save(self, asset, meta, timing_ids):
+        paths = rc.new_report_paths("catalogue_{}".format(asset), ("pdf", "json"))
+        report_builder.build_json(paths["json"], meta, self.rows)
+        pdf_ok = report_builder.build_pdf(
+            paths["pdf"], "Rubix Lab - {} Catalogue Run".format(asset.upper()),
+            meta, self.rows, timing_ids)
+
         p = sum(1 for r in self.rows if r["status"] == "PASS")
         f = sum(1 for r in self.rows if r["status"] == "FAIL")
         s = sum(1 for r in self.rows if r["status"] == "SKIP")
-        print("\n{} passed, {} failed, {} skipped (of {}). Report: {}".format(
-            p, f, s, len(self.rows), path))
+        attempted = p + f
+        print("\n{} passed, {} failed, {} skipped (of {}).".format(p, f, s, len(self.rows)))
+        print("Pass rate of ATTEMPTED cases: {:.1f}% ({}/{}) - skipped are not counted "
+              "as passes.".format((100.0 * p / attempted) if attempted else 0.0, p, attempted))
         if f:
             print("FAILED: {}".format(
                 ", ".join(r["test_id"] for r in self.rows if r["status"] == "FAIL")))
         if s:
-            print("SKIPPED (not attempted, see Note column): {}".format(
+            print("SKIPPED (not attempted, reason in the report's Note column): {}".format(
                 ", ".join(r["test_id"] for r in self.rows if r["status"] == "SKIP")))
+        print("\nJSON: {}".format(paths["json"]))
+        if pdf_ok:
+            print("PDF : {}".format(paths["pdf"]))
+        else:
+            print("PDF : not written - reportlab missing. Results are safe in the JSON "
+                  "above. Install with: sudo apt install -y python3-reportlab")
 
 
 def main():
@@ -206,6 +216,10 @@ def main():
                    help="RBT-029 values per decimal place (catalogue asks 10)")
     p.add_argument("--repeat-count", type=int, default=25,
                    help="RBT-032 repetitions (catalogue asks 1000, ~33 min)")
+    p.add_argument("--version-label", default="not recorded (no version API; "
+                                               "get it with controller/node-versions.py)",
+                   help="fleet build under test, e.g. '1.0.4' or a branch name. Recorded "
+                        "in the report so runs can be compared across releases.")
     args = p.parse_args()
 
     module = load_case_module(args.cases)
@@ -249,13 +263,49 @@ def main():
 
     print("\n== {} cases ({}) ==".format(args.cases.upper(), len(order)))
     time.sleep(3)
+    started = time.time()
+    started_at = datetime.datetime.now()
     report = CatalogueReport()
     for test_id in order:
         ci = master.get(test_id) or CaseInfo(test_id)
         report.record(ci, module.CASES[test_id], ctx)
+    duration = time.time() - started
 
+    # Run conditions - without these a report can't be compared against
+    # another run, which is the whole point of a regression lab.
+    meta = {
+        "asset": args.cases,
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "duration_seconds": round(duration, 1),
+        "conditions": [
+            ("Run started", started_at.strftime("%Y-%m-%d %H:%M:%S")),
+            ("Duration", "{:.0f}s".format(duration)),
+            ("Asset / cases run", "{} - {} of {} in the catalogue".format(
+                args.cases.upper(), len(order), len(module.ORDER))),
+            ("Fleet version", args.version_label),
+            ("Hosts file", args.hosts),
+            ("Pool hosts ready", "{} (of {} in pool); excluded: {}".format(
+                len(ready), len(pool), len(excluded) or "none")),
+            ("Quorum hosts", ", ".join("{} ({}...)".format(q["host"], q["did"][:12])
+                                        for q in quorum_hosts)),
+            ("Sender hosts", ", ".join(s["host"] for s in senders)),
+            ("Receiver hosts", ", ".join(r["host"] for r in receivers)),
+            ("Sender/receiver pairs", str(len(ctx.pairs))),
+            ("Quorum funding", "{} RBT each (caps the largest testable transfer - a "
+                               "quorum must pledge >= the transfer value)".format(args.fund_quorum)),
+            ("Sender funding", "{} RBT each".format(args.fund_sender)),
+            ("Reduced-scale flags", "--large-mint {} | --decimal-samples {} (catalogue asks 10) "
+                                     "| --repeat-count {} (catalogue asks 1000)".format(
+                                         args.large_mint, args.decimal_samples, args.repeat_count)),
+            ("API port", str(args.port)),
+        ],
+    }
+    if args.only:
+        meta["conditions"].insert(3, ("Subset filter", "--only {}".format(args.only)))
+
+    timing_ids = set(getattr(module, "TIMING_CASES", set()))
     print()
-    report.save(rc.new_report_path("catalogue_{}".format(args.cases)))
+    report.save(args.cases, meta, timing_ids)
 
 
 class _SetupReport:

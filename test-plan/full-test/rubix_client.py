@@ -35,17 +35,32 @@ SIGNATURE_TIMEOUT = 20  # generous: covers pledge/consensus round trips
 
 
 def new_report_path(script_name, ext="pdf"):
-    """Every test-plan script's report goes to <repo root>/reports/ (one
-    shared folder at the top of the repo, regardless of which test-plan/
-    subfolder the script lives in), named
-    <script_name>_<YYYY-MM-DD_HH-MM-SS>.<ext> so re-runs never silently
-    overwrite a previous result."""
+    """One run's report file, under <repo root>/reports/<ext>/.
+
+    Same base filename across formats, so a run's PDF and JSON sit side by
+    side and are obviously the same run:
+        reports/pdf/catalogue_rbt_2026-09-03_10-15-00.pdf
+        reports/json/catalogue_rbt_2026-09-03_10-15-00.json
+    Timestamped so re-runs never silently overwrite a previous result.
+    """
     repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
-    report_dir = os.path.join(repo_root, "reports")
+    report_dir = os.path.join(repo_root, "reports", ext)
     os.makedirs(report_dir, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = "{}_{}.{}".format(script_name, timestamp, ext)
-    return os.path.join(report_dir, filename)
+    return os.path.join(report_dir, "{}_{}.{}".format(script_name, timestamp, ext))
+
+
+def new_report_paths(script_name, exts=("pdf", "json")):
+    """Paths for every format of ONE run, sharing a single timestamp so the
+    files are matched. Returns {ext: path}."""
+    repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    out = {}
+    for ext in exts:
+        d = os.path.join(repo_root, "reports", ext)
+        os.makedirs(d, exist_ok=True)
+        out[ext] = os.path.join(d, "{}_{}.{}".format(script_name, timestamp, ext))
+    return out
 
 EP_DIDS = "/rubix/v1/dids"
 EP_PEER_ID = "/rubix/v1/node/peer_id"
