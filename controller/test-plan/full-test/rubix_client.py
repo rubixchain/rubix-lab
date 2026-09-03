@@ -43,7 +43,8 @@ def new_report_path(script_name, ext="pdf"):
         reports/json/catalogue_rbt_2026-09-03_10-15-00.json
     Timestamped so re-runs never silently overwrite a previous result.
     """
-    repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    # this file is controller/test-plan/full-test/ -> three levels up is the repo root
+    repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")
     report_dir = os.path.join(repo_root, "reports", ext)
     os.makedirs(report_dir, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -53,7 +54,8 @@ def new_report_path(script_name, ext="pdf"):
 def new_report_paths(script_name, exts=("pdf", "json")):
     """Paths for every format of ONE run, sharing a single timestamp so the
     files are matched. Returns {ext: path}."""
-    repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    # this file is controller/test-plan/full-test/ -> three levels up is the repo root
+    repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     out = {}
     for ext in exts:

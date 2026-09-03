@@ -39,7 +39,7 @@ import rubix_client as rc
 
 FIXED_ROLES = {"fullnode", "explorer", "controller"}
 DEFAULT_HOSTS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              "..", "..", "controller", "hosts.txt")
+                              "..", "..", "hosts.txt")
 
 
 def sweep_pool(pool, port, timeout):

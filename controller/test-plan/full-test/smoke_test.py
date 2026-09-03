@@ -55,7 +55,8 @@ from test_cases import SmokeContext, TEST_CASES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXED_ROLES = {"fullnode", "explorer", "controller"}
-DEFAULT_HOSTS = os.path.join(HERE, "..", "..", "controller", "hosts.txt")
+# HERE is controller/test-plan/full-test/ -> two levels up is controller/
+DEFAULT_HOSTS = os.path.join(HERE, "..", "..", "hosts.txt")
 ROLES_PATH = os.path.join(HERE, "smoke-test-roles.txt")
 
 # Delays at genuine async-propagation points. These do NOT fix the token-ID

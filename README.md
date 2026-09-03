@@ -8,14 +8,36 @@ releases, bug fixes and new features.
 
 ## Layout
 
-| Folder | Purpose | Goes where |
-|---|---|---|
-| [prerequisite/](prerequisite/) | Node binary, IPFS binary, swarm key | Every machine |
-| [install/](install/) | `setup.sh` — brings up one node on one machine | Every machine |
-| [controller/](controller/) | Reachability, DID, version and SSH-setup tooling — see `controller/` for the full list | Controller only |
-| [exec-update/](exec-update/) | Build any branch and deploy it to running nodes | Controller only |
-| [test-plan/](test-plan/) | 259-case test catalogue (CSV) and how to read it | Reference |
-| `nodes/` | Where each machine's running node lives | Created by setup, gitignored |
+Two top-level folders, split by **where the thing runs**: `controller/` is
+everything the controller machine drives; `systems/` is everything that goes
+onto a lab desktop.
+
+```
+controller/              run FROM the controller
+  hosts.txt(.example)    the one fleet list every controller tool reads
+  check-nodes.py         reachability / DID / balance sweep
+  dids-to-excel.py       create + register DIDs, export to Excel
+  node-versions.py       per-host build, over SSH
+  preflight-check.sh     fleet readiness table (docker, unit, sudo, API)
+  setup-ssh.sh           one-time passwordless SSH to every host
+  restart-nodes.sh       restart nodes fleet-wide (parallel)
+  wipe-node-db.sh        destructive DB + DID reset (parallel)
+  exec-update/           build a branch and deploy it to running nodes
+  test-plan/             the test catalogue and its runners
+    full-test/           master-test-cases.xlsx, case_runner.py, smoke_test.py
+    rbt/ ft/ nft/ sc/ cross-asset/ general/   per-asset case modules
+
+systems/                 goes ON each lab machine
+  install/               setup.sh, config.toml.template, systemd unit
+  prerequisite/          rubixgoplatform, ipfs, localnetswarm.key
+
+nodes/                   gitignored runtime: the running node's own data
+reports/                 gitignored output: reports/pdf/ and reports/json/
+```
+
+`nodes/` is deliberately **not** part of `systems/`: it holds runtime state
+(the live binary, generated `config.toml` with real lab IPs, DID private
+keys), not source, and `exec-update` deploys into it by that path.
 
 Every machine clones this whole repo to the same path under its own home
 directory (e.g. `~/rubix-lab`). `exec-update` relies on that being consistent.
@@ -28,7 +50,7 @@ sudo systemctl enable --now docker
 sudo usermod -aG docker $USER      # then log out and back in
 
 git clone <this repo> ~/rubix-lab
-cd ~/rubix-lab/install
+cd ~/rubix-lab/systems/install
 LOCALNET_BOOTSTRAP_NODES='[...]' ./setup.sh
 ```
 

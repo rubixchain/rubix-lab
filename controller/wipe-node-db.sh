@@ -24,7 +24,7 @@
 # Defaults match what's ACTUALLY running on this fleet (confirmed via
 # `docker ps` earlier — container name "node", volume "pgdata_node", NOT
 # setup.sh's rubix-node-db/rubix_node_pgdata defaults, since these machines
-# were brought up by hand, not via install/setup.sh).
+# were brought up by hand, not via systems/install/setup.sh).
 #
 # Usage:
 #   ./wipe-node-db.sh                  # DRY RUN — prints what would happen, changes nothing

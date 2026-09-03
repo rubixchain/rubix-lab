@@ -15,9 +15,13 @@
 
 set -euo pipefail
 
-BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$BUNDLE_DIR/.." && pwd)"
-PREREQ_DIR="$REPO_ROOT/prerequisite"
+BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # systems/install
+SYSTEMS_DIR="$(cd "$BUNDLE_DIR/.." && pwd)"                  # systems/
+REPO_ROOT="$(cd "$SYSTEMS_DIR/.." && pwd)"                   # repo root
+# prerequisite/ is node-side source and lives under systems/, but the running
+# node's data directory (nodes/) stays at the REPO ROOT - it is gitignored
+# runtime state, not source, and exec-update deploys into it by that path.
+PREREQ_DIR="$SYSTEMS_DIR/prerequisite"
 # Node name — placeholder "testnode" for now; override with NODE_NAME=foo ./setup.sh
 # if you ever need more than one distinguishable node folder.
 NODE_NAME="${NODE_NAME:-testnode}"

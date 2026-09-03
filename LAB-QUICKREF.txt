@@ -18,7 +18,7 @@ git clone <rubix-lab repo> ~/rubix-lab
 
 3. Bring up the first node (fullnode — no bootstrap yet)
 ----------------------------------------
-cd ~/rubix-lab/install
+cd ~/rubix-lab/systems/install
 LOCALNET_BOOTSTRAP_NODES='[]' ./setup.sh
 
 curl -s http://localhost:20000/rubix/v1/node/peer_id
@@ -29,7 +29,7 @@ sudo ufw allow 20000/tcp
 
 4. Bring up every other node (bootstrap = fullnode's IP + peer ID)
 ----------------------------------------
-cd ~/rubix-lab/install
+cd ~/rubix-lab/systems/install
 LOCALNET_BOOTSTRAP_NODES='["/ip4/192.168.1.101/tcp/4002/p2p/12D3KooWF1VXujXpp6gmGTpdJJ9X6yvoxYD7BFh9VLAf42T3fJ34"]' ./setup.sh
 
 sudo ufw allow 4002/tcp
@@ -44,7 +44,7 @@ IPFS_PATH=<node-dir>/.ipfs <node-dir>/ipfs swarm peers
 6. Make the node systemd-managed (run ON each node, one password prompt)
 ----------------------------------------
 Only needed on machines brought up BY HAND (binary downloaded to
-~/Desktop/rubix, no repo clone). Machines set up via install/setup.sh in
+~/Desktop/rubix, no repo clone). Machines set up via systems/install/setup.sh in
 steps 3-4 already have this unit — skip them.
 
 Until a node is systemd-managed, restarts from the controller are

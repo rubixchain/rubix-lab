@@ -9,7 +9,7 @@
 # (stdin from /dev/null, stdout/stderr to a log file) + disown, so it
 # survives the SSH session ending.
 #
-# Prefers a systemd-managed restart where one exists (install/setup.sh's
+# Prefers a systemd-managed restart where one exists (systems/install/setup.sh's
 # path) - only falls back to the detached-nohup launch for the ad hoc
 # ~/Desktop/rubix/node layout this fleet actually uses.
 #

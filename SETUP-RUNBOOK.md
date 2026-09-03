@@ -52,7 +52,7 @@ Record in a spreadsheet: machine name, IP, assigned role, physical location.
 
 ## Phase B — Install the node (per machine)
 
-Repeat on each desktop. See `install/README.md` for detail.
+Repeat on each desktop. See `systems/install/README.md` for detail.
 
 ### B1. Install Docker
 
@@ -121,9 +121,9 @@ git clone <rubix-lab repo> ~/rubix-lab
 Use the **same path on every machine** (`~/rubix-lab`) — `exec-update` depends
 on that being consistent.
 
-`prerequisite/` must hold the node binary, the IPFS binary and the swarm key.
+`systems/prerequisite/` must hold the node binary, the IPFS binary and the swarm key.
 The key is already committed. For the two binaries, either commit them once or
-let `setup.sh` fetch them on first run — see `prerequisite/README.md`.
+let `setup.sh` fetch them on first run — see `systems/prerequisite/README.md`.
 
 ### B3. Bring up the fullnode first
 
@@ -133,7 +133,7 @@ machine makes a better permanent bootstrap point than juggling several
 quorum peer IDs. Bring it up with an empty list:
 
 ```
-cd ~/rubix-lab/install
+cd ~/rubix-lab/systems/install
 LOCALNET_BOOTSTRAP_NODES='[]' ./setup.sh
 ```
 
@@ -259,7 +259,7 @@ load, different groups of participants should register a different quorum first.
 **Verify this actually held** — the underlying query has no fixed sort order, so
 the "first" quorum is not guaranteed stable. Check which quorum really signs a
 transfer rather than assuming it followed registration order. If it drifts, the
-grouping strategy needs revisiting (see `test-plan/README.md`).
+grouping strategy needs revisiting (see `controller/test-plan/README.md`).
 
 ### D4. Fund the quorums
 

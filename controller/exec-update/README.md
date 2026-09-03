@@ -8,7 +8,7 @@ SSH access out to the other desktops for this tool).
 
 ## Why this is SSH-based, not the Rubix API
 
-`rubixgoplatform.service` (installed by [../install/setup.sh](../install/setup.sh))
+`rubixgoplatform.service` (installed by [../../systems/install/setup.sh](../../systems/install/setup.sh))
 has `Restart=always`. Calling the node's own graceful-shutdown API endpoint
 would make the process exit — and systemd would immediately relaunch the
 *old* binary underneath you, since from the supervisor's point of view
@@ -22,7 +22,7 @@ can do.
 Two different repos are involved here, don't mix them up: the **product
 repo** (`rubixgoplatform`, cloned for *building* a branch) and **this
 `rubix-lab` repo** (cloned on every target desktop, containing each node's
-actual `nodes/<name>/` folder — see [../install/README.md](../install/README.md)).
+actual `nodes/<name>/` folder — see [../../systems/install/README.md](../../systems/install/README.md)).
 
 1. Clone `rubixgoplatform` somewhere on the controller (default
    `~/rubixgoplatform`, override with `REPO_DIR=/path ./update-exec.sh ...`)

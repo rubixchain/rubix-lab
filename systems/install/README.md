@@ -31,7 +31,7 @@ them and whether to commit them.
 
 The binary used here is **not** about testing a particular branch — any current
 release is fine, since this step just gets a node running. Testing a specific
-branch is handled separately by [../exec-update/](../exec-update/) on
+branch is handled separately by [../../controller/exec-update/](../../controller/exec-update/) on
 already-running nodes; you never rebuild or redistribute this to do that.
 
 ## Bring-up order matters once: fullnode first
