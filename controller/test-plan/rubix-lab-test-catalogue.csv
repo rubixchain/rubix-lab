@@ -1,0 +1,354 @@
+Test ID,Asset,Layer,Type,Op Group,Test Case,Setup Method,Quorum Setup,Expected Result,Also Check In Same Run,Priority,Code Ref
+RBT-M-01,RBT,Code,Functional,Mint,Mint local RBT on a node,API,N/A,Tokens created and balance goes up,Token level is 10001 or higher; genesis transaction recorded; denom rows added,P1,core/token.go:140
+RBT-M-02,RBT,Code,Functional,Mint,Mint RBT twice on the same node,API,N/A,Both succeed and balances add up,No duplicate token IDs; separate genesis transaction each time,P1,core/token.go:140
+RBT-M-03,RBT,Code,Functional,Mint,Mint a very large amount in one call (10000 plus),API,N/A,Succeeds or fails with a clear limit,Record the largest single mint that works; time it takes,P1,core/token.go:140
+RBT-M-04,RBT,Code,Functional,Mint,Mint on a node that has no DID yet,API,N/A,Rejected,Nothing created in the database,P2,core/did.go:26
+RBT-T-01,RBT,Code,Functional,Transfer,Send 1 RBT from A to B,API,Single,Succeeds,Sender down 1; receiver up 1; both record it; both chains grow,P0,core/transaction.go
+RBT-T-02,RBT,Code,Functional,Transfer,Send RBT back from B to A,API,Single,Succeeds,Balances back to start; chain length now 2 on both,P0,core/transaction.go
+RBT-T-03,RBT,Code,Functional,Transfer,Send RBT to a DID that does not exist,API,Single,Rejected,Balance unchanged; no tokens left locked,P0,core/consensus/checks.go:35
+RBT-T-04,RBT,Code,Functional,Transfer,Send RBT to a badly formatted DID,API,Single,Rejected,Balance unchanged,P0,core/consensus/checks.go:35
+RBT-T-05,RBT,Code,Functional,Transfer,Send RBT to yourself (same DID both sides),API,Single,Succeeds and stays on the node,Balance unchanged overall; chain still grows; no network call made,P1,core/transaction.go:495
+RBT-T-06,RBT,Code,Functional,Transfer,Send RBT between two DIDs on the same node,API,Single,Succeeds,Both DIDs correct; no network round trip,P1,core/transaction.go:513
+RBT-T-07,RBT,Code,Functional,Transfer,Send RBT with no receiver given,API,Single,Define what happens - receiver falls back to sender,Compare result against RBT-T-05,P1,core/transaction_builder.go:406
+RBT-T-08,RBT,Code,Functional,Transfer,Send RBT again right after receiving it,API,Single,Succeeds,No stale chain error; chain tip correct,P0,core/consensus/checks.go:672
+RBT-V-01,RBT,Code,Functional,Transfer Value,Send 0.001 (smallest allowed),API,Single,Succeeds,Exact value moved; note how many split levels were needed,P0,math/math.go:29
+RBT-V-02,RBT,Code,Functional,Transfer Value,Send 0.0001 (below the allowed minimum),API,Single,Rejected,Balance unchanged; tokens released,P0,math/math.go:16
+RBT-V-03,RBT,Code,Functional,Transfer Value,Send 0.999 (forces deep splitting),API,Single,Succeeds,Count the splits and time taken; value adds back exactly,P0,core/parts/split.go:18
+RBT-V-04,RBT,Code,Functional,Transfer Value,Send 2.345 (whole plus decimals),API,Single,Succeeds,Whole tokens used directly; only the remainder is split,P0,core/wallet/token_lock.go:70
+RBT-V-05,RBT,Code,Functional,Transfer Value,Send 99.999 (many tokens plus deep split),API,Single,Succeeds,Time it; compare against sending a flat 100,P0,
+RBT-V-06,RBT,Code,Functional,Transfer Value,Send 100 RBT,API,Single,Succeeds,Note token count in the transaction and time taken,P0,
+RBT-V-07,RBT,Code,Functional,Transfer Value,Send 1000 RBT,API,Single,Succeeds if quorum can pledge 1000,Note whether quorum liquidity or speed is the limit,P0,core/consensus/checks.go:539
+RBT-V-08,RBT,Code,Functional,Transfer Value,Send 10000 RBT,API,Single,Succeeds only if quorum holds 10000 free RBT,Record the failure reason if it fails,P0,core/consensus/checks.go:539
+RBT-V-09,RBT,Code,Functional,Transfer Value,Send 100000 RBT,API,Single,Find out if this works at all,Token count in one transaction; time; quorum pledge needed,P0,core/quorum_initiator.go:56
+RBT-V-10,RBT,Code,Functional,Transfer Value,Send 200000.10 RBT,API,Single,Find the limit,Record where it breaks - pledge shortage or timeout or token count,P0,core/quorum_initiator.go:44
+RBT-V-11,RBT,Infra,Functional,Transfer Value,Climb the value ladder until it fails,API,Single,Record the largest value that works,Note the exact failure reason at the breaking point,P0,
+RBT-V-12,RBT,Code,Functional,Transfer Value,Send 0 RBT,API,Single,Rejected,Balance unchanged,P1,
+RBT-V-13,RBT,Code,Functional,Transfer Value,Send a negative amount,API,Single,Rejected,Balance unchanged,P0,
+RBT-V-14,RBT,Code,Functional,Transfer Value,Send more than the wallet holds,API,Single,Rejected for insufficient balance,Balance unchanged; tokens released,P0,core/wallet/token_lock.go:52
+RBT-V-15,RBT,Code,Functional,Transfer Value,Send the entire balance exactly,API,Single,Succeeds,Sender balance lands on exactly 0.000; no dust left,P0,
+RBT-V-16,RBT,Code,Functional,Transfer Value,Send one unit more than the balance,API,Single,Rejected,Confirms the boundary is exact not approximate,P0,
+RBT-P-01,RBT,Code,Functional,Precision,Send amounts with 1 2 and 3 decimal places,API,Single,All succeed,Values exact each time; no rounding loss,P0,math/math.go:16
+RBT-P-02,RBT,Code,Functional,Precision,Send an amount with 4 or more decimal places,API,Single,Rejected or rounded - record which,Confirm no value is created or lost either way,P0,math/math.go:16
+RBT-P-03,RBT,Code,Functional,Precision,Send 0.0005 (rounds up to 0.001),API,Single,Record the behaviour,Check nothing is created out of thin air,P0,math/math.go:12
+RBT-P-04,RBT,Code,Functional,Precision,Send 0.001 repeatedly 1000 times,API,Single,All succeed,Total moved is exactly 1.000 with no drift,P0,math/math.go:16
+RBT-P-05,RBT,Code,Functional,Precision,Send amounts like 0.333 three times over,API,Single,All succeed,Balances stay exact; no creeping error,P0,
+RBT-W-01,RBT,Code,Functional,Wallet Shape,Send 100 from a wallet holding one hundred 1.0 tokens,API,Single,Succeeds with no splitting,Time it as the baseline for comparison,P0,core/wallet/token_lock.go:70
+RBT-W-02,RBT,Code,Functional,Wallet Shape,Send 100 from a wallet holding one 1000 token,API,Single,Succeeds by splitting,Much slower than RBT-W-01; record the difference,P0,core/wallet/token_lock.go:36
+RBT-W-03,RBT,Code,Functional,Wallet Shape,Send 100 from a wallet holding thousands of tiny tokens,API,Single,Succeeds,Record how long picking the tokens takes,P0,core/wallet/token_lock.go:40
+RBT-W-04,RBT,Code,Functional,Wallet Shape,Send from a wallet holding 10000 plus tokens,API,Single,Succeeds or times out,Find the wallet size where transfers become too slow,P0,core/wallet/token_lock.go:40
+RBT-W-05,RBT,Code,Functional,Wallet Shape,Send an amount that exactly matches one token held,API,Single,Succeeds using just that token,No split; no burn; fastest path,P1,core/wallet/token_lock.go:63
+RBT-W-06,RBT,Code,Functional,Wallet Shape,Send an amount matching a combination held exactly,API,Single,Succeeds with no split,Exact combination used instead of splitting,P1,core/wallet/token_lock.go:108
+RBT-S-01,RBT,Code,Functional,Split,Send 0.7 when the wallet holds only a 1.0 token,API,Single,Succeeds by splitting,Parent burnt; 0.7 sent; 0.3 kept; adds back to 1.0,P0,core/wallet/token_lock.go:36
+RBT-S-02,RBT,Code,Functional,Split,Split a token that was already split before,API,Single,KNOWN ISSUE - expect duplicate key failure,Tag separately; do not count as a new bug,P1,core/wallet/persist_genesis_tx.go
+RBT-S-03,RBT,Code,Functional,Split,Split down to the smallest possible value,API,Single,Succeeds or gives a clear level limit error,No partial state left behind,P1,core/parts/split.go:34
+RBT-S-04,RBT,Code,Functional,Split,Do many splits one after another on the same wallet,API,Single,All succeed,Time per split as the wallet fills with small tokens,P0,
+RBT-S-05,RBT,Code,Functional,Split,Send a value needing splits at several levels at once,API,Single,Succeeds,Count IPFS writes and time; value exact,P0,core/parts/split.go:18
+RBT-Q-01,RBT,Code,Functional,Quorum Capacity,One node one quorum single transfer - no contention,API,Single,Succeeds,Baseline transaction time with nothing else running,P0,
+RBT-Q-02,RBT,Code,Functional,Quorum Capacity,2 nodes sharing one quorum transfer at the same time,API-RACE,Single,Both succeed,Transaction time per transfer against the RBT-Q-01 baseline,P0,
+RBT-Q-03,RBT,Code,Functional,Quorum Capacity,5 nodes sharing one quorum at the same time,API-RACE,Single,All succeed,Time per transfer; is it still close to baseline,P0,
+RBT-Q-04,RBT,Code,Functional,Quorum Capacity,10 nodes sharing one quorum at the same time,API-RACE,Single,All succeed,Time per transfer; watch for the first slowdown,P0,
+RBT-Q-05,RBT,Code,Functional,Quorum Capacity,20 nodes sharing one quorum at the same time,API-RACE,Single,Record time and pass rate,Where does time start climbing sharply,P0,
+RBT-Q-06,RBT,Code,Functional,Quorum Capacity,40 nodes sharing one quorum at the same time,API-RACE,Single,Record time and pass rate,Find the node count where one quorum stops coping,P0,
+RBT-Q-07,RBT,Code,Functional,Quorum Capacity,Climb the node count until time or pass rate degrades,API-RACE,Single,Record the node limit for one quorum,This is the headline number - nodes per quorum,P0,
+RBT-Q-08,RBT,Code,Functional,Quorum Capacity,Same 40 nodes split across 2 quorums,API-RACE,Multi,All succeed,Compare transaction time against RBT-Q-06,P0,
+RBT-Q-09,RBT,Code,Functional,Quorum Capacity,Same 40 nodes split across 5 quorums,API-RACE,Multi,All succeed,Compare time again; is the gain proportional,P0,
+RBT-Q-10,RBT,Code,Functional,Quorum Capacity,Same 40 nodes split across 10 quorums,API-RACE,Multi,All succeed,Find where extra quorums stop reducing time,P0,
+RBT-Q-11,RBT,Code,Functional,Quorum Capacity,Confirm quorums stay funded throughout every capacity test,API,Multi,No transfer ever fails for pledge shortage,Top up any quorum that drops near the floor; funding must never be the limit,P0,core/consensus/checks.go:539
+RBT-Q-12,RBT,Code,Functional,Quorum Capacity,Send more than a well funded quorum can pledge,API,Single,Rejected with a clear message,Edge case only - confirms the error path is clean,P1,core/consensus/consensus.go:91
+RBT-Q-13,RBT,Code,Functional,Quorum Capacity,Measure how fast a quorum frees up after a transfer,API,Single,Freed quickly enough for the next transfer,Time from settle to pledge tokens usable again,P0,core/unpledge_v2.go
+RBT-L-01,RBT,Code,Functional,Pledging,Watch pledge and unpledge during a normal transfer,API,Single,Pledge created then released,No pledges left open afterwards,P0,core/pledge_v2.go:39
+RBT-L-02,RBT,Code,Functional,Pledging,Check pledged tokens cannot be spent while pledged,API,Single,Rejected,Pledged tokens are properly held,P0,core/pledge_v2.go:96
+RBT-L-03,RBT,Code,Functional,Pledging,Interrupt a transfer after pledge but before finish,NODE-KILL,Single,Pledge is released on recovery,No tokens stuck pledged forever,P0,
+RBT-N-01,RBT,Code,Functional,Concurrency,Send the same token to two receivers at the same time,API-RACE,Single,Only one succeeds,Token has one owner; no double spend,P0,core/pledge_v2.go:94
+RBT-N-02,RBT,Code,Functional,Concurrency,5 transfers at once - different senders one quorum,API-RACE,Single,All succeed,Time per transfer as the baseline; quorums stay funded,P0,
+RBT-N-03,RBT,Code,Functional,Concurrency,25 transfers at once - different senders one quorum,API-RACE,Single,All succeed,Time per transfer; any failure reasons other than funding,P0,
+RBT-N-04,RBT,Code,Functional,Concurrency,50 transfers at once - different senders one quorum,API-RACE,Single,Record time and pass rate,Watch for lock retry failures and queueing delay,P0,core/wallet/token_lock.go:21
+RBT-N-05,RBT,Code,Functional,Concurrency,100 transfers at once - different senders one quorum,API-RACE,Single,Record time and pass rate,Note the failure reason - should not be pledge shortage,P0,
+RBT-N-06,RBT,Code,Functional,Concurrency,200 transfers at once - different senders one quorum,API-RACE,Single,Record time and pass rate,Record exactly where and why it breaks,P0,
+RBT-N-07,RBT,Code,Functional,Concurrency,200 transfers at once spread over 3 quorums,API-RACE,Multi,Faster than one quorum,Compare transaction time directly against RBT-N-06,P0,
+RBT-N-08,RBT,Code,Functional,Concurrency,200 transfers at once spread over 5 quorums,API-RACE,Multi,Faster again,How much does each extra quorum actually buy,P0,
+RBT-N-09,RBT,Code,Functional,Concurrency,Same load with 10 quorums,API-RACE,Multi,Find where more quorums stop helping,Record where the time gain flattens off,P0,
+RBT-N-10,RBT,Code,Functional,Concurrency,Many transfers from one single wallet at once,API-RACE,Single,All succeed or fail cleanly,No token used twice; final balance exact; watch lock retries,P0,core/wallet/token_lock.go:21
+RBT-N-11,RBT,Code,Functional,Concurrency,Many transfers into one single receiver at once,API-RACE,Multi,All succeed,Receiver balance is the exact sum,P0,
+RBT-N-12,RBT,Code,Functional,Concurrency,Two nodes sending to each other at the same time,API-RACE,Single,Both succeed,No deadlock; both balances correct,P0,core/pledge_v2.go:94
+RBT-N-13,RBT,Code,Functional,Concurrency,Large values sent in parallel through one quorum,API-RACE,Single,Some fail on pledge shortage,Failures are clean; successes are exact,P0,
+RBT-N-14,RBT,Code,Functional,Concurrency,Mix of tiny and large values in parallel,API-RACE,Multi,All settle,Small ones should not be starved by large ones,P0,
+RBT-N-15,RBT,Code,Functional,Concurrency,All 40 nodes sending at the same moment,API-RACE,Multi,Record pass rate,Total RBT across the fleet is unchanged,P0,
+RBT-F-01,RBT,Code,Functional,Failure,Stop the receiver node mid transfer,NODE-KILL,Single,Fails cleanly,Sender tokens unlocked not stuck; retry works after restart,P0,core/transaction.go:67
+RBT-F-02,RBT,Code,Functional,Failure,Stop the quorum node mid transfer,NODE-KILL,Single,Fails cleanly,Clear error; nothing half applied; tokens released,P0,
+RBT-F-03,RBT,Code,Functional,Failure,Stop the sender node mid transfer then restart,NODE-KILL,Single,Recovers to a clean state,No phantom balance; ownership consistent,P0,
+RBT-F-04,RBT,Code,Functional,Failure,Restart the database during a transfer,NODE-KILL,Single,Node reconnects,No completed transfer is lost,P0,core/connection_recovery.go
+RBT-F-05,RBT,Code,Functional,Failure,Kill a node during heavy parallel load,NODE-KILL,Multi,Other transfers carry on,Only in flight ones fail; totals still reconcile,P0,
+RBT-B-01,RBT,Infra,Performance,Bulk,Send many small transfers back to back,API,Single,All succeed,Measure speed; total value unchanged at the end,P0,
+RBT-B-02,RBT,Infra,Performance,Bulk,Send high value transfers repeatedly,API,Multi,All succeed,Measure speed; no rounding drift,P0,
+RBT-B-03,RBT,Infra,Performance,Bulk,Raise parallel transfers step by step and plot pass rate,API-RACE,Single,Find where it slows and where it fails,Build a pass rate chart against parallel count,P0,
+RBT-B-04,RBT,Infra,Performance,Bulk,Repeat the same ladder with 3 and 5 quorums,API-RACE,Multi,Higher throughput with more quorums,Produce the quorum count versus throughput table,P0,core/quorum_initiator.go:17
+RBT-B-05,RBT,Infra,Performance,Bulk,Many decimal transfers that force splits,API,Multi,All succeed,Compare speed against whole token transfers,P0,core/parts/split.go:18
+RBT-B-06,RBT,Infra,Performance,Bulk,Run transfers non stop for 4 hours,API-RACE,Multi,Stays stable,Memory steady; speed steady; balances exact,P0,core/resource_monitor.go
+RBT-B-07,RBT,Infra,Performance,Bulk,Time transfers as chain history grows,API,Multi,Stays usable,Measure at 1 10 50 and 100 hops,P0,
+RBT-B-08,RBT,Infra,Performance,Bulk,Time transfers as the wallet grows,API,Single,Stays usable,Measure at 10 100 1000 and 10000 tokens held,P0,core/wallet/token_lock.go:40
+RBT-W-07,RBT,Code,Functional,Wallet Shape,Send an amount that needs several whole tokens combined,API,Single,Succeeds,An exact combination is used; no split needed,P1,core/wallet/token_lock.go:40
+RBT-W-08,RBT,Code,Functional,Wallet Shape,Send an amount that no combination matches exactly,API,Single,Succeeds,Falls back to greedy selection plus a split; change returns to the wallet,P1,core/wallet/token_lock.go:40
+RBT-IN-01,RBT,Code,Functional,Integrity,Add up RBT across sender and receiver after a transfer run,API,Single,Totals match what was minted,Balance plus locked plus pledged plus burnt accounts for everything,P0,
+RBT-IN-02,RBT,Code,Functional,Integrity,Check no RBT is left locked after a completed run,API,Single,Locked returns to zero,Anything still locked means a lock-release path was missed,P0,core/transaction.go:70
+RBT-IN-03,RBT,Code,Functional,Integrity,Compare the API RBT balance against the tokens table,API,N/A,They match,Catches a reporting bug that would hide a real accounting problem,P0,types/balance.go
+RBT-ND-01,RBT,Code,Functional,Node,"Transfer, restart the sender, then transfer again",NODE-KILL,Single,Both succeed,Wallet and quorum registration both survive the restart,P0,
+RBT-ND-02,RBT,Code,Functional,Node,Restart a node in the middle of a transfer,NODE-KILL,Single,Record the behaviour,Either it completes or it fails cleanly - value must not be lost or duplicated,P0,core/transaction.go:70
+RBT-ND-03,RBT,Code,Functional,Node,Spend tokens that were created before a restart,NODE-KILL,Single,Succeeds,Token state reloads correctly from the database,P1,
+RBT-DB-01,RBT,Code,Functional,DB Failure,Mark an RBT token as owned by the wrong DID then transfer,DB-SEED,Single,Rejected,Ownership check catches it; nothing moves,P0,
+RBT-DB-02,RBT,Code,Functional,DB Failure,Delete a chain row then transfer that token,DB-SEED,Single,Rejected,Chain integrity check catches it,P0,
+RBT-DB-03,RBT,Code,Functional,DB Failure,Set the denomination counter higher than the real tokens,DB-SEED,Single,Record the behaviour,This is the corruption real bugs produce - confirms how it surfaces,P0,core/wallet/token_lock.go:505
+FT-M-01,FT,Code,Functional,Mint,Create a new FT by burning RBT,API,Single,FTs created,RBT burnt correctly; count matches; series listed,P1,core/ft.go:45
+FT-M-02,FT,Code,Functional,Mint,Create the same FT name again from the same DID,API,Single,Succeeds and count adds on,No duplicate series; total is the sum,P0,core/ft.go:196
+FT-M-03,FT,Code,Functional,Mint,Create the same FT name from a different DID,API,Single,Separate series created,Two series with the same name do not mix,P1,core/ft.go:198
+FT-M-04,FT,Code,Functional,Mint,Create exactly 1000 FTs from 1 RBT,API,Single,Succeeds at the limit,Count exact; RBT burnt,P0,core/ft.go:70
+FT-M-05,FT,Code,Functional,Mint,Create 1001 FTs from 1 RBT,API,Single,Rejected,RBT not burnt; nothing created; locks released,P0,core/ft.go:70
+FT-M-06,FT,Code,Functional,Mint,Create 10000 FTs from 10 RBT,API,Single,Succeeds,Ratio limit is per RBT not per call,P0,core/ft.go:70
+FT-M-07,FT,Code,Functional,Mint,Create 100000 FTs from 100 RBT,API,Single,Find out if this works,Time the mint; note where large mints slow down,P0,core/ft.go:45
+FT-M-08,FT,Infra,Functional,Mint,Climb the mint size ladder until it fails,API,Single,Record the largest mint that works,Note the failure reason at the limit,P0,
+FT-M-09,FT,Code,Functional,Mint,Create FT with count of zero or negative,API,Single,Rejected,Nothing created,P1,core/ft.go:66
+FT-M-10,FT,Code,Functional,Mint,Create FT with RBT count of zero or negative,API,Single,Rejected,Nothing created,P1,core/ft.go:69
+FT-M-11,FT,Code,Functional,Mint,Create FT when the wallet lacks enough RBT,API,Single,Rejected,No FTs created; RBT untouched; locks released,P0,core/ft.go:110
+FT-M-12,FT,Code,Functional,Mint,Create FT with an empty or invalid creator DID,API,Single,Rejected,Nothing created,P1,core/ft.go:51
+FT-M-13,FT,Code,Functional,Mint,Create FT using RBT that needs splitting first,API,Single,Succeeds,Split happens before the mint; values still exact,P0,core/ft.go:94
+FT-M-14,FT,Code,Functional,Mint,Two mints of the same FT name at the same time,API-RACE,Single,Both succeed and counts add correctly,No lost updates on the shared count,P0,core/ft.go:196
+FT-T-01,FT,Code,Functional,Transfer,Send 1 FT,API,Single,Succeeds,Counts move by exactly 1 on both sides,P0,
+FT-T-02,FT,Code,Functional,Transfer,Send part of the FTs held,API,Single,Succeeds,Counts correct both sides; transaction recorded both sides,P0,
+FT-T-03,FT,Code,Functional,Transfer,Send the entire FT holding,API,Single,Succeeds,Sender count is zero; receiver has all,P1,
+FT-T-04,FT,Code,Functional,Transfer,Send one more FT than held,API,Single,Rejected,Counts unchanged; locks released,P0,core/transaction.go:77
+FT-T-05,FT,Code,Functional,Transfer,Send zero or a negative FT count,API,Single,Rejected,Counts unchanged,P1,
+FT-T-06,FT,Code,Functional,Transfer,Send an FT name that does not exist,API,Single,Rejected,Nothing changes,P0,
+FT-T-07,FT,Code,Functional,Transfer,Send with a misspelled FT name,API,Single,Rejected,Error names the FT clearly,P1,
+FT-T-08,FT,Code,Functional,Transfer,Send with the wrong creator DID,API,Single,Rejected,Name plus creator together identify the series,P0,core/ft.go:198
+FT-T-09,FT,Code,Functional,Transfer,Send FTs to yourself,API,Single,Succeeds and stays local,Count unchanged overall; no network call,P1,core/transaction.go:495
+FT-T-10,FT,Code,Functional,Transfer,Send FTs between two DIDs on the same node,API,Single,Succeeds,Both DIDs correct; no network round trip,P1,core/transaction.go:513
+FT-T-11,FT,Code,Functional,Transfer,Send FTs back and forth several times,API,Single,All succeed,Counts exact after every round; no drift,P0,
+FT-T-12,FT,Code,Functional,Transfer,Send FTs from a series another node created,API,Single,Succeeds,Creator DID travels with the series,P1,
+FT-V-01,FT,Code,Functional,Transfer Value,Send 100 FTs,API,Single,Succeeds,Time it as the baseline,P0,
+FT-V-02,FT,Code,Functional,Transfer Value,Send 1000 FTs,API,Single,Succeeds,Note token count carried in the transaction,P0,
+FT-V-03,FT,Code,Functional,Transfer Value,Send 10000 FTs in one go,API,Single,Find out if this works,Time it; watch for batch limits,P0,core/quorum_initiator.go:56
+FT-V-04,FT,Code,Functional,Transfer Value,Send 100000 FTs in one go,API,Single,Find the limit,Record the failure reason if it breaks,P0,
+FT-V-05,FT,Infra,Functional,Transfer Value,Climb the FT count ladder until it fails,API,Single,Record the largest transfer that works,Note where and why it stops,P0,
+FT-V-06,FT,Code,Functional,Transfer Value,Send FTs from a wallet holding many series,API,Single,Succeeds,Picking the right series stays fast,P1,
+FT-Q-01,FT,Code,Functional,Quorum Capacity,5 nodes doing FT transfers through one quorum,API-RACE,Single,All succeed,Time per transfer as the FT baseline,P0,
+FT-Q-02,FT,Code,Functional,Quorum Capacity,20 nodes doing FT transfers through one quorum,API-RACE,Single,Record time and pass rate,Where FT transfer time starts climbing,P0,
+FT-Q-03,FT,Code,Functional,Quorum Capacity,40 nodes doing FT transfers through one quorum,API-RACE,Single,Record time and pass rate,Find the node limit for FT on one quorum,P0,
+FT-Q-04,FT,Code,Functional,Quorum Capacity,Same 40 nodes split across 5 quorums,API-RACE,Multi,Faster than one quorum,Compare FT transfer time against FT-Q-03,P0,
+FT-Q-05,FT,Code,Functional,Quorum Capacity,Compare FT and RBT node limits on one quorum,API-RACE,Single,Record both,Does FT cope better or worse than RBT at the same node count,P0,
+FT-L-01,FT,Code,Functional,Pledging,Watch pledge and unpledge during FT transfer,API,Single,Pledge created then released,No pledges left open; pledge covers the transfer,P0,core/pledge_v2.go:39
+FT-L-02,FT,Code,Functional,Pledging,FT transfer when the quorum cannot pledge,API,Single,Rejected cleanly,Counts unchanged; locks released,P0,
+FT-N-01,FT,Code,Functional,Concurrency,Send the same FTs to two receivers at once,API-RACE,Single,Only one succeeds,Counts exact; none created or lost,P0,
+FT-N-02,FT,Code,Functional,Concurrency,10 FT transfers at once through one quorum,API-RACE,Single,All succeed,Record time and pass rate baseline,P0,
+FT-N-03,FT,Code,Functional,Concurrency,50 FT transfers at once through one quorum,API-RACE,Single,Record pass rate,Watch for pledge shortage,P0,
+FT-N-04,FT,Code,Functional,Concurrency,200 FT transfers at once through one quorum,API-RACE,Single,Expect a low pass rate,Record where it breaks,P0,
+FT-N-05,FT,Code,Functional,Concurrency,200 FT transfers spread over 5 quorums,API-RACE,Multi,Much better pass rate,Compare directly against FT-N-04,P0,
+FT-N-06,FT,Code,Functional,Concurrency,Many FT transfers from one wallet at once,API-RACE,Single,All succeed or fail cleanly,Final count adds up exactly,P0,
+FT-N-07,FT,Code,Functional,Concurrency,Transfer FTs while another mint of the same series runs,API-RACE,Single,Both settle correctly,Series count stays correct throughout,P0,core/ft.go:196
+FT-CH-01,FT,Code,Functional,Multi Hop,Move FTs through A to B to C with quorum changing each hop,MULTI-NODE,Fresh per hop,All hops succeed,Each hop links to the last; fresh quorum syncs history first,P0,core/consensus/checks.go:672
+FT-CH-02,FT,Code,Functional,Multi Hop,Same route using one quorum for every hop,MULTI-NODE,Single,All hops succeed,Control test - compare with FT-H-01,P0,
+FT-CH-03,FT,Code,Functional,Multi Hop,Move FTs through 10 hops,MULTI-NODE,Multi,All succeed,Time each hop as history grows,P0,
+FT-CH-04,FT,Code,Functional,Multi Hop,Break the chain in the database then transfer,DB-SEED,Single,Rejected for chain mismatch,Error names the token; restore database after,P1,core/consensus/checks.go:774
+FT-B-01,FT,Infra,Performance,Bulk,Mint increasingly large FT batches,API,Single,Find the practical mint size limit,Plot mint time against batch size,P1,core/ft.go:45
+FT-B-02,FT,Infra,Performance,Bulk,Send many FT transfers back to back,API,Single,All succeed,Measure speed; total count unchanged,P0,
+FT-B-03,FT,Infra,Performance,Bulk,Raise parallel FT transfers step by step,API-RACE,Single,Find the slowdown and failure points,Build the pass rate chart,P0,
+FT-B-04,FT,Infra,Performance,Bulk,Repeat the ladder with 3 and 5 quorums,API-RACE,Multi,Higher throughput,Produce the quorum versus throughput table,P0,
+FT-B-05,FT,Infra,Performance,Bulk,Run FT load for several hours,API-RACE,Multi,Stays stable,Counts still exact at the end,P0,
+FT-P-01,FT,Code,Functional,Parts,Fund a wallet using only amounts below 1 so it holds no whole token,API,Single,Wallet holds only fractional tokens,No 1.000 token present; the fractional denominations add up to the funded amount,P0,core/wallet/token_lock.go:40
+FT-P-02,FT,Code,Functional,Parts,Mint an FT from a wallet holding only part tokens,API,Single,Succeeds,More than one RBT row burnt to back the batch; FT count correct,P0,core/ft.go:82
+FT-P-03,FT,Code,Functional,Parts,Check what the part burn actually consumed,API,Single,Free balance falls by exactly the RBT minted,The consumed value is recorded as BurntForFT; no part silently destroyed,P0,core/wallet/token_chain.go:852
+FT-P-04,FT,Code,Functional,Parts,Mint a second FT from the same parts wallet,API,Single,Succeeds and costs exactly the RBT requested,A first mint must not corrupt the counter the second one selects from,P0,core/ft.go:82
+FT-P-05,FT,Code,Functional,Parts,Spend the parts left over after the FT burns,API,Single,Succeeds,"Leftover parts are still selectable and transferable, not stranded",P0,core/wallet/token_lock.go:40
+FT-Q-06,FT,Code,Functional,Quorum Capacity,Transfer FTs whose backing value is more than the quorum can pledge,API,Single,Rejected,FT balance unchanged on both sides; locks released,P0,core/consensus/checks.go:539
+FT-Q-07,FT,Code,Functional,Quorum Capacity,Transfer FTs through a quorum that is itself moving FTs,API-RACE,Single,Succeeds,No cross-talk between the quorum own FT movement and the one it signs,P1,core/consensus/checks.go:539
+FT-Q-08,FT,Code,Functional,Quorum Capacity,Check the same quorum signs every FT transfer from one sender,API,Multi,Primary quorum should stay the same,Same unsorted-query risk as the RBT case - confirm before grouping by quorum,P0,core/wallet/quorum.go:68
+FT-Q-09,FT,Code,Functional,Quorum Capacity,Transfer FTs after the quorum has been restarted,NODE-KILL,Single,Succeeds,Quorum registration survives; FT series still transferable,P1,core/transaction.go:171
+FT-IN-01,FT,Code,Functional,Integrity,Add up FT counts per series across nodes after transfers,API,Single,Totals match what was minted,None created or lost by transfers,P0,core/ft.go
+FT-IN-02,FT,Code,Functional,Integrity,Check no FTs are left locked after a completed run,API,Single,No FT locks remain,"FT has its own lock-release path, separate from RBT",P0,core/transaction.go:77
+FT-IN-03,FT,Code,Functional,Integrity,Compare the API FT balance against the database,API,N/A,They match,FT counts are reported per series - a mismatch on one series only is the likely shape,P0,core/ft.go
+FT-ND-01,FT,Code,Functional,Node,"Transfer FTs, restart the sender, transfer again",NODE-KILL,Single,Both succeed,FT series survives the restart intact,P0,
+FT-ND-02,FT,Code,Functional,Node,Restart a node in the middle of an FT transfer,NODE-KILL,Single,Record the behaviour,FT counts must not be lost or duplicated on either side,P0,core/transaction.go:77
+FT-ND-03,FT,Code,Functional,Node,Mint an FT from tokens created before a restart,NODE-KILL,Single,Succeeds,The denomination counter reloads correctly and still backs a mint,P0,core/wallet/token_lock.go:505
+FT-DB-01,FT,Code,Functional,DB Failure,Change an FT count in the database then transfer,DB-SEED,Single,Rejected,FT accounting catches the mismatch,P0,core/ft.go
+FT-DB-02,FT,Code,Functional,DB Failure,Delete an FT row then transfer that series,DB-SEED,Single,Rejected,Nothing transferred; locks released,P0,core/ft.go
+FT-DB-03,FT,Code,Functional,DB Failure,Leave an FT stuck locked then try to use it,DB-SEED,Single,Rejected,A stuck lock must not be silently reused,P1,core/transaction.go:77
+NFT-M-01,NFT,Code,Functional,Create,Create an NFT with metadata and artifact,API,N/A,Created and ID returned,Files on IPFS; NFT appears in the list,P1,core/nft.go:44
+NFT-M-02,NFT,Code,Functional,Create,Create an NFT with missing metadata or artifact,API,N/A,Rejected,Nothing created,P1,core/nft.go:48
+NFT-M-03,NFT,Code,Functional,Create,Create an NFT with a very large artifact file,API,N/A,Succeeds or fails with a clear limit,Record the largest artifact that works; time the upload,P1,core/nft.go:48
+NFT-D-01,NFT,Code,Functional,Deploy,Deploy an NFT to the chain,API,Single,Succeeds,Chain starts; deployer is owner; node auto subscribes,P1,core/transaction.go:472
+NFT-D-02,NFT,Code,Functional,Deploy,Deploy without giving an owner,API,Single,Succeeds - deployer becomes owner,Owner equals initiator,P1,core/transaction_builder.go:439
+NFT-D-03,NFT,Code,Functional,Deploy,Deploy together with RBT or FT in one call,API,Single,Rejected,Clear error that deploy cannot be combined,P0,core/transaction_builder.go:433
+NFT-D-04,NFT,Code,Functional,Deploy,Deploy the same NFT twice,API,Single,Rejected the second time,Chain not duplicated,P0,core/consensus/checks.go:709
+NFT-D-05,NFT,Code,Functional,Deploy,Deploy many NFTs at the same time,API-RACE,Multi,All succeed,Each gets its own chain; no ID clashes,P0,
+NFT-E-01,NFT,Code,Functional,Execute,Owner executes their own NFT,API,Single,Succeeds,Chain grows by 1; owner unchanged,P1,
+NFT-E-02,NFT,Code,Functional,Execute,Another node subscribes then executes,API,Single,Succeeds,Any subscriber may execute; chain syncs to that node,P0,core/consensus/checks.go:122
+NFT-E-03,NFT,Code,Functional,Execute,Execute without subscribing first,API,Single,Fails at the subscribe step,Error is about subscription not ownership,P1,core/nft.go:128
+NFT-E-04,NFT,Code,Functional,Execute,Execute the same NFT 50 times in a row,API,Single,All succeed,Chain grows each time with no gaps; time per execute as chain grows,P0,
+NFT-E-05,NFT,Code,Functional,Execute,Two nodes execute the same NFT at the same time,API-RACE,Single,Both handled cleanly,Chain stays consistent; no gaps or duplicates,P0,
+NFT-E-06,NFT,Code,Functional,Execute,Many nodes execute the same NFT at once,API-RACE,Multi,Record pass rate,Chain length correct afterwards on every node,P0,
+NFT-E-07,NFT,Code,Functional,Execute,Non owner tries to change the NFT value,API,Single,Value change ignored,Stored value stays; data field can still be set,P1,core/transaction_builder.go:254
+NFT-C-01,NFT,Code,Functional,Child Mint,Mint child NFTs under a parent,API,Single,Children created,Child IDs made by the server; parent executed in the same transaction,P1,core/transaction.go:101
+NFT-C-02,NFT,Code,Functional,Child Mint,Mint 1 child then 10 then 100 under one parent,API,Single,All succeed,Time the mint as child count grows; find the practical limit,P0,
+NFT-C-03,NFT,Code,Functional,Child Mint,Check parent lists all its children,API,N/A,All listed,Counts match what was minted; query stays fast,P1,
+NFT-C-04,NFT,Code,Functional,Child Mint,Check each child points back to the parent,API,N/A,Correct for every child,No orphan children,P1,
+NFT-C-05,NFT,Code,Functional,Child Mint,Mint a child under a parent that does not exist,API,Single,Rejected,Nothing created,P1,core/transaction.go:101
+NFT-C-06,NFT,Code,Functional,Child Mint,Fetch a child NFT on another node,API,N/A,Works without artifact files,Child has no metadata so only the chain syncs,P1,core/nft.go:110
+NFT-C-07,NFT,Code,Functional,Child Mint,Mint children under a parent that already has many,API,Single,Succeeds,Time it as the family grows,P1,
+NFT-X-01,NFT,Code,Functional,Transfer,Transfer NFT ownership to another node,API,Single,Succeeds,Owner changes; both nodes agree; chain records the transfer,P0,core/consensus/checks.go:375
+NFT-X-02,NFT,Code,Functional,Transfer,Transfer an NFT you do not own,API,Single,Rejected,Ownership unchanged,P0,core/consensus/checks.go:400
+NFT-X-03,NFT,Code,Functional,Transfer,Transfer an NFT to its current owner,API,Single,Rejected - owner must change,This is the NFT self transfer case,P0,core/consensus/checks.go:403
+NFT-X-04,NFT,Code,Functional,Transfer,Transfer an NFT that was never deployed,API,Single,Rejected,Nothing changes,P0,core/consensus/checks.go:393
+NFT-X-05,NFT,Code,Functional,Transfer,Transfer a parent NFT that has children,API,Single,Succeeds,Child links still correct after the owner changes,P1,
+NFT-X-06,NFT,Code,Functional,Transfer,Transfer the same NFT to two receivers at once,API-RACE,Single,Only one succeeds,Exactly one owner afterwards,P0,
+NFT-X-07,NFT,Code,Functional,Transfer,Transfer an NFT immediately after receiving it,API,Multi,Succeeds,No stale ownership error,P0,
+NFT-X-08,NFT,Code,Functional,Transfer,Many NFT transfers at once through one quorum,API-RACE,Single,Record pass rate,Compare against the same load with 5 quorums,P0,
+NFT-CH-01,NFT,Code,Functional,Multi Hop,Move NFT ownership through several nodes with quorum changing,MULTI-NODE,Fresh per hop,All hops succeed,Owner correct at each step; each fresh quorum syncs history,P0,
+NFT-CH-02,NFT,Code,Functional,Multi Hop,Move an NFT through 10 owners,MULTI-NODE,Multi,All succeed,Time each hop as the chain grows,P0,
+NFT-B-01,NFT,Infra,Performance,Bulk,Deploy many NFTs in a row,API,Multi,All succeed,Plot deploy time against count,P1,
+NFT-B-02,NFT,Infra,Performance,Bulk,Execute NFTs at a high rate,API-RACE,Multi,All succeed,Measure speed; chain lengths all correct,P1,
+NFT-B-03,NFT,Infra,Performance,Bulk,Mint many children under one parent,API,Single,All created,Time the children listing as the count grows,P2,
+NFT-B-04,NFT,Infra,Performance,Bulk,Time execute as the NFT chain gets long,API,Single,Stays usable,Measure at 10 50 and 200 chain entries,P0,
+NFT-Q-01,NFT,Code,Functional,Quorum Capacity,Execute an NFT with only one quorum available,API,Single,Succeeds,Quorum pledges the NFT value; chain advances,P0,core/consensus/checks.go:539
+NFT-Q-02,NFT,Code,Functional,Quorum Capacity,Execute an NFT whose value is more than the quorum can pledge,API,Single,Rejected,Nothing committed; locks released; NFT chain unchanged,P0,core/consensus/checks.go:539
+NFT-Q-03,NFT,Code,Functional,Quorum Capacity,Execute an NFT through a quorum that is sending its own tokens,API-RACE,Single,Succeeds,A busy quorum still pledges correctly; no cross-talk between the two flows,P1,core/consensus/checks.go:539
+NFT-Q-04,NFT,Code,Functional,Quorum Capacity,Check the same quorum signs every NFT execute from one sender,API,Multi,Primary quorum should stay the same,The quorum query has no sort order so the pick may drift - verify before trusting groups,P0,core/wallet/quorum.go:68
+NFT-Q-05,NFT,Code,Functional,Quorum Capacity,Execute an NFT after its quorum has been restarted,NODE-KILL,Single,Succeeds,Quorum registration survives the restart; no re-registration needed,P1,core/transaction.go:171
+NFT-IN-01,NFT,Code,Functional,Integrity,Check every NFT is owned by exactly one DID,API,N/A,No NFT is owned twice or by nobody,A transfer that half-completed leaves exactly this shape,P0,
+NFT-IN-02,NFT,Code,Functional,Integrity,Check each NFT chain is the same length on every node that holds it,API,Single,Chains agree,A node that missed an execute reports a shorter chain,P0,
+NFT-IN-03,NFT,Code,Functional,Integrity,Look for duplicate NFT ids across the fleet,API,N/A,No duplicates,Metadata that hashes the same produces the same id - a real collision risk,P1,
+NFT-ND-01,NFT,Code,Functional,Node,Execute an NFT after restarting the owner node,NODE-KILL,Single,Succeeds,Chain continues from where it was; no gap,P0,
+NFT-ND-02,NFT,Code,Functional,Node,Check a subscription survives a restart,NODE-KILL,Single,Still subscribed,Subscription is the gate for execute - losing it silently blocks a node,P0,core/consensus/checks.go:122
+NFT-ND-03,NFT,Code,Functional,Node,Restart a node in the middle of an ownership transfer,NODE-KILL,Single,Record the behaviour,"The NFT must end up owned by exactly one side, never both or neither",P0,
+NFT-DB-01,NFT,Code,Functional,DB Failure,Change an NFT owner in the database then execute,DB-SEED,Single,Rejected,Ownership mismatch caught before consensus,P0,
+NFT-DB-02,NFT,Code,Functional,DB Failure,Delete an NFT chain row then execute,DB-SEED,Single,Rejected,Chain integrity check catches it,P0,
+NFT-DB-03,NFT,Code,Functional,DB Failure,Leave a child NFT pointing at a missing parent,DB-SEED,Single,Record the behaviour,Orphan children are reachable through the parent query - confirm it fails safely,P1,
+NFT-B-05,NFT,Infra,Performance,Bulk,Execute 200 NFTs in parallel,API-RACE,Multi,Record the rate and any failures,Correctness asserted alongside timing - every chain must still be right,P1,
+NFT-B-06,NFT,Infra,Performance,Bulk,Mint children under one parent at a high rate,API-RACE,Single,Record the largest batch that works,"Child mint takes one entry per child, so the request grows with the count",P1,
+SC-D-01,SC,Code,Functional,Deploy,Deploy a smart contract,API,Single,Succeeds,Listed; chain starts,P1,core/smart_contract.go
+SC-D-02,SC,Code,Functional,Deploy,Deploy without giving an owner,API,Single,Succeeds - deployer is owner,Owner falls back to initiator,P1,core/consensus/checks.go:53
+SC-D-03,SC,Code,Functional,Deploy,Deploy a broken or oversized wasm file,API,Single,Rejected cleanly,Node does not crash,P2,
+SC-D-04,SC,Code,Functional,Deploy,Deploy contracts of increasing size,API,Single,Find the practical size limit,Time the deploy against file size,P1,
+SC-D-05,SC,Code,Functional,Deploy,Deploy several contracts at the same time,API-RACE,Multi,All succeed,No ID clashes,P1,
+SC-E-01,SC,Code,Functional,Execute,Deployer executes their own contract,API,Single,Succeeds,Chain grows,P1,
+SC-E-02,SC,Code,Functional,Execute,Another node subscribes then executes,API,Single,Succeeds,Chain syncs and matches on both,P0,
+SC-E-03,SC,Code,Functional,Execute,Execute repeatedly from both nodes in turn,API,Single,All succeed,Chain stays consistent on both sides,P1,
+SC-E-04,SC,Code,Functional,Execute,Execute the same contract from two nodes at once,API-RACE,Single,Both handled cleanly,Chain has no gaps or duplicates,P0,
+SC-E-05,SC,Code,Functional,Execute,Execute 50 times and watch the chain grow,API,Single,All succeed,Time per execute as the chain lengthens,P0,
+SC-K-01,SC,Code,Functional,Callback,Register a callback URL,API,N/A,Registered,Appears in the callback table,P1,core/wallet/callback.go
+SC-K-02,SC,Code,Functional,Callback,Execute and check the callback actually arrives,API,Single,Callback delivered,Receiver really got the POST not just a log line,P0,
+SC-K-03,SC,Code,Functional,Callback,Check who is named in the callback message,API,Single,Correct initiator in the payload,Matches the node that executed,P0,
+SC-K-04,SC,Code,Functional,Callback,Execute when the callback URL is down,API,Single,Execution still succeeds,Callback failure logged but does not fail the transaction,P1,
+SC-K-05,SC,Code,Functional,Callback,Fire many executions quickly and count callbacks,API-RACE,Multi,Every execution produces a callback,None dropped under load,P0,
+SC-B-01,SC,Infra,Performance,Bulk,Deploy many contracts in a row,API,Multi,All succeed,Measure deploy time,P1,
+SC-B-02,SC,Infra,Performance,Bulk,Execute contracts at a high rate,API-RACE,Multi,All succeed,Measure speed; chains stay consistent,P1,
+SC-C-01,SC,Code,Functional,Collateral,Deploy a contract with a value of 0.001,API,Single,Succeeds and costs exactly 0.001,Free balance drops by 0.001 not a whole token; a whole token consumed here means the remainder was destroyed,P0,core/consensus/consensus.go:31
+SC-C-02,SC,Code,Functional,Collateral,Check what was actually committed for a 0.001 deploy,API,Single,Committed total equals 0.001,Backing tokens marked Committed; remainder comes back as change; not a whole denomination,P0,core/wallet/token_lock.go:505
+SC-C-03,SC,Code,Functional,Collateral,Deploy three fractional-value contracts one after another,API,Single,All three succeed,Each costs exactly what was asked; no compounding loss across repeats,P0,core/consensus/consensus.go:31
+SC-C-04,SC,Code,Functional,Collateral,Deploy a contract with a value of exactly 1.0,API,Single,Succeeds and costs exactly 1.0,"Control for SC-C-01 - the one value where committing a whole token is correct, so a pass here with SC-C-01 failing pins the fault to fractional handling",P1,core/consensus/consensus.go:31
+SC-C-05,SC,Code,Functional,Collateral,Execute a contract that carries a value,API,Single,Succeeds,Quorum pledges at least the contract value,P1,core/consensus/checks.go:539
+SC-C-06,SC,Code,Negative,Collateral,Deploy with a value larger than the wallet holds,API,Single,Rejected,Nothing committed; locked tokens released; balance unchanged,P1,core/consensus/consensus.go:31
+SC-Q-01,SC,Code,Functional,Quorum Capacity,Deploy a contract with only one quorum available,API,Single,Succeeds,Quorum pledges the contract value; contract listed,P0,core/consensus/consensus.go:31
+SC-Q-02,SC,Code,Functional,Quorum Capacity,Execute a contract whose value is more than the quorum can pledge,API,Single,Rejected,Nothing committed; locks released; contract chain unchanged,P0,core/consensus/checks.go:539
+SC-Q-03,SC,Code,Functional,Quorum Capacity,Deploy and execute through a quorum that is also transacting,API-RACE,Single,Both succeed,A busy quorum still pledges correctly for contract work,P1,core/consensus/checks.go:539
+SC-Q-04,SC,Code,Functional,Quorum Capacity,Check only one quorum signs each contract execute,API,Multi,Exactly one quorum signs,One transaction uses exactly one quorum - there is no loop over quorums,P0,core/transaction.go:171
+SC-Q-05,SC,Code,Functional,Quorum Capacity,Execute a contract after its quorum has been restarted,NODE-KILL,Single,Succeeds,Subscription and quorum registration both survive the restart,P1,core/transaction.go:171
+SC-IN-01,SC,Code,Functional,Integrity,Check every deployed contract is listed and has a chain,API,Single,All present,A deploy that returned success but left no chain is a silent failure,P0,
+SC-IN-02,SC,Code,Functional,Integrity,Check each contract chain matches across subscribed nodes,API,Single,Chains agree,Subscription is what keeps them in step - a drift means a missed execute,P0,core/consensus/checks.go:122
+SC-IN-03,SC,Code,Functional,Integrity,Reconcile committed collateral against the contracts deployed,API,N/A,Committed total equals the sum of the deploy values,Catches collateral taken but not attributed to any contract,P0,core/consensus/consensus.go:31
+SC-ND-01,SC,Code,Functional,Node,Execute a contract after restarting the deployer node,NODE-KILL,Single,Succeeds,Contract still listed; chain continues,P0,
+SC-ND-02,SC,Code,Functional,Node,Check a registered callback survives a restart,NODE-KILL,Single,Callback still fires,A callback lost on restart fails silently - nothing reports it,P0,
+SC-ND-03,SC,Code,Functional,Node,Restart a node in the middle of a contract execute,NODE-KILL,Single,Record the behaviour,Chain must not gain a partial entry,P1,
+SC-DB-01,SC,Code,Functional,DB Failure,Delete a contract row then execute it,DB-SEED,Single,Rejected,Nothing executed; chain unchanged,P0,
+SC-DB-02,SC,Code,Functional,DB Failure,Corrupt a stored callback URL then execute,DB-SEED,Single,Record the behaviour,Execute should still succeed even when the callback cannot be delivered,P1,
+SC-CH-01,SC,Code,Functional,Multi Hop,Execute one contract from five nodes in turn,MULTI-NODE,Fresh per hop,All succeed,Chain grows by one per execute and agrees on every node,P1,core/consensus/checks.go:122
+SC-CH-02,SC,Infra,Performance,Multi Hop,Grow a contract chain to 50 entries then execute again,MULTI-NODE,Single,Record the time as the chain grows,Execute time should not grow with chain length,P1,
+SC-B-03,SC,Infra,Performance,Bulk,Execute 200 contracts in parallel,API-RACE,Multi,Record the rate and any failures,Chains all still correct afterwards,P1,
+SC-B-04,SC,Infra,Performance,Bulk,Deploy contracts with values at a high rate,API-RACE,Multi,Record the rate,Collateral accounting must hold under load - the fractional path especially,P0,core/consensus/consensus.go:31
+SC-C-07,SC,Code,Functional,Collateral,Deploy several contracts with different decimal values in one run,API,Single,Each deploy costs exactly its own value,Values 0.001 0.01 0.1 and 0.5 checked one at a time - a single value passing does not prove the others do,P0,core/consensus/consensus.go:31
+SC-C-08,SC,Code,Functional,Collateral,Check the tokens and denomination tables after every deploy,API,Single,Both tables update correctly for each deploy,"Committed rows appear, free rows drop, token_denom matches the real free tokens after each one",P0,core/wallet/token_lock.go:505
+SC-C-09,SC,Code,Functional,Collateral,Execute a contract from a subscribed node using part tokens,API,Single,Succeeds and costs exactly the contract value,Balance deduction correct; tokens and token_denom both updated; parts not destroyed,P0,core/consensus/consensus.go:31
+SC-Q-06,SC,Code,Functional,Quorum Capacity,Check the quorum pledged the correct value for a contract deploy,API,Single,Pledged value equals the contract value,Quorum pledge tables updated; pledge released after the transaction settles,P0,core/consensus/checks.go:539
+SC-S-01,SC,Code,Functional,Subscription,Subscribe to a contract before it is deployed,MULTI-NODE,Single,Record the behaviour,Subscribing to a token that does not exist yet may fail or succeed - both are findings,P0,core/smart_contract.go:274
+SC-S-02,SC,Code,Functional,Subscription,Subscribe immediately after deployment,MULTI-NODE,Single,Subscriber holds the full chain,The baseline case - a subscriber with nothing to catch up on,P0,core/smart_contract.go:274
+SC-S-03,SC,Code,Functional,Subscription,Subscribe after the contract has already been executed once,MULTI-NODE,Single,Subscriber holds the full chain including the execution it missed,Late subscribers depend on a back-fill sync that is skipped when the contract folder already exists locally,P0,core/smart_contract.go:190
+SC-S-04,SC,Code,Functional,Subscription,Subscribe after several executions have already happened,MULTI-NODE,Single,Subscriber holds the full chain including every execution it missed,"The deeper the chain when a node subscribes, the more a partial back-fill would hide",P0,core/smart_contract.go:190
+SC-S-05,SC,Code,Functional,Subscription,Compare contract data across nodes that subscribed at different times,MULTI-NODE,Single,Every subscribed node holds identical chain and token data,Any node with a shorter chain subscribed late and never caught up - it will still accept executes,P0,core/smart_contract.go:190
+CRS-01,Cross-Asset,Code,Functional,Combined,Send RBT and FT in one transaction,API,Single,Both move together,Balances and counts both correct; one transaction ID,P0,
+CRS-02,Cross-Asset,Code,Functional,Combined,Send RBT plus execute an NFT and a contract in one call,API,Single,All parts succeed together,All chains advance; single transaction recorded,P0,
+CRS-03,Cross-Asset,Code,Functional,Combined,Send RBT plus every FT plus every NFT and contract at once,API,Single,All parts succeed,Everything updates; nothing left behind,P0,
+CRS-04,Cross-Asset,Code,Functional,Combined,Grow the combined transaction until it fails,API,Single,Find how much fits in one transaction,Record the component count where it breaks,P0,core/quorum_initiator.go:56
+CRS-05,Cross-Asset,Code,Functional,Combined,Combined call where one part is invalid,API,Single,Whole transaction rejected,Nothing applied - not even the valid parts,P0,
+CRS-06,Cross-Asset,Code,Functional,Combined,Combined call with a large RBT value plus assets,API,Single,Succeeds if quorum can pledge the total,Pledge covers RBT plus asset value together,P0,core/consensus/checks.go:520
+CRS-07,Cross-Asset,Code,Functional,Restriction,NFT deploy combined with RBT,API,Single,Rejected,Clear error about the deploy restriction,P0,core/transaction_builder.go:433
+CRS-08,Cross-Asset,Code,Functional,Restriction,NFT deploy combined with FT,API,Single,Rejected,Same restriction applies,P0,core/transaction_builder.go:433
+CRS-09,Cross-Asset,Code,Functional,Restriction,NFT deploy combined with a contract,API,Single,Rejected,Same restriction applies,P0,core/transaction_builder.go:433
+CRS-10,Cross-Asset,Code,Functional,Failure,Combined transaction fails midway,NODE-KILL,Single,Nothing is applied,All locks released for RBT FT NFT and contract,P0,core/transaction.go:67
+CRS-11,Cross-Asset,Code,Functional,Concurrency,Many combined transactions at once,API-RACE,Multi,Record pass rate,All balances and counts reconcile afterwards,P0,
+CRS-12,Cross-Asset,Infra,Performance,Bulk,Run mixed asset load together at high rate,API-RACE,Multi,All succeed,Measure speed; everything reconciles,P1,
+CRS-Q-01,Cross-Asset,Code,Functional,Quorum Capacity,Send a combined RBT plus NFT plus contract call through one quorum,API,Single,Succeeds,All three parts advance under a single quorum signature,P0,core/consensus/checks.go:539
+CRS-Q-02,Cross-Asset,Code,Functional,Quorum Capacity,Find out what the quorum pledges for a combined call,API,Single,Record whether it pledges the RBT alone or the combined value,Determines the real ceiling on combined calls - untested elsewhere,P0,core/consensus/checks.go:539
+CRS-Q-03,Cross-Asset,Code,Functional,Quorum Capacity,Combined call where the quorum covers the RBT but not the total,API,Single,Record the behaviour,Either it is rejected as a whole or the pledge only covers part - both are findings,P0,core/consensus/checks.go:539
+CRS-Q-04,Cross-Asset,Code,Functional,Quorum Capacity,Run the same combined call against each quorum in turn,API,Multi,All succeed identically,"A quorum-specific failure here points at quorum state, not at the call",P1,core/transaction.go:171
+CRS-IN-01,Cross-Asset,Code,Functional,Integrity,Reconcile all three asset types after a combined run,API,Single,Everything adds up,"RBT totals, FT counts and NFT ownership all consistent together",P0,
+CRS-IN-02,Cross-Asset,Code,Functional,Integrity,Check a rejected combined call left nothing applied,API,Single,No part was applied,Not even the valid parts - and no locks left behind on any asset type,P0,core/transaction.go:70
+CRS-ND-01,Cross-Asset,Code,Functional,Node,Run a combined call after restarting a node,NODE-KILL,Single,Succeeds,All asset types usable again after the restart,P1,
+CRS-ND-02,Cross-Asset,Code,Functional,Node,Restart a node in the middle of a combined call,NODE-KILL,Single,Record the behaviour,Partial application across asset types is the worst outcome - check for it explicitly,P0,core/transaction.go:70
+CRS-DB-01,Cross-Asset,Code,Functional,DB Failure,Corrupt one asset type then run a combined call,DB-SEED,Single,Whole call rejected,No part applied - a combined call must not partially succeed around a corrupt row,P0,core/transaction.go:70
+CRS-CH-01,Cross-Asset,Code,Functional,Multi Hop,Move RBT and an NFT together through five hops,MULTI-NODE,Fresh per hop,All hops succeed,Both asset types stay consistent at every hop,P1,
+CRS-CH-02,Cross-Asset,Code,Functional,Multi Hop,Same five hops using one quorum throughout,MULTI-NODE,Single,All hops succeed,Control for CRS-H-01 - pins a failure to quorum rotation rather than hop depth,P1,
+CRS-B-02,Cross-Asset,Infra,Performance,Bulk,Run 100 combined calls in parallel,API-RACE,Multi,Record the rate and any failures,All three asset types reconcile afterwards,P1,
+CRS-B-03,Cross-Asset,Infra,Performance,Bulk,Mix single-asset and combined calls under load,API-RACE,Multi,Record the behaviour,The realistic shape of a busy network,P1,
+GEN-Q-01,General,Code,Functional,Quorum,Run a transfer with only one quorum available,API,Single,Succeeds,Only one signature is needed,P0,core/quorum_initiator.go:17
+GEN-Q-02,General,Code,Functional,Quorum,Run transfers with several quorums set up,API,Multi,All succeed,Different quorums really are used across transfers,P0,core/transaction.go:171
+GEN-Q-03,General,Code,Functional,Quorum,Use a quorum node that is also sending its own tokens,API,Multi,Both roles work,No conflict between signing and transacting,P1,
+GEN-Q-04,General,Code,Functional,Quorum,Take a quorum offline during load,NODE-KILL,Multi,Remaining quorums carry on,In flight transfers end cleanly,P0,
+GEN-Q-05,General,Code,Functional,Quorum,Build the nodes per quorum versus transaction time table,API-RACE,Multi,Produce the table,Time at 2 5 10 20 and 40 nodes on one quorum,P0,
+GEN-Q-06,General,Code,Functional,Quorum,Send everything through one quorum on purpose,API-RACE,Single,Find that quorum's node ceiling,Worst case layout - the number to design around,P0,core/quorum_initiator.go:17
+GEN-Q-07,General,Code,Functional,Quorum,Spread the same load evenly across all quorums,API-RACE,Multi,Lower transaction time,Compare directly against GEN-Q-06,P0,
+GEN-Q-08,General,Code,Functional,Quorum,Keep every quorum above the funding floor during all tests,API,Multi,No test ever fails for pledge shortage,Check before and during each run; top up as needed,P0,core/consensus/checks.go:539
+GEN-Q-09,General,Code,Functional,Quorum,Check which quorum actually signed each transfer,API,Multi,Load really is spread not just configured,Catches the case where all nodes still share one primary quorum,P0,core/transaction.go:171
+GEN-Q-10,General,Infra,Functional,Quorum,Compare single quorum and multi quorum at the same load,API-RACE,Multi,Record the time difference,The core question - does spreading quorums reduce transaction time,P0,
+GEN-Q-11,General,Code,Functional,Quorum,Check the same quorum is picked every time by one sender,API,Multi,Primary quorum should stay the same,Query has no sort order so the pick may drift - verify before trusting groups,P0,core/wallet/quorum.go:68
+GEN-Q-12,General,Code,Functional,Quorum,Check the primary quorum survives a node restart,NODE-KILL,Multi,Same quorum still picked after restart,If it changes the group setup silently breaks,P0,core/wallet/quorum.go:68
+GEN-Q-13,General,Code,Functional,Quorum,Compare a sender with 1 quorum registered against 10 registered,API,Multi,Record any time difference,All are fetched each transfer but only the first is used,P1,core/transaction.go:171
+GEN-Q-14,General,Code,Functional,Quorum,Route through a busy primary quorum then an idle one,API-RACE,Multi,Idle one should be faster,Shows how much the primary choice matters for time,P0,core/transaction.go:186
+GEN-Q-15,General,Code,Functional,Quorum,Confirm only one quorum signs each transfer,API,Multi,Exactly one signature per transfer,Confirms multi quorum per transfer is not supported today,P1,core/quorum_initiator.go:17
+GEN-CH-01,General,Code,Functional,Chain,Move one token through 5 hops with quorum changing each time,MULTI-NODE,Fresh per hop,All hops succeed,Each hop links to the last; every fresh quorum syncs before signing,P0,core/consensus/checks.go:672
+GEN-CH-02,General,Code,Functional,Chain,Same 5 hops using one quorum throughout,MULTI-NODE,Single,All hops succeed,Control test to separate quorum issues from chain depth,P0,
+GEN-CH-03,General,Code,Functional,Chain,Move a token through 20 hops,MULTI-NODE,Multi,All succeed,Time each hop; find where it slows down,P0,
+GEN-CH-04,General,Code,Functional,Chain,Send a token back to a node that owned it before,MULTI-NODE,Multi,Succeeds,Old and new history both stay valid,P1,
+GEN-CH-05,General,Code,Functional,Chain,Pause between hops with a node offline in between,NODE-KILL,Multi,Next hop works after restart,Node catches up on history before signing,P1,
+GEN-CH-06,General,Code,Functional,Chain,Break a chain link in the database then transfer,DB-SEED,Single,Rejected for chain mismatch,Error names the token; restore database after,P1,core/consensus/checks.go:774
+GEN-CH-07,General,Code,Functional,Chain,Kill a node in the middle of a multi hop chain,NODE-KILL,Multi,Token stays usable,Not lost and not spendable twice; state recoverable,P0,
+GEN-CH-08,General,Code,Functional,Chain,Run several multi hop chains at the same time,API-RACE,Multi,All complete,Chains do not interfere with each other,P0,
+GEN-IN-01,General,Code,Functional,Integrity,Add up all RBT across the fleet after a run,API,N/A,Total matches what was minted,Balances plus burnt equals minted exactly,P0,
+GEN-IN-02,General,Code,Functional,Integrity,Add up all FT counts per series after a run,API,N/A,Totals match,None created or lost anywhere,P0,
+GEN-IN-03,General,Code,Functional,Integrity,Check every successful transaction is on all nodes involved,API,N/A,All present,Sender and receiver both hold the record,P0,
+GEN-IN-04,General,Code,Functional,Integrity,Check no pledges are left open after a run,API,N/A,All released,Pledge tables clean,P0,core/unpledge_v2.go
+GEN-IN-05,General,Code,Functional,Integrity,Compare balances from the API against the database,API,N/A,They match,Catches reporting bugs that hide real problems,P0,types/balance.go
+GEN-IN-06,General,Code,Functional,Integrity,Reconcile totals right after heavy parallel load,API-RACE,Multi,Everything still adds up,The load level that most threatens correctness,P0,
+GEN-IN-07,General,Code,Functional,Integrity,Reconcile after a node was killed and restarted,NODE-KILL,Multi,Everything still adds up,No value lost or duplicated by the restart,P0,
+GEN-ND-01,General,Code,Functional,Node,Restart a node and check it rejoins,NODE-KILL,N/A,Comes back and syncs,Peers reconnect; can transact again,P0,core/p2p_reconnect.go
+GEN-ND-02,General,Code,Functional,Node,Reboot the whole desktop,NODE-KILL,N/A,Node starts on its own,Service comes up at boot; ready with no manual steps,P1,
+GEN-ND-03,General,Code,Functional,Node,Cut the network between two nodes then restore,NODE-KILL,Multi,They reconnect and agree,No split history,P0,core/p2p_reconnect.go
+GEN-ND-04,General,Code,Functional,Node,Restart the database under load,NODE-KILL,N/A,Node reconnects,No completed transaction lost,P0,core/connection_recovery.go
+GEN-ND-05,General,Code,Functional,Node,Update a node to a new build then keep testing,API,N/A,Old data still works,DIDs balances and history all survive,P0,
+GEN-ND-06,General,Code,Functional,Node,Use tokens created on an older version,API,Multi,Still transferable,Old history still validates on the new build,P1,
+GEN-ND-07,General,Code,Functional,Node,Run a mixed fleet - some nodes old build some new,API,Multi,Transfers still work both ways,Important during a rolling update,P1,
+GEN-DB-01,General,Code,Functional,DB Failure,Mark a token as owned by the wrong DID then transfer,DB-SEED,Single,Rejected,Restore database after; error is about ownership,P1,core/consensus/checks.go:221
+GEN-DB-02,General,Code,Functional,DB Failure,Delete a chain row then transfer that token,DB-SEED,Single,Rejected or repaired by sync,Record which happens; restore after,P1,core/consensus/checks.go:672
+GEN-DB-03,General,Code,Functional,DB Failure,Leave a token stuck locked then try to use it,DB-SEED,Single,Rejected as unavailable,No silent double use; restore after,P1,core/wallet/token_lock.go
+GEN-DB-04,General,Code,Functional,DB Failure,Fill the database connection pool then transfer,DB-SEED,Single,Waits or fails cleanly,No corruption when the pool is full,P0,config/config.toml
+GEN-B-01,General,Infra,Performance,Bulk,Run all asset types under load at once,API-RACE,Multi,All succeed,Measure overall speed; everything reconciles,P0,
+GEN-B-02,General,Infra,Performance,Bulk,Push load until the system slows down,API-RACE,Multi,Find the limit,Record where it breaks; no value lost at the limit,P0,
+GEN-B-03,General,Infra,Performance,Bulk,Run a long soak test overnight,API-RACE,Multi,Stays stable,No memory growth; no slowdown; totals exact,P0,core/resource_monitor.go
+GEN-B-04,General,Infra,Performance,Bulk,Compare speed with 5 10 20 and 40 nodes active,API-RACE,Multi,Scales sensibly,Record speed per node count,P1,
+GEN-B-05,General,Infra,Performance,Bulk,Time a transfer as chain history grows,API,Multi,Stays usable,Measure at 1 10 50 and 100 hops,P0,
+GEN-B-06,General,Infra,Performance,Bulk,High value transfer while the system is busy,API-RACE,Multi,Succeeds,Measure worst case time; value still exact,P0,
+GEN-B-07,General,Infra,Performance,Bulk,Run 1000 decimal transfers and check for drift,API,Multi,No drift,Total value exactly as expected at the end,P0,math/math.go:16
+GEN-B-08,General,Infra,Performance,Bulk,Build the value versus parallel count transaction time grid,API-RACE,Multi,Produce the grid,Cross small and large values against 1 to 200 parallel,P0,
+GEN-B-09,General,Infra,Performance,Bulk,Repeat that grid at 1 3 5 and 10 quorums,API-RACE,Multi,Produce the full picture,Shows how many nodes per quorum keeps transaction time acceptable,P0,
+GEN-B-10,General,Infra,Performance,Bulk,Sudden jump from idle to full load,API-RACE,Multi,Handles the spike or fails cleanly,Measure recovery time after the spike,P1,
+GEN-IN-08,General,Code,Functional,Integrity,Compare the denomination counter against the real free tokens,API,N/A,Counter agrees at every denomination,"Reads token_denom against the tokens table; drift here breaks a later, unrelated transaction",P0,core/wallet/token_lock.go:505
+GEN-IN-09,General,Code,Functional,Integrity,Look for a phantom zero-denomination row,API,N/A,No denom=0 row exists for the DID,A zero row makes selection ask for tokens that cannot exist,P0,core/wallet/token_lock.go:505
+GEN-IN-10,General,Code,Functional,Integrity,Check the denomination counter after minting an FT,API,Single,No drift at any denomination,FT mint burns RBT and must decrement the counter for what it burnt,P0,core/ft.go:82
+GEN-IN-11,General,Code,Functional,Integrity,Check the denomination counter after a contract deploy with a value,API,Single,No drift outside the collateral denomination,Kept separate from GEN-V-10 so a contract regression is never mistaken for an FT one,P0,core/consensus/consensus.go:31
