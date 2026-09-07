@@ -201,6 +201,20 @@ JOBS="${JOBS:-0}"
 deploy_one() {
   local TARGET="$1"
   local TARGET_HOME NODE_DIR
+
+  # Resolve the target's own $HOME rather than assuming it - and treat an
+  # unreachable host as a clean "skipped", not a crash. A typo'd IP is the
+  # common cause, and it must read as "cannot reach", not as a shell error.
+  if ! TARGET_HOME="$(ssh -o ConnectTimeout=8 -o BatchMode=yes \
+                          "${SSH_USER}@${TARGET}" 'echo $HOME' 2>&1)" \
+     || [ -z "$TARGET_HOME" ]; then
+    echo "-- WARNING: cannot reach ${SSH_USER}@${TARGET} over SSH - node untouched"
+    echo "            ${TARGET_HOME:-no response}"
+    echo "            Check the IP is right and SSH keys are set up:"
+    echo "              ssh ${SSH_USER}@${TARGET} 'echo ok'"
+    return 2
+  fi
+
   # Where the BINARY lives on the target - which is not always where the
   # node's data dir lives.
   #
