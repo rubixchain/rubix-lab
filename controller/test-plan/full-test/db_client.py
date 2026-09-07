@@ -76,6 +76,20 @@ DB_USER = "rubix"
 DB_PASSWORD = "rubixpass"
 CONNECT_TIMEOUT = 8
 
+# Token types, read from the live token_type table on the fleet.
+#
+# THIS FILTER IS NOT OPTIONAL. One `tokens` table holds every asset type, so a
+# query that omits token_type silently mixes them. Measured on .104: free rows
+# totalled 2016.000, of which 5.000 was FT and only 2011.000 was RBT - an
+# unfiltered "RBT balance" would have been wrong by exactly the FT holding, and
+# wrong in a way that looks plausible.
+TYPE_RBT = 1
+TYPE_NFT = 2
+TYPE_FT = 3
+TYPE_SC = 4
+
+TYPE_NAME = {1: "rbt", 2: "nft", 3: "ft", 4: "smart_contract"}
+
 # Verified against constants/constants.go
 FREE = 0
 LOCKED = 1
@@ -257,8 +271,9 @@ def real_free_denoms(host, did, port=DB_PORT):
     rows = query(
         host,
         "SELECT token_value, COUNT(*) FROM tokens "
-        "WHERE did = %s AND token_status = %s GROUP BY token_value",
-        (did, FREE), port)
+        "WHERE did = %s AND token_status = %s AND token_type = %s "
+        "GROUP BY token_value",
+        (did, FREE, TYPE_RBT), port)
     return {float(v): int(c) for v, c in rows}
 
 
@@ -284,32 +299,33 @@ def denom_drift(host, did, port=DB_PORT):
 # Tokens
 # ---------------------------------------------------------------------------
 
-def token_status_summary(host, did, port=DB_PORT):
+def token_status_summary(host, did, port=DB_PORT, token_type=TYPE_RBT):
     """{status_name: (count, total_value)} for one DID - a readable snapshot."""
     rows = query(
         host,
         "SELECT token_status, COUNT(*), COALESCE(SUM(token_value), 0) "
-        "FROM tokens WHERE did = %s GROUP BY token_status",
-        (did,), port)
+        "FROM tokens WHERE did = %s AND token_type = %s GROUP BY token_status",
+        (did, token_type), port)
     return {STATUS_NAME.get(int(s), "status_{}".format(s)): (int(c), float(v))
             for s, c, v in rows}
 
 
-def value_in_status(host, did, status, port=DB_PORT):
+def value_in_status(host, did, status, port=DB_PORT, token_type=TYPE_RBT):
     """Total token_value held by one DID in one status."""
     rows = query(
         host,
         "SELECT COALESCE(SUM(token_value), 0) FROM tokens "
-        "WHERE did = %s AND token_status = %s",
-        (did, status), port)
+        "WHERE did = %s AND token_status = %s AND token_type = %s",
+        (did, status, token_type), port)
     return float(rows[0][0]) if rows else 0.0
 
 
-def count_in_status(host, did, status, port=DB_PORT):
+def count_in_status(host, did, status, port=DB_PORT, token_type=TYPE_RBT):
     rows = query(
         host,
-        "SELECT COUNT(*) FROM tokens WHERE did = %s AND token_status = %s",
-        (did, status), port)
+        "SELECT COUNT(*) FROM tokens "
+        "WHERE did = %s AND token_status = %s AND token_type = %s",
+        (did, status, token_type), port)
     return int(rows[0][0]) if rows else 0
 
 
@@ -322,9 +338,10 @@ def free_token_values(host, did, port=DB_PORT):
     """
     rows = query(
         host,
-        "SELECT token_value FROM tokens WHERE did = %s AND token_status = %s "
+        "SELECT token_value FROM tokens "
+        "WHERE did = %s AND token_status = %s AND token_type = %s "
         "ORDER BY token_value DESC",
-        (did, FREE), port)
+        (did, FREE, TYPE_RBT), port)
     return [float(v) for (v,) in rows]
 
 
@@ -340,8 +357,8 @@ def pledged_value(host, did, port=DB_PORT):
     rows = query(
         host,
         "SELECT COALESCE(SUM(token_value), 0) FROM tokens "
-        "WHERE did = %s AND token_status IN (%s, %s)",
-        (did, PLEDGED, QUORUM_PLEDGED), port)
+        "WHERE did = %s AND token_status IN (%s, %s) AND token_type = %s",
+        (did, PLEDGED, QUORUM_PLEDGED, TYPE_RBT), port)
     return float(rows[0][0]) if rows else 0.0
 
 
