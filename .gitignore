@@ -45,3 +45,6 @@ venv/
 
 # direnv's local, per-machine env config.
 .envrc
+
+# exec-update settings describe one controller machine, not shared history.
+controller/exec-update/exec-update.env

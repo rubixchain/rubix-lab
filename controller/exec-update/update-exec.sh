@@ -56,6 +56,44 @@ fi
 BRANCH="$1"; shift
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---------------------------------------------------------------------------
+# Settings file. Avoids retyping REPO_DIR / REMOTE_BIN_REL on every run - and
+# forgetting REMOTE_BIN_REL is the dangerous one, because it silently targets
+# the wrong path on every node.
+#
+#   cp exec-update.env.example exec-update.env    # then edit
+#
+# Precedence: an already-exported variable WINS over the file, so a one-off
+#   REMOTE_BIN_REL=other/path ./update-exec.sh ...
+# still overrides the saved setting. The file only fills in what is unset.
+# Point somewhere else with EXEC_UPDATE_ENV=/path/to/file.
+# ---------------------------------------------------------------------------
+load_env_file() {
+  local f="$1" line key val
+  [ -f "$f" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"                                   # strip comments
+    line="${line#"${line%%[![:space:]]*}"}"              # ltrim
+    line="${line%"${line##*[![:space:]]}"}"              # rtrim
+    [ -z "$line" ] && continue
+    case "$line" in *=*) ;; *) continue ;; esac
+    key="${line%%=*}"; val="${line#*=}"
+    key="${key%"${key##*[![:space:]]}"}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%\"}"; val="${val#\"}"                     # strip quotes
+    val="${val%\'}"; val="${val#\'}"
+    case "$val" in "~/"*) val="$HOME/${val#\~/}" ;; esac  # a file cannot expand ~
+    if [ -z "${!key:-}" ]; then
+      export "$key=$val"
+    fi
+  done < "$f"
+}
+ENV_FILE="${EXEC_UPDATE_ENV:-$SCRIPT_DIR/exec-update.env}"
+if [ -f "$ENV_FILE" ]; then
+  load_env_file "$ENV_FILE"
+  echo "Settings loaded from $ENV_FILE"
+fi
 REPO_DIR="${REPO_DIR:-$HOME/rubixgoplatform}"     # product repo clone, for BUILDING (controller-local)
 REMOTE_REPO_REL="${REMOTE_REPO_REL:-rubix-lab}"   # rubix-lab clone location on EACH TARGET, relative to that target's own $HOME
 NODE_NAME="${NODE_NAME:-testnode}"
