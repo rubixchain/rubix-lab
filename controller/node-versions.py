@@ -107,12 +107,26 @@ def main():
                    help="directory on each host containing the rubixgoplatform binary (default: %(default)s)")
     p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                    help="SSH connect timeout in seconds (default: %(default)s)")
+    # --host (singular) checks ONE machine without reading hosts.txt. The common
+    # case after deploying to a single node: confirm the binary actually
+    # changed there before rolling out to the fleet. Repeatable for a few hosts.
+    #
+    # Note --hosts (plural, a FILE) and --host (singular, an ADDRESS) differ by
+    # one letter. argparse would otherwise prefix-match "--host" to "--hosts"
+    # and try to open the IP as a file, so both are defined explicitly.
+    p.add_argument("--host", action="append", default=[], metavar="ADDRESS",
+                   help="check just this host (repeatable); skips hosts.txt entirely")
     p.add_argument("--out", default=os.path.join(here, "versions.xlsx"))
     args = p.parse_args()
 
-    hosts = load_hosts(args.hosts)
-    print("Checking {} host(s) from {} via SSH as {}...\n".format(
-        len(hosts), args.hosts, args.user))
+    if args.host:
+        hosts = [{"host": h, "role": ""} for h in args.host]
+        print("Checking {} host(s) given on the command line via SSH as {}...\n".format(
+            len(hosts), args.user))
+    else:
+        hosts = load_hosts(args.hosts)
+        print("Checking {} host(s) from {} via SSH as {}...\n".format(
+            len(hosts), args.hosts, args.user))
 
     with ThreadPoolExecutor(max_workers=min(20, len(hosts))) as pool:
         results = list(pool.map(
