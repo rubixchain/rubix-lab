@@ -36,10 +36,29 @@ CONNECTION
     Defaults match what setup.sh and wipe-node-db.sh actually create:
         port 5433, database "rubix", user "rubix", password "rubixpass"
 
-SAFETY
-    Every function here is READ-ONLY (SELECT). Nothing in this file writes,
-    updates or deletes. Corrupting state deliberately is what the catalogue's
-    DB-SEED cases are for, and they are not implemented here.
+SAFETY - READ-ONLY IS ENFORCED, NOT PROMISED
+    Every connection opened by query() is put into
+        default_transaction_read_only = on
+    which makes POSTGRES ITSELF reject any INSERT / UPDATE / DELETE / DDL on
+    that session with "cannot execute ... in a read-only transaction". This is
+    not a convention that a future edit could quietly break: a write would have
+    to first switch connection function, and that function is named so the
+    change is obvious in review.
+
+    The catalogue's DB-SEED cases (RBT-DB-*, FT-DB-*, NFT-DB-*, SC-DB-*,
+    CRS-DB-*) do need to corrupt data deliberately. They must call
+    writable_query() explicitly, which:
+      * opens a separate, clearly-named writable connection,
+      * refuses to run unless the caller passes i_understand_this_writes=True,
+      * logs every statement it executes to stderr so a run's output shows
+        exactly what was changed.
+    Nothing else in this file can write, and no read path can be turned into a
+    write path by accident.
+
+    For MANUAL psql sessions, get the same protection with:
+        export PGOPTIONS='-c default_transaction_read_only=on'
+    Every psql started from that shell then refuses writes too. Unset it only
+    when deliberately running a DB-SEED case by hand.
 
 TOKEN STATUS VALUES
     Verified against constants/constants.go - the block is an iota run, so the
@@ -49,7 +68,7 @@ TOKEN STATUS VALUES
         8 Burnt         9 BurntForFT   10 Deployed     11 Executed
 """
 
-import os
+import sys
 
 DB_PORT = 5433
 DB_NAME = "rubix"
@@ -104,12 +123,24 @@ def available():
         return False
 
 
-def _connect(host, port=DB_PORT):
+# Passed as libpq options at connect time. The server then rejects any write
+# on this session, so read-only does not depend on this file staying careful.
+READ_ONLY_OPTS = "-c default_transaction_read_only=on"
+
+
+def _connect(host, port=DB_PORT, read_only=True):
+    """Open a connection. READ-ONLY unless a caller explicitly asks otherwise.
+
+    read_only=False exists solely for the DB-SEED cases and is reached only
+    through writable_query(), never from any read path.
+    """
     psycopg2 = _driver()
+    kwargs = dict(host=host, port=port, dbname=DB_NAME, user=DB_USER,
+                  password=DB_PASSWORD, connect_timeout=CONNECT_TIMEOUT)
+    if read_only:
+        kwargs["options"] = READ_ONLY_OPTS
     try:
-        return psycopg2.connect(
-            host=host, port=port, dbname=DB_NAME, user=DB_USER,
-            password=DB_PASSWORD, connect_timeout=CONNECT_TIMEOUT)
+        return psycopg2.connect(**kwargs)
     except Exception as e:
         raise DBUnavailable(
             "cannot reach Postgres at {}:{} ({}). Check the container is up on "
@@ -118,14 +149,75 @@ def _connect(host, port=DB_PORT):
 
 
 def query(host, sql, params=None, port=DB_PORT):
-    """Run one read-only query and return all rows as a list of tuples."""
-    conn = _connect(host, port)
+    """Run one query on a READ-ONLY connection; return rows as a list of tuples.
+
+    The connection is read-only at the server, so a SELECT that was carelessly
+    edited into an UPDATE fails loudly instead of changing lab state.
+    """
+    conn = _connect(host, port, read_only=True)
     try:
         with conn.cursor() as cur:
             cur.execute(sql, params or ())
             return cur.fetchall()
     finally:
         conn.close()
+
+
+def writable_query(host, sql, params=None, port=DB_PORT,
+                   i_understand_this_writes=False):
+    """Run a statement that CHANGES DATA. For DB-SEED cases only.
+
+    Deliberately awkward to call. A DB-SEED case corrupts state on purpose to
+    prove the product rejects it, so the write is the point - but it must never
+    happen by accident, and a reader of the case must see immediately that it
+    writes.
+
+    Rules for any case using this:
+      1. Record what you changed BEFORE changing it, so it can be restored.
+      2. Restore it afterwards, in a finally block.
+      3. Run DB-SEED cases LAST in a cycle - they leave the node dirty until
+         restored, and a failure mid-case can leave it dirty regardless.
+
+    Every statement is echoed to stderr so the run output shows what was done.
+    """
+    if not i_understand_this_writes:
+        raise DBUnavailable(
+            "writable_query() refused: pass i_understand_this_writes=True. "
+            "This function CHANGES LAB DATA and is only for DB-SEED cases, "
+            "which must record the original values and restore them afterwards")
+
+    sys.stderr.write("[db_client] WRITE on {}: {} params={}\n".format(host, sql, params))
+    conn = _connect(host, port, read_only=False)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params or ())
+            rows = cur.fetchall() if cur.description else []
+        conn.commit()
+        return rows
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def assert_read_only(host, port=DB_PORT):
+    """Prove the read path really cannot write. Returns (ok, note).
+
+    Attempts a harmless write on a normal query() connection and expects it to
+    be REFUSED. Used by preflight so the guarantee is verified on the actual
+    fleet rather than assumed from the code.
+    """
+    try:
+        query(host, "CREATE TEMP TABLE _lab_write_probe (x int)", port=port)
+    except DBUnavailable:
+        raise
+    except Exception as e:
+        if "read-only" in str(e).lower():
+            return True, "server refused a write on the read path, as intended"
+        return False, "write was refused, but not as a read-only error: {}".format(e)
+    return False, ("A WRITE SUCCEEDED ON THE READ PATH - default_transaction_read_only "
+                   "is not being applied. Do not run DB cases until this is fixed")
 
 
 def ping(host, port=DB_PORT):
