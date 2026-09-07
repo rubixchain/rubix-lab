@@ -89,7 +89,7 @@ def _bal(ctx, entry):
 def _prepare(ctx, entry, need):
     """Register a quorum and ensure free balance. Returns (ok, why)."""
     host = entry["host"]
-    q = ctx.quorum_for(host) or (ctx.quorum_hosts[0] if ctx.quorum_hosts else None)
+    q = ctx.quorum_for(entry) or (ctx.quorum_hosts[0] if ctx.quorum_hosts else None)
     if q is None:
         return False, "no quorum available"
     # Already-registered errors even though the insert is ON CONFLICT DO
@@ -100,8 +100,9 @@ def _prepare(ctx, entry, need):
     have = detail["balance"] if detail else 0
     if have < need:
         rc.fund_did(host, entry["did"], int(need - have) + 5, ctx.port)
-        if not rc.wait_for_balance(host, entry["did"], need, ctx.port):
-            return False, "could not fund to {} RBT (have {})".format(need, have)
+        funded, now = rc.wait_for_balance(host, entry["did"], need, ctx.port)
+        if not funded:
+            return False, "could not fund to {} RBT (reached {})".format(need, now)
 
     qd = _bal(ctx, q)
     if qd and qd["balance"] < need:
@@ -282,7 +283,7 @@ def ft_p_02(ctx, ci):
     if not ok:
         return False, "mint rejected", str(msg)
 
-    got = rc.wait_for_ft_count(r["host"], r["did"], name, ft_count, ctx.port)
+    got, _cnt, _res = rc.wait_for_ft_count(r["host"], r["did"], name, ft_count, ctx.port)
     time.sleep(SETTLE)
 
     try:
@@ -416,7 +417,7 @@ def ft_p_04(ctx, ci):
                 if "no tokens provided" in text or "lockselected" in text else "")
         return False, "second mint rejected", "{} {}".format(msg, hint).strip()
 
-    got = rc.wait_for_ft_count(r["host"], r["did"], name, ft_count, ctx.port)
+    got, _cnt, _res = rc.wait_for_ft_count(r["host"], r["did"], name, ft_count, ctx.port)
     time.sleep(SETTLE)
 
     try:

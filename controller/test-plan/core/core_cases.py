@@ -129,7 +129,7 @@ def _prepare_sender(ctx, entry, amount):
     nothing about Rubix.
     """
     host = entry["host"]
-    q = ctx.quorum_for(host) or (ctx.quorum_hosts[0] if ctx.quorum_hosts else None)
+    q = ctx.quorum_for(entry) or (ctx.quorum_hosts[0] if ctx.quorum_hosts else None)
     if q is None:
         return False, "no quorum available"
 
@@ -142,8 +142,9 @@ def _prepare_sender(ctx, entry, amount):
     have = detail["balance"] if detail else 0
     if have < amount:
         rc.fund_did(host, entry["did"], max(int(amount - have) + 5, 5), ctx.port)
-        if not rc.wait_for_balance(host, entry["did"], amount, ctx.port):
-            return False, "could not fund sender to {} (have {})".format(amount, have)
+        funded, now = rc.wait_for_balance(host, entry["did"], amount, ctx.port)
+        if not funded:
+            return False, "could not fund sender to {} (reached {})".format(amount, now)
 
     qd = _bal(q["host"], q["did"], ctx.port)
     if qd and qd["balance"] < amount:
@@ -201,7 +202,7 @@ def rbt_transfer_recorded_both(ctx, ci):
     if not ok:
         return False, "transfer rejected", str(msg)
 
-    credited = rc.wait_for_balance(r["host"], r["did"],
+    credited, _bal_now = rc.wait_for_balance(r["host"], r["did"],
                                    (before["balance"] if before else 0) + amount * 0.99,
                                    ctx.port)
 
@@ -544,7 +545,7 @@ def ft_mint_and_list(ctx, ci):
 
     _STATE["ft_name"] = name
     _STATE["ft_count"] = count
-    got = rc.wait_for_ft_count(s["host"], s["did"], name, count, ctx.port)
+    got, _cnt, _res = rc.wait_for_ft_count(s["host"], s["did"], name, count, ctx.port)
     _, series, _ = rc.list_fts(s["host"], ctx.port)
     listed = name in json.dumps(series)
 
@@ -573,7 +574,7 @@ def ft_transfer(ctx, ci):
     if not ok:
         return False, "FT transfer rejected", str(msg)
 
-    got = rc.wait_for_ft_count(r["host"], r["did"], name, move, ctx.port)
+    got, _cnt, _res = rc.wait_for_ft_count(r["host"], r["did"], name, move, ctx.port)
     _, txs, _ = rc.get_transactions(r["host"], r["did"], "ft", ctx.port)
 
     passed = bool(got) and len(txs) > 0
@@ -639,7 +640,7 @@ def bundled_transaction(ctx, ci):
     if not ok:
         return False, "bundled tx rejected", str(msg)
 
-    credited = rc.wait_for_balance(r["host"], r["did"],
+    credited, _bal_now = rc.wait_for_balance(r["host"], r["did"],
                                    (rb_before["balance"] if rb_before else 0) + amount * 0.99,
                                    ctx.port)
     _, n_nft = _poll_chain(lambda: rc.get_nft_chain(s["host"], nft_id, ctx.port),

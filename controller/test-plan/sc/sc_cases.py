@@ -91,7 +91,7 @@ def _prepare(ctx, entry, need):
     about the product.
     """
     host = entry["host"]
-    q = ctx.quorum_for(host) or (ctx.quorum_hosts[0] if ctx.quorum_hosts else None)
+    q = ctx.quorum_for(entry) or (ctx.quorum_hosts[0] if ctx.quorum_hosts else None)
     if q is None:
         return False, "no quorum available"
 
@@ -103,8 +103,9 @@ def _prepare(ctx, entry, need):
     have = detail["balance"] if detail else 0
     if have < need:
         rc.fund_did(host, entry["did"], int(need - have) + 5, ctx.port)
-        if not rc.wait_for_balance(host, entry["did"], need, ctx.port):
-            return False, "could not fund to {} RBT (have {})".format(need, have)
+        funded, now = rc.wait_for_balance(host, entry["did"], need, ctx.port)
+        if not funded:
+            return False, "could not fund to {} RBT (reached {})".format(need, now)
 
     # The quorum pledges at least the transaction value
     # (core/consensus/checks.go:539), so it needs headroom too.
@@ -873,7 +874,7 @@ def sc_q_06(ctx, ci):
     if not db.available():
         return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
 
-    q = ctx.quorum_for(s["host"]) or (ctx.quorum_hosts[0] if ctx.quorum_hosts else None)
+    q = ctx.quorum_for(s) or (ctx.quorum_hosts[0] if ctx.quorum_hosts else None)
     if q is None:
         return SKIP, "no quorum", "cannot check pledging without a known quorum"
 

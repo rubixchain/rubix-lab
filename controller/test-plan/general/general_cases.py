@@ -74,7 +74,7 @@ def _bal(ctx, entry):
 
 def _prepare(ctx, entry, need):
     host = entry["host"]
-    q = ctx.quorum_for(host) or (ctx.quorum_hosts[0] if ctx.quorum_hosts else None)
+    q = ctx.quorum_for(entry) or (ctx.quorum_hosts[0] if ctx.quorum_hosts else None)
     if q is None:
         return False, "no quorum available"
     rc.quorum_add(host, q["did"], ctx.port)   # already-registered returns an error; ignore
@@ -83,8 +83,9 @@ def _prepare(ctx, entry, need):
     have = detail["balance"] if detail else 0
     if have < need:
         rc.fund_did(host, entry["did"], int(need - have) + 5, ctx.port)
-        if not rc.wait_for_balance(host, entry["did"], need, ctx.port):
-            return False, "could not fund to {} RBT (have {})".format(need, have)
+        funded, now = rc.wait_for_balance(host, entry["did"], need, ctx.port)
+        if not funded:
+            return False, "could not fund to {} RBT (reached {})".format(need, now)
 
     qd = _bal(ctx, q)
     if qd and qd["balance"] < need:
