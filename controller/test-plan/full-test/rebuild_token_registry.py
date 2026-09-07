@@ -116,15 +116,20 @@ def _self_check():
                  "re-copy it from token/token_mapping.go.".format(idx))
 
 
-def scan_host(host, port):
-    """Highest local-RBT global index on one node. Returns (max_index, note)."""
+def _scan_table(host, port, sql, params):
+    """Run one id-listing query. Returns (max_index, count, skipped) or None if
+    the table is absent."""
     try:
-        rows = db.query(
-            host,
-            "SELECT token_id FROM tokens WHERE token_type = %s",
-            (db.TYPE_RBT,), port=port)
-    except db.DBUnavailable as e:
-        return None, str(e)
+        rows = db.query(host, sql, params, port=port)
+    except db.DBUnavailable:
+        raise
+    except Exception as e:
+        # UndefinedTable and friends: Postgres is up but this table is not
+        # there. Normal on a host where no node has ever run, and on pool nodes
+        # for the fullnode_* tables.
+        if "does not exist" in str(e).lower():
+            return None
+        raise
 
     best, seen, skipped = 0, 0, 0
     for (tid,) in rows:
@@ -134,10 +139,52 @@ def scan_host(host, port):
             continue
         seen += 1
         best = max(best, gi)
-    note = "{} local-RBT tokens".format(seen)
-    if skipped:
-        note += ", {} non-local ids ignored".format(skipped)
-    return best, note
+    return best, seen, skipped
+
+
+def scan_host(host, port):
+    """Highest local-RBT global index on one node. Returns (max_index, note).
+
+    max_index is None only when the host could not be scanned at all. A host
+    with Postgres up but no Rubix schema returns 0 with a note - that is a
+    normal fleet state (the explorer runs Postgres but has never run a node),
+    not a failure worth aborting the sweep for.
+
+    Also reads fullnode_rbt where it exists. On the fullnode that table mirrors
+    tokens minted across the whole fleet, which makes it a useful backstop: an
+    index held only by a node that is currently down is still counted here.
+    """
+    try:
+        own = _scan_table(host, port,
+                          "SELECT token_id FROM tokens WHERE token_type = %s",
+                          (db.TYPE_RBT,))
+    except db.DBUnavailable as e:
+        return None, str(e)
+
+    try:
+        observed = _scan_table(host, port, "SELECT token_id FROM fullnode_rbt", ())
+    except db.DBUnavailable as e:
+        return None, str(e)
+    except Exception:
+        observed = None
+
+    if own is None and observed is None:
+        return 0, "no rubix schema (Postgres up, no node has run here)"
+
+    best, parts = 0, []
+    if own is not None:
+        b, seen, skipped = own
+        best = max(best, b)
+        parts.append("{} local-RBT tokens".format(seen))
+        if skipped:
+            parts.append("{} non-local ids ignored".format(skipped))
+    if observed is not None:
+        b, seen, _ = observed
+        if seen:
+            best = max(best, b)
+            parts.append("{} observed via fullnode_rbt".format(seen))
+
+    return best, ", ".join(parts) or "no tokens"
 
 
 def main():
@@ -164,7 +211,7 @@ def main():
     # too, and an index it has seen must never be handed out again.
     print("Scanning {} host(s) for the highest local-RBT index...\n".format(len(hosts)))
 
-    overall, reachable, unreachable = 0, 0, []
+    overall, reachable, unreachable, no_schema = 0, 0, [], []
     for h in hosts:
         host = h["host"]
         best, note = scan_host(host, args.port)
@@ -172,13 +219,22 @@ def main():
             unreachable.append(host)
             print("  {:<16} UNREACHABLE  {}".format(host, note.split("(")[0].strip()))
             continue
+        if "no rubix schema" in note:
+            no_schema.append(host)
+            print("  {:<16} {}".format(host, note))
+            continue
         reachable += 1
         overall = max(overall, best)
         print("  {:<16} max index {:>12,}   {}".format(host, best, note))
 
     print()
     if not reachable:
-        sys.exit("ERROR: no host could be scanned - nothing to rebuild from.")
+        sys.exit("ERROR: no host with a Rubix schema could be scanned - nothing to "
+                 "rebuild from. Check the nodes are up and hold tokens before writing "
+                 "a registry, or the counter would be set from no evidence at all.")
+    if no_schema:
+        print("Skipped (Postgres up, no node has ever run there): {}\n".format(
+            ", ".join(no_schema)))
 
     if unreachable:
         print("WARNING: {} host(s) could not be scanned: {}".format(
