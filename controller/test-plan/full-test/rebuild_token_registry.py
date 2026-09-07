@@ -196,6 +196,12 @@ def main():
                    help="gap left above the highest index found (default 50000). "
                         "Covers tokens minted by a run whose client timed out while "
                         "the server kept going.")
+    p.add_argument("--floor", type=int, default=0,
+                   help="never allocate below this index, whatever the scan finds. "
+                        "USE THIS AFTER A WIPE: a wiped fleet holds no tokens, so the "
+                        "scan finds nothing and would fall back to the seed - re-issuing "
+                        "the very indices that made the wipe necessary. Set it above the "
+                        "highest index the old fleet ever reached.")
     p.add_argument("--write", action="store_true",
                    help="write token_index_registry.json (otherwise only reports)")
     args = p.parse_args()
@@ -243,10 +249,21 @@ def main():
         print("         so its index could be re-issued. Re-run once they are up, or")
         print("         raise --margin well above the largest mint you have done.\n")
 
-    next_index = max(overall + args.margin, rc.TOKEN_INDEX_SEED)
+    next_index = max(overall + args.margin, rc.TOKEN_INDEX_SEED, args.floor)
     print("Highest index found fleet-wide : {:>12,}".format(overall))
     print("Safety margin                  : {:>12,}".format(args.margin))
+    if args.floor:
+        print("Floor (--floor)                : {:>12,}".format(args.floor))
     print("Next index to allocate         : {:>12,}".format(next_index))
+
+    if overall == 0 and not args.floor:
+        print()
+        print("WARNING: no tokens were found anywhere on the fleet.")
+        print("         If this is a freshly WIPED fleet, the indices the OLD fleet used")
+        print("         are no longer visible - but re-issuing them can still collide")
+        print("         with records the fullnode kept (it is excluded from the wipe).")
+        print("         Re-run with --floor set above the old fleet's highest index,")
+        print("         e.g.  --floor 11000000")
     print("Remaining capacity             : {:>12,}".format(TOTAL_CAPACITY - next_index))
 
     if next_index >= TOTAL_CAPACITY:
