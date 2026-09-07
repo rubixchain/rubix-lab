@@ -532,13 +532,45 @@ def allocate_token_index_range(count, registry_path=TOKEN_INDEX_REGISTRY_PATH):
     lab that runs one test cycle at a time (simple read-modify-write, no
     file lock - if you ever run two mint-heavy scripts concurrently against
     the same fleet, that assumption breaks). Returns the first index of the
-    reserved range - pass it as start_index to generate_local_rbt."""
+    reserved range - pass it as start_index to generate_local_rbt.
+
+    A MISSING REGISTRY IS A HARD ERROR, not a fresh start. Silently falling
+    back to TOKEN_INDEX_SEED re-issues indices that earlier runs already
+    minted, and every mint in that band then dies with
+    "PersistGenesisTokenRecord: token <id> already exists". That is exactly
+    what happened when the repo restructure moved this directory and left the
+    old registry behind at the previous path - the failure looked like a
+    product bug and was not.
+
+    Rebuild it from the fleet instead (the high-water mark IS recoverable
+    from the tokens table, despite the older note in CLAUDE.md):
+        python3 rebuild_token_registry.py --write
+    """
     if os.path.exists(registry_path):
         with open(registry_path, encoding="utf-8") as fh:
             state = json.load(fh)
-        next_index = state.get("next_index", TOKEN_INDEX_SEED)
+        next_index = state.get("next_index")
+        if not isinstance(next_index, int) or next_index < TOKEN_INDEX_SEED:
+            sys.exit(
+                "ERROR: {} has no usable next_index ({!r}).\n"
+                "       Rebuild it from the fleet:  python3 rebuild_token_registry.py --write"
+                .format(registry_path, next_index))
     else:
-        next_index = TOKEN_INDEX_SEED
+        sys.exit(
+            "ERROR: token index registry not found at\n"
+            "         {}\n"
+            "       This file is the ONLY record of which local-RBT indices the fleet has\n"
+            "       already minted. Starting over from the seed would re-issue indices that\n"
+            "       already exist, and every mint would fail with\n"
+            "         'PersistGenesisTokenRecord: token <id> already exists'.\n"
+            "\n"
+            "       Rebuild it by reading the high-water mark off the fleet:\n"
+            "         python3 rebuild_token_registry.py            # inspect first\n"
+            "         python3 rebuild_token_registry.py --write    # then write it\n"
+            "\n"
+            "       (If the repo layout moved recently, the old registry may still exist at\n"
+            "        the previous path - rebuilding is safer than copying it.)"
+            .format(registry_path))
 
     start = next_index
     with open(registry_path, "w", encoding="utf-8") as fh:
