@@ -131,6 +131,79 @@ def load_case_module(name):
     return mod
 
 
+def dump_roles(path, quorum_hosts, senders, receivers):
+    """Write a pinnable roles file describing this run's assignment."""
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("# Role assignment for a pinned run - edit, then pass with --pin-roles\n")
+        fh.write("# One 'IP role' per line. role = quorum | sender | receiver.\n")
+        fh.write("#\n")
+        fh.write("# For a MIXED-VERSION run, deploy the builds by IP first, e.g.\n")
+        fh.write("#   REMOTE_BIN_REL=Desktop/rubix ./update-exec.sh old-branch <receiver IPs>\n")
+        fh.write("#   REMOTE_BIN_REL=Desktop/rubix ./update-exec.sh new-branch <sender IPs>\n")
+        fh.write("# then pin the same IPs here so the roles cannot drift, and run with\n")
+        fh.write("# --collect-versions so the report records the build PER ROLE.\n\n")
+        for e in quorum_hosts:
+            fh.write("{}  quorum\n".format(e["host"]))
+        for e in senders:
+            fh.write("{}  sender\n".format(e["host"]))
+        for e in receivers:
+            fh.write("{}  receiver\n".format(e["host"]))
+    print("Roles written to {}".format(path))
+    print("Edit it, then re-run with:  --pin-roles {}".format(path))
+
+
+def load_pinned_roles(path, ready):
+    """Read a pinned roles file. Returns (quorum_hosts, senders, receivers).
+
+    Every pinned host must be in `ready` - pinning a host that is down would
+    otherwise fail deep inside a case with a confusing error, and in a
+    mixed-version run it would quietly change what is being compared.
+    """
+    if not os.path.exists(path):
+        sys.exit("ERROR: --pin-roles file not found: {}\n"
+                 "       Generate one with --dump-roles {}".format(path, path))
+
+    by_host = {e["host"]: e for e in ready}
+    buckets = {"quorum": [], "sender": [], "receiver": []}
+    missing, unknown = [], []
+
+    with open(path, encoding="utf-8") as fh:
+        for lineno, raw in enumerate(fh, 1):
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            parts = line.split()
+            if len(parts) < 2 or parts[1] not in buckets:
+                unknown.append("line {}: {!r} (expected '<ip> quorum|sender|receiver')"
+                               .format(lineno, raw.strip()))
+                continue
+            host, role = parts[0], parts[1]
+            if host not in by_host:
+                missing.append(host)
+                continue
+            buckets[role].append(by_host[host])
+
+    if unknown:
+        sys.exit("ERROR: {} unparseable line(s) in {}:\n  {}".format(
+            len(unknown), path, "\n  ".join(unknown)))
+    if missing:
+        sys.exit(
+            "ERROR: {} pinned host(s) are not reachable/ready: {}\n"
+            "       A pinned run must use exactly the hosts you pinned - silently\n"
+            "       dropping one would change what the run actually compares.\n"
+            "       Fix the host, or edit {}.".format(
+                len(missing), ", ".join(missing), path))
+    if not buckets["quorum"]:
+        sys.exit("ERROR: {} pins no quorum host.".format(path))
+    if not buckets["sender"] or not buckets["receiver"]:
+        sys.exit("ERROR: {} needs at least one sender and one receiver.".format(path))
+
+    print("  quorum   : {}".format(", ".join(e["host"] for e in buckets["quorum"])))
+    print("  senders  : {}".format(", ".join(e["host"] for e in buckets["sender"])))
+    print("  receivers: {}".format(", ".join(e["host"] for e in buckets["receiver"])))
+    return buckets["quorum"], buckets["sender"], buckets["receiver"]
+
+
 class CatalogueReport:
     """Per-Test-ID results, with SKIP tracked separately from PASS/FAIL."""
 
@@ -216,6 +289,21 @@ def main():
                    help="RBT-029 values per decimal place (catalogue asks 10)")
     p.add_argument("--repeat-count", type=int, default=25,
                    help="RBT-032 repetitions (catalogue asks 1000, ~33 min)")
+    # --- mixed-version runs -------------------------------------------------
+    # Roles are normally derived from the REACHABLE host list
+    # (quorum = first N, then senders/receivers alternate). That is fine for a
+    # uniform fleet, but for a mixed-version test it is a trap: one node
+    # dropping out shifts every role after it, so "receivers on the old build"
+    # silently becomes a different arrangement and the run answers a question
+    # nobody asked. Pinning makes the experiment reproducible.
+    p.add_argument("--dump-roles", default="",
+                   help="write the roles this run WOULD use to a file, then exit. "
+                        "Edit it to taste and feed it back with --pin-roles.")
+    p.add_argument("--pin-roles", default="",
+                   help="pin roles from a file instead of deriving them from host "
+                        "order. REQUIRED for a meaningful mixed-version run. "
+                        "Format: one 'IP role' per line (quorum/sender/receiver); "
+                        "'#' comments allowed.")
     p.add_argument("--version-label", default="",
                    help="manual fleet build label, e.g. '1.0.4' or a branch name. Only "
                         "used when --collect-versions is off.")
@@ -257,7 +345,16 @@ def main():
         print("  excluded: {}".format(line))
 
     print("\n== Common: role assignment ==")
-    quorum_hosts, senders, receivers = assign_roles(ready, args.quorum_count)
+    if args.pin_roles:
+        quorum_hosts, senders, receivers = load_pinned_roles(args.pin_roles, ready)
+        print("Roles PINNED from {} - host order ignored".format(args.pin_roles))
+    else:
+        quorum_hosts, senders, receivers = assign_roles(ready, args.quorum_count)
+
+    if args.dump_roles:
+        dump_roles(args.dump_roles, quorum_hosts, senders, receivers)
+        sys.exit(0)
+
     write_roles_file(ROLES_PATH, quorum_hosts, senders, receivers)
     print("Quorum: {}  Senders: {}  Receivers: {}".format(
         len(quorum_hosts), len(senders), len(receivers)))

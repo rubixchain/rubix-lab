@@ -41,7 +41,7 @@ WHY THE COLLATERAL CASES EXIST
     execute at the default. That leaves the collateral accounting path entirely
     untested, and it has a specific, expensive failure mode:
 
-    LockTokensForSplit selects WHOLE denominations (core/consensus/consensus.go:31).
+    LockTokensForSplit selects WHOLE denominations (core/wallet/post_consensus_payload_builder.go:226).
     Backing a 0.001 commitment therefore picks up a whole 1.000 token. If that
     token is committed as-is instead of being split, the other 0.999 is destroyed
     - a 0.001 contract silently costs a full RBT. It is invisible at value 1.0,
@@ -173,7 +173,7 @@ def sc_c_01(ctx, ci):
 
     WHY IT MATTERS
         LockTokensForSplit selects WHOLE denominations
-        (core/consensus/consensus.go:31), so backing a 0.001 commitment picks
+        (core/wallet/post_consensus_payload_builder.go:226), so backing a 0.001 commitment picks
         up a 1.000 token. If that token is committed without being split, the
         remaining 0.999 is destroyed and the contract silently costs 1000x what
         it should. Invisible at value 1.0, which is where every other SC case
