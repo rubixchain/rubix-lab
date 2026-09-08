@@ -119,7 +119,9 @@ def sweep_and_prepare(pool, port, timeout):
     def check(entry):
         host = entry["host"]
         reachable, dids, note = rc.get_dids(host, port, timeout)
-        return {"host": host, "reachable": reachable, "dids": dids, "note": note}
+        return {"host": host, "reachable": reachable, "dids": dids, "note": note,
+                "role": entry.get("role", ""),
+                "multidid": entry.get("role") == "multidid"}
 
     with ThreadPoolExecutor(max_workers=min(40, len(pool))) as ex:
         results = list(ex.map(check, pool))
@@ -131,15 +133,28 @@ def sweep_and_prepare(pool, port, timeout):
             continue
         n = len(r["dids"])
         if n == 1:
-            ready.append({"host": r["host"], "did": r["dids"][0]})
+            ready.append({"host": r["host"], "did": r["dids"][0],
+                          "dids": list(r["dids"]), "role": r["role"]})
         elif n == 0:
             did, msg = rc.create_did(r["host"], port)
             if not did:
                 excluded.append("{} - DID create failed: {}".format(r["host"], msg))
                 continue
-            ready.append({"host": r["host"], "did": did})
+            ready.append({"host": r["host"], "did": did, "dids": [did],
+                          "role": r["role"]})
+        elif r.get("multidid"):
+            # Opted in via hosts.txt. A second DID here is deliberate - it is
+            # what makes intra-node cases possible at all, since a same-node
+            # transfer needs two DIDs on one machine. The FIRST is the host's
+            # primary and behaves exactly as any other pool host; the rest are
+            # carried along for cases that ask for them.
+            ready.append({"host": r["host"], "did": r["dids"][0],
+                          "dids": list(r["dids"]), "role": r["role"]})
         else:
-            excluded.append("{} - {} DIDs, ambiguous, needs a human".format(r["host"], n))
+            excluded.append(
+                "{} - {} DIDs, ambiguous, needs a human. If the second DID is "
+                "deliberate, tag the host 'multidid' in hosts.txt".format(
+                    r["host"], n))
 
     for entry in ready:
         rc.announce_did(entry["host"], entry["did"], port)

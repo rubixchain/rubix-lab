@@ -72,9 +72,12 @@ class _Args:
 
 
 def _entry(n):
+    # .121 stands in for a host tagged 'multidid' in hosts.txt, so the
+    # intra-node cases execute their body instead of skipping.
     return {"host": "192.168.1.{}".format(n),
             "did": "bafybmi{}".format(str(n) * 7),
-            "role": ""}
+            "dids": ["bafybmi{}".format(str(n) * 7)],
+            "role": "multidid" if n == 121 else ""}
 
 
 def build_ctx(n_quorum=3, n_pairs=6):
@@ -179,6 +182,11 @@ def install_stubs():
     db.unpledge_rows = rec("unpledge_rows", [])
     db.negative_denoms = rec("negative_denoms", [])
     db.orphan_tokens = rec("orphan_tokens", [])
+    # Raw-SQL paths used by the fleet-wide sweeps and the DB-SEED case.
+    db.query = rec("query", [])
+    db.writable_query = rec("writable_query", [])
+    db.denom_counter = rec("denom_counter", {1.0: 5, 0.5: 2})
+    db.real_free_denoms = rec("real_free_denoms", {1.0: 5, 0.5: 2})
     db.record = lambda *a, **k: (a[-1] if a else None)
     db.format_evidence = lambda b, a: "free 10.000->9.514 | denom unchanged"
     # wallet_shapes performs real transfers; offline it always succeeds so the
@@ -189,6 +197,7 @@ def install_stubs():
     ws.drain_whole_tokens = rec("drain_whole_tokens", (True, "drained"))
     ws.drain_to = rec("drain_to", (True, "drained to budget"))
     ws.describe = rec("describe", "5 row(s) totalling 2.400: 0 whole, 5 part")
+    ws.second_did = rec("second_did", "bafybmi" + "s" * 52)
     return calls
 
 

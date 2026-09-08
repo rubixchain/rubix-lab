@@ -11,6 +11,16 @@
 #        controller   - this machine (list it if it also runs a node)
 #      Leave the role column blank for every other host.
 #
+#      One more tag exists, and it is NOT an infrastructure role:
+#        multidid   - this machine deliberately carries a SECOND DID.
+#      Every other host is held to exactly one DID and is excluded from a run
+#      if it has more, because CreateDID is not idempotent and a surprise
+#      second identity normally means something went wrong. A multidid host
+#      opts out of that guard. It still takes part in tests as an ordinary
+#      pool member; it simply also carries a spare DID for the cases that need
+#      two on one machine - a same-node transfer cannot be built any other way.
+#      One or two such hosts is enough; do not tag the whole fleet.
+#
 #   2. Unavailable - comment the line out with a reason + date, so every
 #      tool (check-nodes.py, setup-ssh.sh, dids-to-excel.py, node-versions.py)
 #      skips it automatically, without losing the record of why:
@@ -25,5 +35,5 @@
 10.0.0.12  explorer
 10.0.0.13  controller
 10.0.0.20
-10.0.0.21
+10.0.0.21  multidid
 10.0.0.22

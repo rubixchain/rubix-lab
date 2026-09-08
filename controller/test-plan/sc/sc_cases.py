@@ -69,6 +69,7 @@ import sc_cases_quorum
 import sc_cases_subs
 import sc_cases_stress
 import sc_cases_scale
+import sc_cases_gaps
 
 SKIP = "SKIP"
 
@@ -1445,6 +1446,15 @@ CASES = {
     "SC-X-03": sc_cases_scale.sc_x_03,
     "SC-X-04": sc_cases_scale.sc_x_04,
     "SC-X-05": sc_cases_scale.sc_x_05,
+
+    # Branches the first full run did not reach, found by scoping coverage
+    # to the three changed hunks rather than to the suite as a whole.
+    "SC-C-11": sc_cases_gaps.sc_c_11,
+    "SC-C-27": sc_cases_gaps.sc_c_27,
+    "SC-C-28": sc_cases_gaps.sc_c_28,
+    "SC-C-29": sc_cases_gaps.sc_c_29,
+    "SC-C-30": sc_cases_gaps.sc_c_30,
+    "SC-DB-03": sc_cases_gaps.sc_db_03,
 }
 
 # SC-C-04 (the whole-value control) runs BEFORE the repeat cases so that if the
@@ -1469,6 +1479,8 @@ ORDER = [
     "SC-C-23", "SC-C-24", "SC-C-25",
     "SC-C-12", "SC-C-26",
     "SC-X-01", "SC-X-02", "SC-X-03", "SC-X-04", "SC-X-05",
+    "SC-C-11", "SC-C-30", "SC-C-29", "SC-C-28", "SC-C-27",
+    "SC-DB-03",
 ]
 
 TIMING_CASES = set()
@@ -1634,6 +1646,25 @@ LANES = {
     "sc-scale-soak": {
         "cases": ["SC-X-05"],
         "hosts": 1, "fund": 50,
+    },
+
+    # --- hunk-coverage gaps -------------------------------------------------
+    "sc-guard-branches": {
+        "cases": ["SC-C-11", "SC-C-30", "SC-C-29", "SC-C-28"],
+        "hosts": 1, "fund": 20,
+    },
+    # SC-C-27 must out-pledge a quorum, so it needs a wallet larger than the
+    # quorum's free balance - by far the most expensive lane to fund.
+    "sc-rollback": {
+        "cases": ["SC-C-27"],
+        "hosts": 1, "fund": 2100,
+    },
+    # DB-SEED: writes to the database deliberately. Own wallet, and it runs
+    # last in the catalogue order so a mid-case failure cannot poison anything
+    # that had not run yet.
+    "sc-db-seed": {
+        "cases": ["SC-DB-03"],
+        "hosts": 1, "fund": 15,
     },
 }
 

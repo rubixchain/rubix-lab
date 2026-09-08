@@ -400,13 +400,14 @@ CASES = {
     "GEN-IN-12": general_cases_integrity.gen_in_12,
     "GEN-IN-13": general_cases_integrity.gen_in_13,
     "GEN-IN-14": general_cases_integrity.gen_in_14,
+    "GEN-IN-15": general_cases_integrity.gen_in_15,
 }
 
 # Shape checks first: if the counter is already wrong before any operation
 # runs, GEN-IN-10 and GEN-IN-11 cannot attribute drift to the mint or the deploy
 # and will honestly SKIP rather than blame the wrong thing.
 ORDER = ["GEN-IN-08", "GEN-IN-09", "GEN-IN-10", "GEN-IN-11",
-         "GEN-IN-12", "GEN-IN-13", "GEN-IN-14"]
+         "GEN-IN-12", "GEN-IN-13", "GEN-IN-14", "GEN-IN-15"]
 
 TIMING_CASES = set()
 
@@ -439,7 +440,7 @@ LANES = {
     # Read-only fleet sweeps. One host is enough - they walk every host in the
     # context themselves, and they need no balance at all.
     "gen-fleet-invariants": {
-        "cases": ["GEN-IN-12", "GEN-IN-13", "GEN-IN-14"],
+        "cases": ["GEN-IN-12", "GEN-IN-13", "GEN-IN-14", "GEN-IN-15"],
         "hosts": 1, "fund": 0,
     },
 }

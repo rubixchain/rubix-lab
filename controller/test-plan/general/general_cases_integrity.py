@@ -198,3 +198,72 @@ def gen_in_14(ctx, ci):
         "" if not findings else "; ".join(findings[:4]) +
         " - the same token persisted twice on one node, which the split path "
         "could produce on a retry without an ON CONFLICT guard")
+
+
+# ---------------------------------------------------------------------------
+# GEN-IN-15
+# ---------------------------------------------------------------------------
+
+def gen_in_15(ctx, ci):
+    """
+    GEN-IN-15 - No tokens left Locked anywhere on the fleet.
+
+    WHAT IT CHECKS
+        Across every host, no RBT token sits in status 1 (Locked) once the run
+        has settled.
+
+    WHY IT MATTERS
+        Locked is a transient state held for the duration of an operation.
+        Anything still Locked after a run has finished belongs to an operation
+        that failed without releasing - that value is stranded permanently,
+        counted in no balance and spendable by nobody.
+
+        This is the cheap net for the post-split rollback path. SC-C-27 forces
+        that failure deliberately; this catches it whenever ANY case failed
+        after its collateral split had already committed, including the
+        rejections that occur naturally under load. One rejected deploy out of
+        four hundred is easy to wave away - a Locked token it left behind is
+        not.
+
+        Three separate lock-release paths exist (core/transaction.go:70, :77,
+        :88), so a miss in any one shows up here.
+
+    MANUAL STEPS
+        On any node, once nothing is in flight:
+          SELECT did, token_id, token_value FROM tokens
+           WHERE token_type=1 AND token_status=1;
+        Should return no rows.
+
+    PASS / FAIL
+        PASS  no Locked tokens on any host
+        FAIL  reports host, count and value - each is stranded value, and the
+              total is what the fleet has silently lost
+    """
+    if not db.available():
+        return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
+
+    checked, findings, total_value, total_rows = 0, [], 0.0, 0
+    for e in _hosts(ctx):
+        try:
+            rows = db.query(
+                e["host"],
+                "SELECT did, token_id, token_value FROM tokens "
+                "WHERE token_type = %s AND token_status = %s",
+                (db.TYPE_RBT, db.LOCKED))
+        except db.DBUnavailable:
+            continue
+        checked += 1
+        if rows:
+            v = sum(float(row[2]) for row in rows)
+            total_value += v
+            total_rows += len(rows)
+            findings.append("{}: {} token(s) worth {:.3f}".format(
+                e["host"], len(rows), v))
+
+    if not checked:
+        return SKIP, "no host reachable", "could not read the tokens table anywhere"
+    return (not findings), "{} host(s) checked, {} locked token(s) worth {:.3f}".format(
+        checked, total_rows, total_value), (
+        "" if not findings else "; ".join(findings[:5]) +
+        " - Locked is transient; anything still Locked belongs to an operation "
+        "that failed without releasing, and that value is stranded")
