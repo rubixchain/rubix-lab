@@ -31,6 +31,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "full-test"))
 import rubix_client as rc
 import db_client as db
+import wallet_shapes as ws
 
 SKIP = "SKIP"
 SETTLE = 6
@@ -505,25 +506,17 @@ def sc_s_10(ctx, ci):
 # ---------------------------------------------------------------------------
 
 def _parts_wallet(ctx, sc, target, amounts):
-    """Fund `target` with the given fractional amounts only. Returns (ok, why)."""
+    """Leave `target` holding only the given fractional amounts.
+
+    BUILDS the shape rather than requiring it. Earlier this refused whenever the
+    target already held whole tokens, which on a funded fleet is always - so
+    every case using it skipped and the parts path went untested.
+    """
     s = ctx.senders[0]
-    try:
-        if any(v >= 1.0 for v in db.free_token_values(target["host"], target["did"])):
-            return False, "{} already holds whole tokens".format(target["host"])
-    except db.DBUnavailable as e:
-        return False, str(e)
-    ready, why = sc._prepare(ctx, s, sum(amounts) + 6)
+    ready, why = sc._prepare(ctx, s, sum(amounts) + 12)
     if not ready:
         return False, why
-    for amt in amounts:
-        ok, msg, _ = rc.initiate_transaction(s["host"], s["did"], target["did"],
-                                             rbt=amt, memo="parts setup",
-                                             port=ctx.port)
-        if not ok:
-            return False, "sending {} failed: {}".format(amt, msg)
-        time.sleep(2)
-    time.sleep(SETTLE)
-    return True, ""
+    return ws.make_parts_wallet(ctx, target, s, amounts=tuple(amounts))
 
 
 def sc_c_23(ctx, ci):

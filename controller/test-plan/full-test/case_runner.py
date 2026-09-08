@@ -43,6 +43,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import rubix_client as rc
+import db_client as db
 import report_builder
 from smoke_test import (
     FIXED_ROLES, DEFAULT_HOSTS, ROLES_PATH,
@@ -849,6 +850,18 @@ def main():
     }
     if args.only:
         meta["conditions"].insert(3, ("Subset filter", "--only {}".format(args.only)))
+
+    # Write the raw before/after database readings next to the report. A
+    # verdict asks the reader to trust the harness; the readings let a
+    # developer reviewing the fix check the arithmetic themselves.
+    if db.EVIDENCE:
+        ev_path = rc.new_report_paths(
+            (args.report_name or args.cases.replace(",", "-")) + "_db-evidence",
+            ("json",))["json"]
+        with open(ev_path, "w", encoding="utf-8") as fh:
+            json.dump({"captured": len(db.EVIDENCE), "readings": db.EVIDENCE},
+                      fh, indent=2, default=str)
+        print("DB evidence: {} reading(s) -> {}".format(len(db.EVIDENCE), ev_path))
 
     timing_ids = set(getattr(module, "TIMING_CASES", set()))
     print()

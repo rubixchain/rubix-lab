@@ -108,9 +108,22 @@ def sc_c_20(ctx, ci):
         return SKIP, "database unreachable", str(e)
 
     if not whole_before:
-        return SKIP, "no whole token to split", (
-            "this case needs a 1.000 token available, so the change is "
-            "unambiguous; wallet holds only fractions")
+        # The wallet needs a whole token so the change is unambiguous. Fund it
+        # rather than skipping - generate_local_rbt mints whole tokens.
+        rc.fund_did(s["host"], s["did"], 5, ctx.port)
+        rc.wait_for_balance(s["host"], s["did"], 5, ctx.port)
+        time.sleep(SETTLE)
+        try:
+            free_before = {t for t, _v, _st, _p in
+                           db.token_rows(s["host"], s["did"], db.FREE)}
+            whole_before = [v for _t, v, _st, _p in
+                            db.token_rows(s["host"], s["did"], db.FREE) if v >= 1.0]
+        except db.DBUnavailable as e:
+            return SKIP, "database unreachable", str(e)
+        if not whole_before:
+            return False, "no whole token available", (
+                "funded the wallet but it still holds no 1.000 token - the "
+                "change produced by a split would be ambiguous")
 
     sc_id, err = sc._new_contract(ctx, s)
     if err:

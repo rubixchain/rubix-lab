@@ -263,7 +263,9 @@ def gen_in_10(ctx, ci):
         return SKIP, "setup incomplete", why
 
     try:
-        before = db.denom_drift(s["host"], s["did"])
+        snap_before = db.record("GEN-IN-10", "before", s["host"], s["did"],
+                                db.snapshot(s["host"], s["did"]))
+        before = snap_before["denom_drift"]
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
     if before:
@@ -277,12 +279,18 @@ def gen_in_10(ctx, ci):
     time.sleep(SETTLE)
 
     try:
-        after = db.denom_drift(s["host"], s["did"])
+        snap_after = db.record("GEN-IN-10", "after", s["host"], s["did"],
+                               db.snapshot(s["host"], s["did"]))
+        after = db.new_drift(snap_before, snap_after)
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
 
-    return (not after), ("counter consistent after FT mint" if not after
-                         else "{} denomination(s) drifted".format(len(after))), (
+    return (not after), ("counter consistent after FT mint | "
+                         + db.format_evidence(snap_before, snap_after)
+                         if not after
+                         else "{} denomination(s) drifted | {}".format(
+                             len(after),
+                             db.format_evidence(snap_before, snap_after))), (
         "" if not after else
         _describe_drift(after) + " - introduced by the FT mint, which burnt RBT "
         "without decrementing the counter")
@@ -331,7 +339,9 @@ def gen_in_11(ctx, ci):
         return SKIP, "setup incomplete", why
 
     try:
-        before = db.denom_drift(s["host"], s["did"])
+        snap_before = db.record("GEN-IN-11", "before", s["host"], s["did"],
+                                db.snapshot(s["host"], s["did"]))
+        before = snap_before["denom_drift"]
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
     if before:
@@ -351,7 +361,9 @@ def gen_in_11(ctx, ci):
     time.sleep(SETTLE)
 
     try:
-        after = db.denom_drift(s["host"], s["did"])
+        snap_after = db.record("GEN-IN-11", "after", s["host"], s["did"],
+                               db.snapshot(s["host"], s["did"]))
+        after = db.new_drift(snap_before, snap_after)
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
 
@@ -361,8 +373,12 @@ def gen_in_11(ctx, ci):
     collateral_denom = 1.0
     other = {d: v for d, v in after.items() if abs(d - collateral_denom) > TOL}
 
-    return (not other), ("no drift outside the collateral denomination" if not other
-                         else "{} other denomination(s) drifted".format(len(other))), (
+    return (not other), (("no drift outside the collateral denomination | "
+                          + db.format_evidence(snap_before, snap_after))
+                         if not other
+                         else "{} other denomination(s) drifted | {}".format(
+                             len(other),
+                             db.format_evidence(snap_before, snap_after))), (
         "" if not other else
         _describe_drift(other) + " - the deploy disturbed denominations outside "
         "the one its collateral came from")

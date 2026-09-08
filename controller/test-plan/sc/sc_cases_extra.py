@@ -36,6 +36,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "full-test"))
 import rubix_client as rc
 import db_client as db
+import wallet_shapes as ws
 
 SKIP = "SKIP"
 SETTLE = 6
@@ -124,38 +125,24 @@ def _shape_case(ctx, ci, shape):
 
     value = sc.rand_value(0.100, 0.999)
 
+    # The wallet shape is BUILT, not looked for. Draining the receiver's whole
+    # tokens and sending fractions back makes every shape reachable from any
+    # starting state - which is why none of these skip any more.
     if shape == "whole":
         target = s
         ready, why = sc._prepare(ctx, target, 8)
         if not ready:
             return SKIP, "setup incomplete", why
     else:
-        # Build a parts-only wallet on the receiver: several sub-1.0 sends, so
-        # no whole token is ever created there.
-        ready, why = sc._prepare(ctx, s, 10)
+        ready, why = sc._prepare(ctx, s, 15)
         if not ready:
             return SKIP, "setup incomplete", why
-        try:
-            if any(v >= 1.0 for v in db.free_token_values(r["host"], r["did"])):
-                return SKIP, "receiver holds whole tokens", (
-                    "cannot isolate a {} wallet on {} without a wipe".format(
-                        shape, r["host"]))
-        except db.DBUnavailable as e:
-            return SKIP, "database unreachable", str(e)
-        for amt in (0.7, 0.6, 0.5, 0.4):
-            ok, msg, _ = rc.initiate_transaction(s["host"], s["did"], r["did"],
-                                                 rbt=amt, memo="shape setup",
-                                                 port=ctx.port)
-            if not ok:
-                return SKIP, "could not build parts wallet", str(msg)
-            time.sleep(2)
-        if shape == "mixed":
-            ok, msg, _ = rc.initiate_transaction(s["host"], s["did"], r["did"],
-                                                 rbt=2.0, memo="shape setup whole",
-                                                 port=ctx.port)
-            if not ok:
-                return SKIP, "could not add whole tokens", str(msg)
-        time.sleep(SETTLE)
+        if shape == "parts":
+            okw, whyw = ws.make_parts_wallet(ctx, r, s)
+        else:
+            okw, whyw = ws.make_mixed_wallet(ctx, r, s)
+        if not okw:
+            return False, "could not build a {} wallet".format(shape), whyw
         target = r
         ready, why = sc._prepare(ctx, target, value + 0.5)
         if not ready:

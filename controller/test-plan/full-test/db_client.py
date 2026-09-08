@@ -375,6 +375,53 @@ def snapshot(host, did, port=DB_PORT):
     }
 
 
+# Every before/after pair a case records lands here, and case_runner writes it
+# into the run's JSON report. A verdict without the readings behind it asks the
+# reader to trust the harness; a developer reviewing a fix should be able to see
+# the actual rows and check the arithmetic themselves.
+EVIDENCE = []
+
+
+def record(case_id, label, host, did, snap):
+    """Keep one snapshot as evidence for the report."""
+    EVIDENCE.append({
+        "case": case_id,
+        "label": label,          # "before" / "after" / "after deploy 3"
+        "host": host,
+        "did": did,
+        "free": round(snap["free"], 4),
+        "free_rows": snap["free_rows"],
+        "committed": round(snap["committed"], 4),
+        "burnt_for_ft": round(snap["burnt_for_ft"], 4),
+        "pledged": round(snap["pledged"], 4),
+        "denom": {str(k): v for k, v in sorted(snap["denom"].items())},
+        "denom_drift": {str(k): list(v) for k, v in sorted(snap["denom_drift"].items())},
+    })
+    return snap
+
+
+def evidence_for(case_id):
+    return [e for e in EVIDENCE if e["case"] == case_id]
+
+
+def format_evidence(before, after):
+    """One-line before/after summary, for the human-readable report column.
+
+    Deliberately shows the DENOMINATION MAP either side, not just a verdict:
+    "counter ok" is a claim, "1.000: 5 -> 4" is the reading it rests on.
+    """
+    d = delta(before, after)
+    denoms = sorted(set(before["denom"]) | set(after["denom"]))
+    moved = ["{:.3f}:{}->{}".format(k, before["denom"].get(k, 0),
+                                    after["denom"].get(k, 0))
+             for k in denoms
+             if before["denom"].get(k, 0) != after["denom"].get(k, 0)]
+    return "free {:.3f}->{:.3f} committed {:.3f}->{:.3f} burnt {:.3f}->{:.3f}{}".format(
+        before["free"], after["free"], before["committed"], after["committed"],
+        before["burnt_for_ft"], after["burnt_for_ft"],
+        " | denom " + " ".join(moved) if moved else " | denom unchanged")
+
+
 def delta(before, after):
     """What changed between two snapshots. Scalars only; denom compared separately."""
     return {k: after[k] - before[k] for k in

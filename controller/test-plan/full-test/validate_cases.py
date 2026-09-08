@@ -48,6 +48,7 @@ sys.path.insert(0, HERE)
 
 import rubix_client as rc
 import db_client as db
+import wallet_shapes as ws
 from case_runner import CaseContext, CaseInfo, load_case_module
 
 
@@ -172,6 +173,22 @@ def install_stubs():
     db.new_drift = lambda b, a: {}
     db.describe_drift = lambda d: ""
     db.duplicate_token_ids = rec("duplicate_token_ids", [])
+    db.token_rows = rec("token_rows", [("tok1", 1.0, 0, None)])
+    db.children_of = rec("children_of", [])
+    db.chain_rows = rec("chain_rows", [(0, "tx1", "", 1)])
+    db.unpledge_rows = rec("unpledge_rows", [])
+    db.negative_denoms = rec("negative_denoms", [])
+    db.orphan_tokens = rec("orphan_tokens", [])
+    db.record = lambda *a, **k: (a[-1] if a else None)
+    db.format_evidence = lambda b, a: "free 10.000->9.514 | denom unchanged"
+    # wallet_shapes performs real transfers; offline it always succeeds so the
+    # case body past the precondition still executes.
+    ws.make_parts_wallet = rec("make_parts_wallet", (True, "parts wallet ready"))
+    ws.make_mixed_wallet = rec("make_mixed_wallet", (True, "mixed wallet ready"))
+    ws.make_minimum_unit_wallet = rec("make_minimum_unit_wallet", (True, "ok"))
+    ws.drain_whole_tokens = rec("drain_whole_tokens", (True, "drained"))
+    ws.drain_to = rec("drain_to", (True, "drained to budget"))
+    ws.describe = rec("describe", "5 row(s) totalling 2.400: 0 whole, 5 part")
     return calls
 
 

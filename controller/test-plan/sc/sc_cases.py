@@ -57,6 +57,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "full-test"))
 import rubix_client as rc
 import db_client as db
+import wallet_shapes as ws
 
 # Cases added while reviewing PR #739 live in sibling files purely to keep
 # this one readable. They are ordinary SC catalogue cases and are imported
@@ -328,6 +329,8 @@ def sc_c_02(ctx, ci):
 
     try:
         before_committed = db.value_in_status(s["host"], s["did"], db.COMMITTED)
+        snap_before = db.record("SC-C-02", "before", s["host"], s["did"],
+                                db.snapshot(s["host"], s["did"]))
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
 
@@ -345,6 +348,8 @@ def sc_c_02(ctx, ci):
     try:
         after_committed = db.value_in_status(s["host"], s["did"], db.COMMITTED)
         summary = db.token_status_summary(s["host"], s["did"])
+        snap_after = db.record("SC-C-02", "after", s["host"], s["did"],
+                               db.snapshot(s["host"], s["did"]))
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
 
@@ -354,7 +359,9 @@ def sc_c_02(ctx, ci):
 
     detail = ", ".join("{}={}x{:.3f}".format(k, v[0], v[1])
                        for k, v in sorted(summary.items()))
-    return exact, "committed {:.4f} for a {:.3f} contract".format(committed, value), (
+    evidence = db.format_evidence(snap_before, snap_after)
+    return exact, "committed {:.4f} for a {:.3f} contract | {}".format(
+        committed, value, evidence), (
         "" if exact else (
             "a whole token was committed for a {} deploy - the remaining {:.3f} "
             "was destroyed rather than returned as change. Token status now: "
@@ -845,24 +852,13 @@ def sc_c_09(ctx, ci):
         return SKIP, "deploy failed", str(msg)
     time.sleep(SETTLE)
 
-    # Build a parts-only wallet on the executor: several sub-1.0 sends, so no
-    # whole token is ever created there.
-    try:
-        if any(v >= 1.0 for v in db.free_token_values(r["host"], r["did"])):
-            return SKIP, "executor holds whole tokens", (
-                "{} already has whole tokens, so the parts path cannot be "
-                "isolated here without a wipe".format(r["host"]))
-    except db.DBUnavailable as e:
-        return SKIP, "database unreachable", str(e)
-
-    for amt in (0.4, 0.3, 0.5):
-        okp, msgp, _ = rc.initiate_transaction(s["host"], s["did"], r["did"],
-                                               rbt=amt, memo="SC-C-09 parts",
-                                               port=ctx.port)
-        if not okp:
-            return SKIP, "could not build parts wallet", str(msgp)
-        time.sleep(2)
-    time.sleep(SETTLE)
+    # BUILD the parts wallet rather than requiring one to exist. Draining the
+    # executor's whole tokens to the sender and sending fractions back makes
+    # the precondition reproducible on any wallet, whatever it held before.
+    okw, whyw = ws.make_parts_wallet(ctx, r, s, amounts=(0.4, 0.3, 0.5))
+    if not okw:
+        return SKIP, "could not build parts wallet", whyw
+    shape_note = ws.describe(r["host"], r["did"], ctx.port)
 
     sub_ok, sub_msg = rc.subscribe_smart_contract(r["host"], sc_id, ctx.port)
     if not sub_ok:
@@ -987,6 +983,12 @@ def sc_q_06(ctx, ci):
         free_before = _bal(ctx, s)
         committed_before = db.value_in_status(s["host"], s["did"], db.COMMITTED)
         pledged_before = db.pledged_value(q["host"], q["did"])
+        # Recorded as evidence: the report should show the readings, not just
+        # the verdict drawn from them.
+        snap_before = db.record("SC-Q-06", "before (deployer)", s["host"],
+                                s["did"], db.snapshot(s["host"], s["did"]))
+        qsnap_before = db.record("SC-Q-06", "before (quorum)", q["host"],
+                                 q["did"], db.snapshot(q["host"], q["did"]))
         # The quorum's OWN counter matters too. Pledging moves its tokens out of
         # Free (core/wallet/pledge.go:222), so its token_denom must decrement -
         # the same class of bug this PR fixes on the deploy and mint paths, but
@@ -1023,6 +1025,10 @@ def sc_q_06(ctx, ci):
         committed_after = db.value_in_status(s["host"], s["did"], db.COMMITTED)
         drift = db.denom_drift(s["host"], s["did"])
         q_drift = db.denom_drift(q["host"], q["did"])
+        snap_after = db.record("SC-Q-06", "after (deployer)", s["host"],
+                               s["did"], db.snapshot(s["host"], s["did"]))
+        qsnap_after = db.record("SC-Q-06", "after (quorum)", q["host"],
+                                q["did"], db.snapshot(q["host"], q["did"]))
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
 
@@ -1057,9 +1063,13 @@ def sc_q_06(ctx, ci):
             " - pledging moves tokens out of Free, so the quorum counter must "
             "decrement too. This path is NOT part of the fix under test")
 
+    evidence = "deployer[{}] quorum[{}]".format(
+        db.format_evidence(snap_before, snap_after),
+        db.format_evidence(qsnap_before, qsnap_after))
     return (not problems), "value={:.3f} spent={:.4f} committed={:.4f} pledged={:.4f} q_denom={}".format(
         value, spent if spent is not None else -1, committed, pledged,
-        "ok" if not new_q_drift else "DRIFT"), "; ".join(problems)
+        "ok" if not new_q_drift else "DRIFT"), (
+        "; ".join(problems) + (" | " if problems else "") + evidence)
 
 
 # ---------------------------------------------------------------------------

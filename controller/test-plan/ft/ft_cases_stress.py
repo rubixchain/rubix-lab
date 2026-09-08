@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "full-test"))
 import rubix_client as rc
 import db_client as db
+import wallet_shapes as ws
 
 SKIP = "SKIP"
 SETTLE = 6
@@ -87,12 +88,17 @@ def ft_p_06(ctx, ci):
         return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
     s, r = ctx.pair(0)
 
-    # A deliberately small wallet, so exhaustion arrives in a handful of mints
-    # rather than hundreds.
+    # A deliberately small wallet, so exhaustion arrives in a handful of mints.
+    # _prepare would top it back up to the lane's funding level, which is why
+    # this previously never reached the floor - it drained and was refilled.
+    # Drain to the budget AFTER preparing, and do not re-fund.
     budget = 4
-    ready, why = ft._prepare(ctx, s, budget + 8)
+    ready, why = ft._prepare(ctx, s, budget + 2)
     if not ready:
         return SKIP, "setup incomplete", why
+    okd, whyd = ws.drain_to(ctx, s, r, keep=budget)
+    if not okd:
+        return SKIP, "could not size the wallet", whyd
 
     minted, first_failure = 0, None
     for i in range(budget + 3):

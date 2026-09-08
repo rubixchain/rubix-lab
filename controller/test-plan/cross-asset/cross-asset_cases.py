@@ -261,7 +261,8 @@ def crs_c_02(ctx, ci):
     ft_name = "race" + _tag(6)
 
     try:
-        before = db.snapshot(s["host"], s["did"])
+        before = db.record("CRS-C-02", "before", s["host"], s["did"],
+                           db.snapshot(s["host"], s["did"]))
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
     if before["denom_drift"]:
@@ -285,7 +286,8 @@ def crs_c_02(ctx, ci):
 
     time.sleep(SETTLE * 3)
     try:
-        after = db.snapshot(s["host"], s["did"])
+        after = db.record("CRS-C-02", "after", s["host"], s["did"],
+                          db.snapshot(s["host"], s["did"]))
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
     drift = db.new_drift(before, after)
@@ -306,9 +308,8 @@ def crs_c_02(ctx, ci):
             "'lockSelectedTokens: no tokens provided'")
 
     return (not problems), (
-        "deploy {:.3f} + mint {} RBT concurrently | free {:+.3f} committed {:+.3f} "
-        "burnt {:+.3f} | counter {}".format(
-            value, ft_backing, d["free"], d["committed"], d["burnt_for_ft"],
+        "deploy {:.3f} + mint {} RBT concurrently | {} | counter {}".format(
+            value, ft_backing, db.format_evidence(before, after),
             "ok" if not drift else "DRIFT")), "; ".join(problems)
 
 

@@ -61,6 +61,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "full-test"))
 import rubix_client as rc
 import db_client as db
+import wallet_shapes as ws
 
 # Repetition and interleaving cases live alongside; imported into
 # CASES/ORDER below so nothing else needs to know they are separate.
@@ -188,27 +189,13 @@ def ft_p_01(ctx, ci):
             "table to prove no whole token exists. "
             "sudo apt install -y python3-psycopg2")
 
-    # Only usable if the receiver starts with no whole tokens of its own.
-    try:
-        before = db.free_token_values(r["host"], r["did"])
-    except db.DBUnavailable as e:
-        return SKIP, "database unreachable", str(e)
-    if any(v >= 1.0 for v in before):
-        return SKIP, "receiver already holds whole tokens", (
-            "{} already has {} whole token(s), so a parts-only wallet cannot be "
-            "built here without a wipe".format(r["host"], sum(1 for v in before if v >= 1.0)))
-
-    sent = 0.0
-    for amt in PART_AMOUNTS:
-        ok, msg, _ = rc.initiate_transaction(s["host"], s["did"], r["did"],
-                                             rbt=amt, memo="FT-P-01 parts",
-                                             port=ctx.port)
-        if not ok:
-            return False, "part transfer failed", "sending {} failed: {}".format(amt, msg)
-        sent += amt
-        time.sleep(2)
-
-    time.sleep(SETTLE)
+    # BUILD the parts wallet. This used to refuse when the receiver already
+    # held whole tokens, which on a funded fleet is always - so the entire
+    # FT-from-parts chain skipped and a third of the FT verification never ran.
+    okw, whyw = ws.make_parts_wallet(ctx, r, s, amounts=tuple(PART_AMOUNTS))
+    if not okw:
+        return False, "could not build a parts wallet", whyw
+    sent = sum(PART_AMOUNTS)
     try:
         values = db.free_token_values(r["host"], r["did"])
     except db.DBUnavailable as e:
