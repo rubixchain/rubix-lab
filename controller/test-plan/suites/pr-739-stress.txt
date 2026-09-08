@@ -1,0 +1,68 @@
+# PR #739 - production-level stress
+# Branch: maneesha/fix/denom-array-updation
+#
+# RUN THIS ONLY AFTER pr-739 PASSES.
+#
+#   python3 case_runner.py --suite pr-739          # functional, must be green
+#   python3 case_runner.py --suite pr-739-stress   # then this
+#
+# Why that order matters: at this volume individual operations WILL be
+# rejected - quorum capacity, contention, a wallet running low. None of that is
+# a defect. You can only tell noise from a real finding if you already know the
+# functional behaviour is sound, so a stress run on an unproven build tells you
+# nothing you can act on.
+#
+# WHAT THESE ASK THAT THE FUNCTIONAL SUITE DOES NOT
+#     The functional cases ask "is this correct?". These ask "is it STILL
+#     correct after five hundred of them?" - a different question, because the
+#     failures that matter here accumulate rather than appear:
+#
+#       * a counter drifting one row per thousand operations
+#       * a split losing 0.001 every few hundred deploys
+#       * a subscriber falling behind once the chain is deep enough
+#       * a quorum whose pledges outrun its releases under sustained load
+#
+#     None of those show up in a five-operation test. All of them take a fleet
+#     down eventually.
+#
+# HOW TO READ THE RESULTS
+#     Every case reports WHERE the invariant first broke, not merely that it
+#     did. "Counter first drifted at deploy 340" is a number you can compare
+#     against the next release; "counter drifted" is not. An early break is an
+#     immediate defect; a late one accumulates. They need different fixes.
+#
+#     Rejections are counted and reported separately from invariant failures.
+#     A pledge shortage is a CAPACITY result. A counter that no longer matches
+#     reality is a DEFECT.
+#
+# VOLUME
+#     --scale multiplies the documented figures:
+#       --scale 0.1   quick shape-check of the stress suite itself
+#       --scale 1.0   default: 200 deploys, 200 executes, 100 mints, 3 min soak
+#       --scale 2.0+  push a fleet that already passes at 1.0
+#
+# EXPECT this to take considerably longer than the functional suite, and to
+# leave the fleet with a lot of accumulated state. Run GEN-IN-* afterwards -
+# they are included below and run last for exactly that reason.
+
+# --- smart contract at volume ------------------------------------------------
+SC-X-*          # 200 deploys with checkpoints, 200 executes on one chain,
+                # subscribers joining across the whole run, every host
+                # deploying at once, and a duration-bounded soak
+
+# --- FT burn path at volume --------------------------------------------------
+FT-X-*          # 100 mints with checkpoints, and concurrent minting from
+                # several wallets
+
+# --- the concurrency cases, which are worth repeating under load -------------
+SC-C-12         # many deploys from ONE wallet - the deadlock the split
+                # ordering exists to prevent
+SC-C-26         # many nodes deploying simultaneously through shared quorums
+CRS-C-02        # SC deploy and FT mint at the same moment on one DID: the only
+                # case that runs BOTH of this PR's fixes at once
+FT-P-07         # the cheaper sibling of CRS-C-02, no contract involved
+
+# --- fleet-wide reconciliation, LAST ----------------------------------------
+# These take no action. They sweep every host and assert what must be true
+# regardless of what ran, so they catch damage nothing else attributed.
+GEN-IN-*

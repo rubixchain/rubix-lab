@@ -345,6 +345,58 @@ def free_token_values(host, did, port=DB_PORT):
     return [float(v) for (v,) in rows]
 
 
+def snapshot(host, did, port=DB_PORT):
+    """One before/after picture of a DID's RBT accounting.
+
+    Exists so a case takes the SAME reading before and after, and asserts on the
+    DELTA. Reading only afterwards forces a case to assume a starting point -
+    FT-P-03 did exactly that, treating a cumulative BurntForFT total as if it
+    were this mint's burn, on the strength of a comment saying the wallet was
+    fresh. An assumption in a comment is not a measurement.
+
+    Every figure is RBT-only (token_type=1) and scoped to one DID.
+    """
+    counter = denom_counter(host, did, port)
+    actual = real_free_denoms(host, did, port)
+    drift = {}
+    for d in set(counter) | set(actual):
+        c, a = counter.get(d, 0), actual.get(d, 0)
+        if c != a:
+            drift[d] = (c, a)
+    return {
+        "free": value_in_status(host, did, FREE, port),
+        "free_rows": count_in_status(host, did, FREE, port),
+        "committed": value_in_status(host, did, COMMITTED, port),
+        "burnt_for_ft": value_in_status(host, did, BURNT_FOR_FT, port),
+        "burnt_for_ft_rows": count_in_status(host, did, BURNT_FOR_FT, port),
+        "pledged": pledged_value(host, did, port),
+        "denom": counter,
+        "denom_drift": drift,
+    }
+
+
+def delta(before, after):
+    """What changed between two snapshots. Scalars only; denom compared separately."""
+    return {k: after[k] - before[k] for k in
+            ("free", "free_rows", "committed", "burnt_for_ft",
+             "burnt_for_ft_rows", "pledged")}
+
+
+def new_drift(before, after):
+    """Drift present AFTER that was not present BEFORE.
+
+    Keeps a case honest about attribution: pre-existing drift is somebody
+    else's finding, not this operation's.
+    """
+    return {d: v for d, v in after["denom_drift"].items()
+            if d not in before["denom_drift"]}
+
+
+def describe_drift(drift):
+    return "; ".join("denom {:.3f}: counter={} free={}".format(d, c, a)
+                     for d, (c, a) in sorted(drift.items()))
+
+
 def pledged_value(host, did, port=DB_PORT):
     """Total value this DID currently has pledged, as quorum or otherwise.
 
@@ -373,6 +425,78 @@ def open_pledges(host, port=DB_PORT):
         "SELECT u.tx_id FROM unpledge_sequence_info u "
         "WHERE NOT EXISTS (SELECT 1 FROM transactions t WHERE t.id = u.tx_id)",
         port=port)
+    return [t for (t,) in rows]
+
+
+def token_rows(host, did, status=None, port=DB_PORT, token_type=TYPE_RBT):
+    """Individual RBT rows for a DID: [(token_id, value, status, parent_id)].
+
+    Row-level rather than a SUM. A total cannot distinguish "committed 1.000 as
+    one whole token" from "committed 0.354 and returned 0.646 as change" when
+    the wallet held other tokens - only looking at which rows exist can.
+    """
+    sql = ("SELECT token_id, token_value, token_status, parent_token_id "
+           "FROM tokens WHERE did = %s AND token_type = %s")
+    params = [did, token_type]
+    if status is not None:
+        sql += " AND token_status = %s"
+        params.append(status)
+    sql += " ORDER BY token_value DESC, token_id"
+    return [(t, float(v), int(st), pid)
+            for t, v, st, pid in query(host, sql, tuple(params), port)]
+
+
+def children_of(host, parent_token_id, port=DB_PORT):
+    """Rows produced by splitting a parent token: [(token_id, value, status)]."""
+    rows = query(
+        host,
+        "SELECT token_id, token_value, token_status FROM tokens "
+        "WHERE parent_token_id = %s ORDER BY token_value DESC",
+        (parent_token_id,), port)
+    return [(t, float(v), int(st)) for t, v, st in rows]
+
+
+def chain_rows(host, token_id, port=DB_PORT):
+    """tokenchain entries for one token: [(position, transaction_id, prev_id, role)]."""
+    rows = query(
+        host,
+        "SELECT position, transaction_id, previous_transaction_id, role "
+        "FROM tokenchain WHERE token_id = %s ORDER BY position",
+        (token_id,), port)
+    return [(int(p), t, prev, int(r)) for p, t, prev, r in rows]
+
+
+def unpledge_rows(host, tx_id, port=DB_PORT):
+    """unpledge_sequence_info for one transaction: [(quorum_did, pledge_tokens)].
+
+    A pledge with no unpledge row queued can never be released.
+    """
+    rows = query(
+        host,
+        "SELECT quorum_did, pledge_tokens FROM unpledge_sequence_info WHERE tx_id = %s",
+        (tx_id,), port)
+    return [(q, list(pt or [])) for q, pt in rows]
+
+
+def negative_denoms(host, did=None, port=DB_PORT):
+    """token_denom rows with a negative count - should never exist."""
+    if did:
+        rows = query(host, "SELECT did, denom, count FROM token_denom "
+                           "WHERE count < 0 AND did = %s", (did,), port)
+    else:
+        rows = query(host, "SELECT did, denom, count FROM token_denom WHERE count < 0",
+                     port=port)
+    return [(d, float(dn), int(c)) for d, dn, c in rows]
+
+
+def orphan_tokens(host, port=DB_PORT):
+    """Free RBT rows with no tokenchain entry at all."""
+    rows = query(
+        host,
+        "SELECT t.token_id FROM tokens t "
+        "WHERE t.token_type = %s AND t.token_status = %s "
+        "AND NOT EXISTS (SELECT 1 FROM tokenchain c WHERE c.token_id = t.token_id)",
+        (TYPE_RBT, FREE), port)
     return [t for (t,) in rows]
 
 

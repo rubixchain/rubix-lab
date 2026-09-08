@@ -65,6 +65,9 @@ class _Args:
     callback_host = "192.168.1.103"
     ssh_user = "rubix"
     remote_dir = "~/Desktop/rubix"
+    # Stress cases scale their volume by this; 0 keeps the offline
+    # validation instant while still executing every code path.
+    scale = 0.01
 
 
 def _entry(n):
@@ -160,6 +163,14 @@ def install_stubs():
     db.open_pledges = rec("open_pledges", [])
     db.transaction_exists = rec("transaction_exists", True)
     db.transaction_participants = rec("transaction_participants", ("did_a", "did_b"))
+    _snap = {"free": 10.0, "free_rows": 12, "committed": 0.0,
+             "burnt_for_ft": 2.0, "burnt_for_ft_rows": 3, "pledged": 0.0,
+             "denom": {1.0: 5}, "denom_drift": {}}
+    db.snapshot = rec("snapshot", dict(_snap))
+    db.delta = lambda b, a: {k: a[k] - b[k] for k in
+        ("free","free_rows","committed","burnt_for_ft","burnt_for_ft_rows","pledged")}
+    db.new_drift = lambda b, a: {}
+    db.describe_drift = lambda d: ""
     db.duplicate_token_ids = rec("duplicate_token_ids", [])
     return calls
 

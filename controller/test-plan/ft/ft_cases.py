@@ -62,6 +62,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import rubix_client as rc
 import db_client as db
 
+# Repetition and interleaving cases live alongside; imported into
+# CASES/ORDER below so nothing else needs to know they are separate.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(
+    os.path.abspath(__file__)), "..", "sc"))
+import ft_cases_stress
+import ft_cases_scale
+
 SKIP = "SKIP"
 
 SETTLE = 6
@@ -273,9 +281,13 @@ def ft_p_02(ctx, ci):
         return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
 
     try:
-        burnt_before = db.count_in_status(r["host"], r["did"], db.BURNT_FOR_FT)
+        snap_before = db.snapshot(r["host"], r["did"])
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
+    burnt_before = snap_before["burnt_for_ft_rows"]
+    # Handed to FT-P-03 so it measures this mint's burn instead of assuming the
+    # wallet started empty.
+    _PARTS["snap_before_mint"] = snap_before
 
     name = _ft_name()
     ft_count, token_count = 10, 2
@@ -287,11 +299,12 @@ def ft_p_02(ctx, ci):
     time.sleep(SETTLE)
 
     try:
-        burnt_after = db.count_in_status(r["host"], r["did"], db.BURNT_FOR_FT)
+        snap_after = db.snapshot(r["host"], r["did"])
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
+    _PARTS["snap_after_mint"] = snap_after
 
-    burnt = burnt_after - burnt_before
+    burnt = snap_after["burnt_for_ft_rows"] - burnt_before
     multi = burnt > 1
     if multi and got:
         _PARTS["ft_name"] = name
@@ -314,58 +327,66 @@ def ft_p_03(ctx, ci):
     FT-P-03 - Check what the part burn actually consumed.
 
     WHAT IT CHECKS
-        The free balance fell by exactly the RBT that was minted, and that same
-        value now sits in BurntForFT. Nothing vanished in between.
+        Across the FT-P-02 mint: free balance fell by the RBT minted, and the
+        SAME value appears as BurntForFT. Both measured as a delta between a
+        before and an after snapshot.
 
     WHY IT MATTERS
         Burning parts means splitting them, and a split is where value goes
         missing: if a 0.7 part is consumed to supply 0.5, the other 0.2 must
-        come back as change. Checking the FT count alone would not notice -
-        the FTs are correct either way. Only comparing the free-balance drop
-        against the recorded burn shows whether a part was silently destroyed.
+        come back as change. The FT count is correct either way, so only
+        comparing the free-balance DROP against the recorded BURN shows whether
+        a part was silently destroyed.
+
+        Measured as a delta, not a total. An earlier version read the cumulative
+        BurntForFT and assumed the wallet was fresh - true when FT-P-01 had just
+        built it, and quietly wrong the moment anything else had burnt from that
+        DID. An assumption in a comment is not a measurement.
 
     MANUAL STEPS
-        Before and after the FT-P-02 mint, on the parts wallet:
-             psql -h $RECV -p 5433 -U rubix -d rubix -c \\
+        Around the FT-P-02 mint, on the parts wallet (0 = Free, 9 = BurntForFT):
+             psql -h $RECV -p 5433 -U rubix -d rubix -c \
                "SELECT token_status, COUNT(*), SUM(token_value)
-                  FROM tokens WHERE did='$RDID' GROUP BY token_status;"
-        Status 0 is Free, status 9 is BurntForFT.
+                  FROM tokens WHERE did='$RDID' AND token_type=1
+                  GROUP BY token_status;"
+        Compare the two readings.
 
     PASS / FAIL
-        PASS  free balance dropped by the minted RBT, AND BurntForFT rose by
-              the same value (within 3dp rounding)
-        FAIL  the drop exceeds the burn -> the difference was destroyed
+        PASS  free fell by the minted RBT, AND BurntForFT rose by the same
+        FAIL  free fell by more than was burnt -> the difference was destroyed
+        FAIL  BurntForFT rose by less than the RBT minted -> unrecorded burn
+        SKIP  FT-P-02 did not complete, so there are no snapshots to compare
     """
     r = _parts_wallet(ctx)
     if r is None or not _PARTS["ft_name"]:
         return SKIP, "no completed parts mint", (
             "FT-P-02 did not complete, so there is nothing to audit")
 
-    if not db.available():
-        return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
+    before = _PARTS.get("snap_before_mint")
+    after = _PARTS.get("snap_after_mint")
+    if not before or not after:
+        return SKIP, "no snapshots", (
+            "FT-P-02 did not record before/after snapshots - it must run in the "
+            "same pass as this case")
 
     minted = _PARTS["minted_rbt"]
-    try:
-        burnt_value = db.value_in_status(r["host"], r["did"], db.BURNT_FOR_FT)
-        summary = db.token_status_summary(r["host"], r["did"])
-    except db.DBUnavailable as e:
-        return SKIP, "database unreachable", str(e)
+    d = db.delta(before, after)
+    free_drop = -d["free"]          # free falls, so the delta is negative
+    burnt_rise = d["burnt_for_ft"]
+    tol = TOL * 4
 
-    # BurntForFT is cumulative for the DID. This wallet was built fresh by
-    # FT-P-01 and has had exactly one mint, so the total IS this mint's burn.
-    exact = rc.close_enough(burnt_value, minted, tol=TOL * 4)
-    detail = ", ".join("{}={}x{:.3f}".format(k, v[0], v[1]) for k, v in sorted(summary.items()))
+    problems = []
+    if not rc.close_enough(free_drop, minted, tol=tol):
+        problems.append("free balance fell by {:.3f}, expected {}".format(free_drop, minted))
+    if not rc.close_enough(burnt_rise, minted, tol=tol):
+        problems.append("BurntForFT rose by {:.3f}, expected {}".format(burnt_rise, minted))
+    if not rc.close_enough(free_drop, burnt_rise, tol=tol):
+        problems.append("free fell {:.3f} but only {:.3f} was recorded as burnt - "
+                        "the difference was destroyed".format(free_drop, burnt_rise))
 
-    return exact, "burnt {:.3f} for {} RBT minted".format(burnt_value, minted), (
-        "" if exact else
-        "recorded burn {:.3f} does not match the {} RBT minted - the difference "
-        "was consumed without being recorded. Token status: {}".format(
-            burnt_value, minted, detail))
+    return (not problems), "free -{:.3f}, burnt +{:.3f} for {} RBT minted".format(
+        free_drop, burnt_rise, minted), "; ".join(problems)
 
-
-# ---------------------------------------------------------------------------
-# FT-P-04
-# ---------------------------------------------------------------------------
 
 def ft_p_04(ctx, ci):
     """
@@ -407,6 +428,19 @@ def ft_p_04(ctx, ci):
     if not db.available():
         return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
 
+    # Snapshot BEFORE the second mint. Without this, drift left by the FIRST
+    # mint would be reported against the second - blaming the wrong operation
+    # for damage it merely inherited.
+    try:
+        before = db.snapshot(r["host"], r["did"])
+    except db.DBUnavailable as e:
+        return SKIP, "database unreachable", str(e)
+    if before["denom_drift"]:
+        return SKIP, "already drifting before the second mint", (
+            "the first mint left the counter inconsistent: "
+            + db.describe_drift(before["denom_drift"]) +
+            " - that is FT-P-02's finding, not this one's")
+
     name = _ft_name()
     ft_count, token_count = 5, 1
     ok, msg, _ = rc.mint_ft(r["host"], r["did"], name, ft_count, token_count, ctx.port)
@@ -421,14 +455,13 @@ def ft_p_04(ctx, ci):
     time.sleep(SETTLE)
 
     try:
-        drift = db.denom_drift(r["host"], r["did"])
+        after = db.snapshot(r["host"], r["did"])
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
+    drift = db.new_drift(before, after)
 
     passed = bool(got) and not drift
-    desc = ("counter consistent" if not drift else
-            "; ".join("denom {:.3f}: counter says {} but {} are Free".format(d, c, a)
-                      for d, (c, a) in sorted(drift.items())))
+    desc = "counter consistent" if not drift else db.describe_drift(drift)
     return passed, "second mint ok, {}".format(desc), (
         "" if passed else (
             desc + " - the next operation to select from this wallet is the one "
@@ -521,12 +554,67 @@ CASES = {
     "FT-P-03": ft_p_03,
     "FT-P-04": ft_p_04,
     "FT-P-05": ft_p_05,
+
+    # Direct tests of the GREATEST(count-1,0) floor, and of the burn
+    # path interleaved with the other writers of token_denom.
+    "FT-P-06": ft_cases_stress.ft_p_06,
+    "FT-P-07": ft_cases_stress.ft_p_07,
+    "FT-P-08": ft_cases_stress.ft_p_08,
+
+    # Production-level volume - see sc_cases_scale.py.
+    "FT-X-01": ft_cases_scale.ft_x_01,
+    "FT-X-02": ft_cases_scale.ft_x_02,
 }
 
 # Strictly sequential and deliberately so: FT-P-01 builds the parts wallet,
 # 02 mints from it, 03 audits that mint, 04 mints AGAIN (where corruption
 # surfaces), 05 spends what is left. Running one alone reports SKIP rather
 # than a misleading FAIL.
-ORDER = ["FT-P-01", "FT-P-02", "FT-P-03", "FT-P-04", "FT-P-05"]
+ORDER = ["FT-P-01", "FT-P-02", "FT-P-03", "FT-P-04", "FT-P-05",
+         "FT-P-06", "FT-P-07", "FT-P-08",
+         "FT-X-01", "FT-X-02"]
 
 TIMING_CASES = set()
+
+# ---------------------------------------------------------------------------
+# Lanes - see sc_cases.py for the reasoning.
+#
+# FT-P-* is a single chain by design: 01 builds the parts wallet, 02 mints from
+# it, 03 audits that mint against 02's own before/after snapshots, 04 mints
+# AGAIN (where a missed decrement finally surfaces), 05 spends what is left.
+# Splitting them across lanes would break every one of those dependencies, so
+# they share one lane and run in order.
+#
+# Two hosts: a funded sender, and the receiver that becomes the parts wallet.
+# ---------------------------------------------------------------------------
+
+LANES = {
+    "ft-parts": {
+        "cases": ["FT-P-01", "FT-P-02", "FT-P-03", "FT-P-04", "FT-P-05"],
+        "hosts": 2, "fund": 12,
+    },
+
+    # FT-P-06 deliberately runs its wallet dry to reach the counter floor, so
+    # it cannot share with anything. FT-P-07/08 interleave the burn path with
+    # the other writers of token_denom and need room to work.
+    "ft-exhaustion": {
+        "cases": ["FT-P-06"],
+        "hosts": 1, "fund": 4,
+    },
+    "ft-interleave": {
+        "cases": ["FT-P-07", "FT-P-08"],
+        "hosts": 2, "fund": 35,
+    },
+
+    # --- scale lanes (pr-739-stress) ---------------------------------------
+    # FT-X-01 burns one RBT per mint for 100 mints, so it needs real balance.
+    "ft-scale-mints": {
+        "cases": ["FT-X-01"],
+        "hosts": 1, "fund": 120,
+    },
+    "ft-scale-concurrent": {
+        "cases": ["FT-X-02"],
+        "hosts": 4, "fund": 40,
+    },
+}
+

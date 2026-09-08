@@ -1,0 +1,47 @@
+# PR #739 - denomination accounting for SC collateral and FT mint
+# Branch: maneesha/fix/denom-array-updation  (9 commits, 3 product fixes)
+#
+# WHAT THIS PR ACTUALLY CHANGES
+#
+#   144cb081  fix(sc): split RBT collateral on smart contract deploy
+#             core/transaction_builder.go
+#             LockTokensForSplit picks WHOLE denominations, so a 0.001
+#             commitment took a 1.000 token and sank the other 0.999 - a 0.001
+#             contract cost a full RBT. It now splits first and keeps the
+#             change, as the RBT transfer path does. Invisible at value 1.0,
+#             which is where every pre-existing SC case sat.
+#
+#   df07a49f  fix(sc): decrement token_denom for SC deploy collateral
+#             core/wallet/post_consensus_persistence.go
+#             The decrement was gated on Tokens.RBT, but a deploy carries its
+#             collateral in CommittedTokens - so it was skipped entirely and the
+#             counter kept advertising committed tokens as spendable. The
+#             isLocalTransfer credit is also suppressed for deploys, where Owner
+#             is pinned to Initiator and the credit would cancel the decrement
+#             it had just made.
+#
+#   977f6fba  fix(ft): decrement token_denom for RBTs burnt on FT mint
+#             core/wallet/token_chain.go
+#             Two defects in one statement: it INCREMENTED on a burn (wrong
+#             direction), and keyed the write on token.TokenValue while that
+#             field was never copied from tokenInfo. So every burn wrote a
+#             phantom denom=0 row AND skipped the real decrement.
+#
+# Run:
+#   python3 case_runner.py --suite pr-739
+#
+# One Test ID per line. A trailing * is a prefix match. '#' comments allowed.
+
+
+# --- Smart contract collateral (144cb081, df07a49f) -------------------------
+SC-*            # collateral values, subscription timing, quorum pledge
+
+# --- FT mint denomination accounting (977f6fba) -----------------------------
+FT-P-*          # mint from part tokens, audit the burn, mint again, spend leftovers
+
+# --- Cross-asset: the ONLY cases that run both fixes at once ----------------
+CRS-C-*         # bundled deploy+transfer, and the concurrent deploy/mint race
+
+# --- Shared denomination integrity ------------------------------------------
+GEN-IN-*        # counter baseline, phantom zero row, drift after mint and after
+                # deploy, negative counts, orphan tokens, duplicate ids

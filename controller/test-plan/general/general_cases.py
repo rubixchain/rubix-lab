@@ -57,6 +57,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import rubix_client as rc
 import db_client as db
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import general_cases_integrity
+
 SKIP = "SKIP"
 
 SETTLE = 6
@@ -374,11 +377,54 @@ CASES = {
     "GEN-IN-09": gen_in_09,
     "GEN-IN-10": gen_in_10,
     "GEN-IN-11": gen_in_11,
+
+    # Fleet-wide invariants. These take no action - they read every
+    # host and assert what must be true regardless of what ran, so
+    # they catch damage nobody attributed to anything.
+    "GEN-IN-12": general_cases_integrity.gen_in_12,
+    "GEN-IN-13": general_cases_integrity.gen_in_13,
+    "GEN-IN-14": general_cases_integrity.gen_in_14,
 }
 
 # Shape checks first: if the counter is already wrong before any operation
 # runs, GEN-IN-10 and GEN-IN-11 cannot attribute drift to the mint or the deploy
 # and will honestly SKIP rather than blame the wrong thing.
-ORDER = ["GEN-IN-08", "GEN-IN-09", "GEN-IN-10", "GEN-IN-11"]
+ORDER = ["GEN-IN-08", "GEN-IN-09", "GEN-IN-10", "GEN-IN-11",
+         "GEN-IN-12", "GEN-IN-13", "GEN-IN-14"]
 
 TIMING_CASES = set()
+
+# ---------------------------------------------------------------------------
+# Lanes - see sc_cases.py for the reasoning.
+#
+# GEN-IN-08 and GEN-IN-09 only READ; they take no action and could share a
+# wallet with anything. They are kept on their own host anyway so the baseline
+# they report is a wallet nothing else is touching - a drifting counter is only
+# attributable if nothing else was writing to it.
+#
+# GEN-IN-10 and GEN-IN-11 each perform an operation and re-check, so they need
+# private wallets for the same reason every delta case does.
+# ---------------------------------------------------------------------------
+
+LANES = {
+    "gen-denom-baseline": {
+        "cases": ["GEN-IN-08", "GEN-IN-09"],
+        "hosts": 1, "fund": 4,
+    },
+    "gen-denom-after-ft": {
+        "cases": ["GEN-IN-10"],
+        "hosts": 1, "fund": 10,
+    },
+    "gen-denom-after-sc": {
+        "cases": ["GEN-IN-11"],
+        "hosts": 1, "fund": 8,
+    },
+
+    # Read-only fleet sweeps. One host is enough - they walk every host in the
+    # context themselves, and they need no balance at all.
+    "gen-fleet-invariants": {
+        "cases": ["GEN-IN-12", "GEN-IN-13", "GEN-IN-14"],
+        "hosts": 1, "fund": 0,
+    },
+}
+
