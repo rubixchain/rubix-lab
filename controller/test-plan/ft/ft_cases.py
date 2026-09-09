@@ -204,7 +204,14 @@ def ft_p_01(ctx, ci):
     wholes = [v for v in values if v >= 1.0]
     held = sum(values)
     parts_only = not wholes
-    adds_up = rc.close_enough(held, sent, tol=TOL * len(PART_AMOUNTS))
+    # NOT "held == sent". The drain removes WHOLE tokens and deliberately
+    # leaves fractional dust behind, so a wallet that has been used already
+    # starts with parts of its own - one run found 17.505 where 2.400 had been
+    # sent. What this case actually requires is that NO WHOLE TOKEN remains and
+    # the wallet holds at least what was just sent; the exact total is not the
+    # property under test, and asserting it turned a good precondition into a
+    # false failure.
+    adds_up = held >= (sent - TOL * len(PART_AMOUNTS))
 
     if parts_only and adds_up:
         _PARTS["entry"] = r
@@ -214,7 +221,8 @@ def ft_p_01(ctx, ci):
         "" if passed else (
             "wallet holds {} whole token(s) - not a parts wallet".format(len(wholes))
             if wholes else
-            "parts total {:.3f} but {:.3f} was sent".format(held, sent)))
+            "wallet holds {:.3f} but {:.3f} was just sent into it - the "
+            "fractional transfers did not arrive".format(held, sent)))
 
 
 # ---------------------------------------------------------------------------

@@ -422,3 +422,106 @@ def gen_in_23(ctx, ci):
 
     return (not new), "{} txn(s) through quorum {}, drift {}".format(
         done, q["host"], total if new else 0), note
+
+
+# ---------------------------------------------------------------------------
+# GEN-IN-24
+# ---------------------------------------------------------------------------
+
+def gen_in_24(ctx, ci):
+    """
+    GEN-IN-24 - A rejected FT MINT must release every lock it took.
+
+    NOT A PR #739 CASE. Lock release lives in core/transaction.go:70/:77/:88.
+
+    WHAT IT CHECKS
+        Count Locked tokens, request an FT mint that cannot possibly be backed,
+        and count again. The number must return to exactly what it was.
+
+    WHY IT MATTERS
+        This is the mint-side twin of GEN-IN-20, and together they turn a
+        correlation into an attribution.
+
+        The second full run showed, on one host:
+            GEN-IN-08   denom 0.001: counter 100, free 4   -> drift 96
+            GEN-IN-15   96 tokens Locked
+            FT-P-06     "4 mints then rejected at #5", counter 96, free 0
+        Drift equalled the locked count exactly, for the second run running.
+
+        GEN-IN-20 then showed rejected TRANSFERS leak nothing - locked
+        139 -> 139, and 0 across ten consecutive failures. GEN-IN-17 showed a
+        rejected mint does not move the COUNTER. So the counter is behaving,
+        transfers are behaving, and the leak sits with the rejected MINT
+        specifically - which is what this case proves rather than infers.
+
+        The distinction matters for the report: the drift is not a denomination
+        bug, and it is not a general lock-release bug. It is one path, and
+        naming it is the difference between a finding someone can fix and a
+        number someone has to investigate.
+
+    MANUAL STEPS
+        1. Count locked tokens:
+             SELECT COUNT(*) FROM tokens
+              WHERE did='<DID>' AND token_type=1 AND token_status=1;
+        2. Request a mint needing far more backing than the wallet holds:
+             curl -s -X POST http://$HOST:20000/rubix/v1/fts/mint \\
+                  -H 'Content-Type: application/json' -d '{
+                    "did":"<DID>","ft_name":"doomed","ft_count":10,
+                    "token_count":<balance + 100>}'
+           Sign it. It will be rejected.
+        3. Wait ~15s and count again. It must be unchanged.
+
+    PASS / FAIL
+        PASS  locked count returns to its starting value
+        FAIL  the mint locked tokens and did not release them. Those tokens are
+              stranded AND still counted as spendable, which is the whole of
+              the drift seen on this fleet
+        SKIP  the doomed mint unexpectedly succeeded
+    """
+    if not db.available():
+        return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
+    s, _ = ctx.pair(0)
+
+    ready, why = _prepare(ctx, s, 10)
+    if not ready:
+        return SKIP, "setup incomplete", why
+
+    try:
+        before = db.record("GEN-IN-24", "before", s["host"], s["did"],
+                           db.snapshot(s["host"], s["did"]))
+        locked_before = _locked(s["host"], s["did"])
+    except db.DBUnavailable as e:
+        return SKIP, "database unreachable", str(e)
+
+    doomed = int(before["free"]) + 100
+    ok, msg, _ = rc.mint_ft(s["host"], s["did"], "lk" + str(int(time.time()))[-6:],
+                            10, doomed, ctx.port)
+    time.sleep(SETTLE * 3)
+
+    try:
+        after = db.record("GEN-IN-24", "after", s["host"], s["did"],
+                          db.snapshot(s["host"], s["did"]))
+        locked_after = _locked(s["host"], s["did"])
+    except db.DBUnavailable as e:
+        return SKIP, "database unreachable", str(e)
+
+    if ok:
+        return SKIP, "the doomed mint succeeded", (
+            "asked for {} RBT of backing against {:.3f} free and it was "
+            "accepted - cannot test the release path".format(doomed, before["free"]))
+
+    leaked = locked_after - locked_before
+    drift = db.new_drift(before, after)
+    note = ""
+    if leaked > 0:
+        note = ("{} token(s) left LOCKED by a mint that was rejected. They are "
+                "stranded, and because a locked token is still counted as "
+                "spendable the denomination counter now over-states this wallet "
+                "by the same {}. Compare GEN-IN-20: rejected TRANSFERS leak "
+                "nothing, so this is the mint path specifically".format(
+                    leaked, leaked))
+        if drift:
+            note += " | counter now: " + db.describe_drift(drift)
+
+    return (leaked <= 0), "rejected mint of {} RBT, locked {} -> {}".format(
+        doomed, locked_before, locked_after), note

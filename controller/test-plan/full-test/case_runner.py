@@ -686,9 +686,20 @@ def main():
     module.ORDER = list(order)
     module.CASE_INFO = {}
     module.TIMING_CASES = set()
+    # LANES must be merged too. Omitting it made getattr(module, "LANES")
+    # return None for every multi-module run, so build_lanes silently fell back
+    # to a SINGLE lane holding all 78 cases on one wallet - no parallelism, no
+    # reserved hosts, and one host accumulating every side effect in the suite.
+    # The run still passed its cases; it just was not testing what it claimed.
+    module.LANES = {}
     for _n, mod in modules:
         module.CASE_INFO.update(getattr(mod, "CASE_INFO", {}) or {})
         module.TIMING_CASES |= set(getattr(mod, "TIMING_CASES", set()) or set())
+        for lane_name, spec in (getattr(mod, "LANES", {}) or {}).items():
+            if lane_name in module.LANES:
+                sys.exit("ERROR: lane {!r} is defined in more than one module - "
+                         "lane names must be unique across a run.".format(lane_name))
+            module.LANES[lane_name] = spec
 
     if len(modules) > 1:
         print("Running {} modules: {}".format(

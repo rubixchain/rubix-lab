@@ -420,6 +420,7 @@ CASES = {
     "GEN-IN-21": general_cases_locks.gen_in_21,
     "GEN-IN-22": general_cases_locks.gen_in_22,
     "GEN-IN-23": general_cases_locks.gen_in_23,
+    "GEN-IN-24": general_cases_locks.gen_in_24,
 }
 
 # Shape checks first: if the counter is already wrong before any operation
@@ -428,7 +429,8 @@ CASES = {
 ORDER = ["GEN-IN-08", "GEN-IN-09", "GEN-IN-10", "GEN-IN-11",
          "GEN-IN-12", "GEN-IN-13", "GEN-IN-14", "GEN-IN-15",
          "GEN-IN-16", "GEN-IN-17", "GEN-IN-18", "GEN-IN-19",
-         "GEN-IN-20", "GEN-IN-21", "GEN-IN-22", "GEN-IN-23"]
+         "GEN-IN-20", "GEN-IN-21", "GEN-IN-22", "GEN-IN-23",
+         "GEN-IN-24"]
 
 TIMING_CASES = set()
 
@@ -480,7 +482,7 @@ LANES = {
     # meaningless. GEN-IN-23 drives traffic through a shared quorum, which it
     # cannot own - it measures only the drift IT introduced.
     "gen-lock-release": {
-        "cases": ["GEN-IN-20", "GEN-IN-21", "GEN-IN-23"],
+        "cases": ["GEN-IN-20", "GEN-IN-24", "GEN-IN-21", "GEN-IN-23"],
         "hosts": 2, "fund": 30, "reserve": True,
     },
     "gen-fleet-invariants": {
