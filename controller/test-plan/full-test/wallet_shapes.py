@@ -42,10 +42,16 @@ DRAIN_CHUNK = 50.0     # transfer at most this much per call, so one drain
                        # cannot exceed what a quorum will pledge
 
 
-def describe(host, did, port=rc.DEFAULT_PORT):
-    """Human-readable summary of what a wallet actually holds, from the DB."""
+def describe(host, did, api_port=rc.DEFAULT_PORT):
+    """Human-readable summary of what a wallet actually holds, from the DB.
+
+    NOTE the DB reads below do NOT take a port. db_client owns the database
+    port (5433); the API port (20000) is a different thing entirely, and
+    passing one where the other belongs is exactly the mistake that made every
+    wallet-shape check time out against the HTTP API.
+    """
     try:
-        values = db.free_token_values(host, did, port=port)
+        values = db.free_token_values(host, did)
     except db.DBUnavailable as e:
         return "unreadable ({})".format(e)
     if not values:
@@ -64,9 +70,9 @@ def drain_whole_tokens(ctx, target, sink, port=None):
     quorum is willing to pledge, and that failure would look like a product
     defect rather than a setup limit.
     """
-    port = port or ctx.port
+    api_port = port or ctx.port          # HTTP API - for rc.* calls only
     try:
-        values = db.free_token_values(target["host"], target["did"], port=port)
+        values = db.free_token_values(target["host"], target["did"])
     except db.DBUnavailable as e:
         return False, str(e)
 
@@ -81,7 +87,7 @@ def drain_whole_tokens(ctx, target, sink, port=None):
         chunk = min(DRAIN_CHUNK, to_send - sent)
         ok, msg, _ = rc.initiate_transaction(
             target["host"], target["did"], sink["did"], rbt=float(chunk),
-            memo="drain whole tokens for a parts wallet", port=port)
+            memo="drain whole tokens for a parts wallet", port=api_port)
         if not ok:
             return False, "draining {} RBT failed at {}: {}".format(
                 to_send, sent, msg)
@@ -90,7 +96,7 @@ def drain_whole_tokens(ctx, target, sink, port=None):
 
     time.sleep(SETTLE)
     try:
-        left = db.free_token_values(target["host"], target["did"], port=port)
+        left = db.free_token_values(target["host"], target["did"])
     except db.DBUnavailable as e:
         return False, str(e)
     remaining_whole = [v for v in left if v >= 1.0]
@@ -108,33 +114,33 @@ def make_parts_wallet(ctx, target, sink, amounts=(0.4, 0.3, 0.5, 0.7, 0.5),
     host. `amounts` are the fractional transfers that build the wallet back up;
     each is sent individually so none can be combined into a whole token.
     """
-    port = ctx.port
+    api_port = ctx.port
     if not db.available():
         return False, "psycopg2 not installed - cannot verify wallet shape"
 
-    ok, note = drain_whole_tokens(ctx, target, sink, port)
+    ok, note = drain_whole_tokens(ctx, target, sink, api_port)
     if not ok:
         return False, "drain failed: " + note
 
     # The sink must be able to pay for what it now sends back.
     need = sum(amounts) + 2
-    okb, detail, _ = rc.get_rbt_balance_detail(sink["host"], sink["did"], port)
+    okb, detail, _ = rc.get_rbt_balance_detail(sink["host"], sink["did"], api_port)
     have = detail["balance"] if okb and detail else 0
     if have < need:
-        rc.fund_did(sink["host"], sink["did"], int(need - have) + 2, port)
-        rc.wait_for_balance(sink["host"], sink["did"], need, port)
+        rc.fund_did(sink["host"], sink["did"], int(need - have) + 2, api_port)
+        rc.wait_for_balance(sink["host"], sink["did"], need, api_port)
 
     for amt in amounts:
         ok, msg, _ = rc.initiate_transaction(
             sink["host"], sink["did"], target["did"], rbt=amt,
-            memo="build parts wallet", port=port)
+            memo="build parts wallet", port=api_port)
         if not ok:
             return False, "sending {} failed: {}".format(amt, msg)
         time.sleep(2)
     time.sleep(SETTLE)
 
     try:
-        values = db.free_token_values(target["host"], target["did"], port=port)
+        values = db.free_token_values(target["host"], target["did"])
     except db.DBUnavailable as e:
         return False, str(e)
 
@@ -144,8 +150,8 @@ def make_parts_wallet(ctx, target, sink, amounts=(0.4, 0.3, 0.5, 0.7, 0.5),
                        "fractional transfers were combined".format(len(wholes)))
     if not values:
         return False, "wallet is empty after building"
-    return True, "parts wallet ready: {}".format(describe(target["host"],
-                                                          target["did"], port))
+    return True, "parts wallet ready: {}".format(
+        describe(target["host"], target["did"], api_port))
 
 
 def make_mixed_wallet(ctx, target, sink, whole=2.0,
@@ -176,8 +182,8 @@ def drain_to(ctx, target, sink, keep=0.0):
     a known small balance rather than a specific shape - FT-P-06 needs to reach
     the denomination floor, which it cannot do on a wallet that keeps being
     topped up."""
-    port = ctx.port
-    okb, detail, _ = rc.get_rbt_balance_detail(target["host"], target["did"], port)
+    api_port = ctx.port
+    okb, detail, _ = rc.get_rbt_balance_detail(target["host"], target["did"], api_port)
     if not okb or not detail:
         return False, "balance unreadable"
     surplus = int(detail["balance"] - keep)
@@ -188,13 +194,13 @@ def drain_to(ctx, target, sink, keep=0.0):
         chunk = min(DRAIN_CHUNK, surplus - sent)
         ok, msg, _ = rc.initiate_transaction(target["host"], target["did"],
                                              sink["did"], rbt=float(chunk),
-                                             memo="drain to budget", port=port)
+                                             memo="drain to budget", port=api_port)
         if not ok:
             return False, "draining failed at {} of {}: {}".format(sent, surplus, msg)
         sent += chunk
         time.sleep(2)
     time.sleep(SETTLE)
-    okb, detail, _ = rc.get_rbt_balance_detail(target["host"], target["did"], port)
+    okb, detail, _ = rc.get_rbt_balance_detail(target["host"], target["did"], api_port)
     now = detail["balance"] if okb and detail else -1
     return True, "drained {} RBT, now holding {:.3f}".format(sent, now)
 

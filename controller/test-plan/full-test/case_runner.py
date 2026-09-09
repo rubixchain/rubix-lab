@@ -269,6 +269,38 @@ def build_lanes(module, order, ready, quorum_hosts, sender_quorum, args):
                           sender_quorum, args)
         return [[Lane("all", list(order), ctx, args.fund_sender)]], {}
 
+    # RESERVED LANES first. A lane with "reserve": True holds its hosts for the
+    # WHOLE run - no other wave may reuse them. Without this a lane that
+    # measures a baseline can be handed a wallet an earlier wave has already
+    # hammered, and then reports drift it cannot attribute to anything. That is
+    # exactly what happened to GEN-IN-08: it ran last, on a host two earlier
+    # waves had used, and eleven cases skipped on the drift it found.
+    #
+    # Reserved hosts come off the END of the pool, so the ordinary rotation
+    # below is unaffected.
+    reserved, reserved_lanes = [], []
+    tail = len(pool)
+    for name, spec in spec_all.items():
+        if not spec.get("reserve"):
+            continue
+        cases = [c for c in order if c in spec.get("cases", [])]
+        if not cases:
+            continue
+        need = int(spec.get("hosts", 1))
+        if tail - need < need:      # never eat the whole pool
+            continue
+        mine = pool[tail - need:tail]
+        tail -= need
+        reserved += mine
+        senders = mine[:1]
+        receivers = mine[1:] or mine[:1]
+        ctx = CaseContext(args.port, quorum_hosts, senders, receivers,
+                          sender_quorum, args)
+        reserved_lanes.append(Lane(name, cases, ctx,
+                                   int(spec.get("fund", args.fund_sender))
+                                   + FUND_SAFETY_MARGIN))
+    pool = pool[:tail]
+
     # WAVES. More lanes can be defined than the fleet has hosts. Dropping the
     # overflow would silently skip a third of the suite, so instead the
     # allocator fills the fleet, and anything that does not fit starts a new
@@ -278,6 +310,8 @@ def build_lanes(module, order, ready, quorum_hosts, sender_quorum, args):
     # makes balance-delta assertions valid is never traded away for speed.
     waves, lanes, skipped, idx = [], [], {}, 0
     for name, spec in spec_all.items():
+        if spec.get("reserve"):
+            continue        # already allocated above
         cases = [c for c in order if c in spec.get("cases", [])]
         if not cases:
             continue
@@ -306,11 +340,17 @@ def build_lanes(module, order, ready, quorum_hosts, sender_quorum, args):
 
     if lanes:
         waves.append(lanes)
+    if reserved_lanes:
+        # Their own wave, LAST: the integrity sweeps should see the fleet as it
+        # is after everything else has finished, while their own wallets have
+        # been touched by nothing but themselves.
+        waves.append(reserved_lanes)
 
     total_lanes = sum(len(w) for w in waves)
     total_cases = sum(len(l.cases) for w in waves for l in w)
-    print("  {} lane(s), {} case(s), in {} wave(s) over {} pool hosts".format(
-        total_lanes, total_cases, len(waves), len(pool)))
+    print("  {} lane(s), {} case(s), in {} wave(s) over {} rotating + {} "
+          "reserved host(s)".format(total_lanes, total_cases, len(waves),
+                                    len(pool), len(reserved)))
     for wi, wave in enumerate(waves, 1):
         used = sum(len({e["host"] for e in l.ctx.senders + l.ctx.receivers})
                    for l in wave)
@@ -769,6 +809,14 @@ def main():
     duration = time.time() - started
     lane_summary = ", ".join("{}({})".format(ln.name, len(ln.cases))
                              for ln in lanes)
+    # Which machine each lane actually used. Without this a finding can only be
+    # traced back to a host if the terminal scrollback is still open - which is
+    # how SC-C-27's 1947 RBT nearly became untraceable.
+    lane_hosts = "; ".join(
+        "{} -> {}".format(ln.name,
+                          ",".join(sorted({e["host"].split(".")[-1]
+                                           for e in ln.ctx.senders + ln.ctx.receivers})))
+        for ln in lanes)
 
     # Versions PER ROLE, not one fleet-wide label. In the mixed-fleet cases a
     # sender, receiver and quorum can each be on a different build, and the
@@ -831,6 +879,7 @@ def main():
             ("Receiver hosts", ", ".join(r["host"] for r in receivers)),
             ("Lanes", "{} lane(s) in {} wave(s): {}".format(
                 len(lanes), len(waves), lane_summary)),
+            ("Lane hosts", "last octet of 192.168.1.x - {}".format(lane_hosts)),
             ("Lane funding", "each lane funded for what its own cases spend, "
                              "plus a {} RBT margin; quorums {} RBT because "
                              "they are shared and carry every lane's "

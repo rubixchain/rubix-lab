@@ -251,19 +251,12 @@ def sc_c_28(ctx, ci):
         if not any(v >= 1.0 for v in before["denom"]):
             return SKIP, "no whole token to split", "cannot create a novel denomination"
 
-    # Pick a value whose change lands on a denomination the wallet does not
-    # already hold, so the new row is unambiguous.
-    existing = set(before["denom"])
-    value = None
-    for candidate in (0.354, 0.271, 0.183, 0.427, 0.619):
-        change = round(1.0 - candidate, 3)
-        if candidate not in existing and change not in existing:
-            value = candidate
-            break
-    if value is None:
-        return SKIP, "no novel denomination available", (
-            "every candidate value or its change already exists in this wallet")
-    expected_change = round(1.0 - value, 3)
+    # Deploy an arbitrary fraction. The change does NOT come back as one
+    # tidy token - the first run showed it returns as many small ones
+    # (0.001:206->207, 0.010:182->186, ...) - so this no longer guesses the
+    # shape. It asks the question the bare UPDATE actually depends on:
+    # does every denomination holding free tokens have a counter row?
+    value = sc.rand_value(0.150, 0.850)
 
     sc_id, err = sc._new_contract(ctx, s)
     if err:
@@ -281,26 +274,30 @@ def sc_c_28(ctx, ci):
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
 
-    held = {d: c for d, c in real.items() if abs(d - expected_change) < 0.0015}
-    counted = {d: c for d, c in after["denom"].items()
-               if abs(d - expected_change) < 0.0015}
+    # Any denomination with free tokens but NO counter row is the missing-row
+    # condition: the burn path's UPDATE would match nothing and silently
+    # succeed.
+    counted = set(after["denom"])
+    uncounted = {d: c for d, c in real.items()
+                 if c > 0 and not any(abs(d - k) < 1e-9 for k in counted)}
+    new_denoms = {d for d in real if not any(abs(d - k) < 1e-9 for k in before["denom"])}
 
     problems = []
-    if held and not counted:
+    if uncounted:
         problems.append(
-            "the wallet now holds {} token(s) at {:.3f} but token_denom has NO "
-            "row for that denomination - the bare UPDATE in the burn path has "
-            "nothing to hit, so burning this change token later will silently "
-            "do nothing".format(sum(held.values()), expected_change))
-    elif held and counted and sum(held.values()) != sum(counted.values()):
-        problems.append("counter says {} at {:.3f} but {} are actually Free".format(
-            sum(counted.values()), expected_change, sum(held.values())))
+            "{} denomination(s) hold free tokens with NO token_denom row: {} - "
+            "the burn path is a bare UPDATE, so burning one of these would "
+            "match no row, return no error, and leave the counter permanently "
+            "wrong".format(
+                len(uncounted),
+                ", ".join("{:.3f}x{}".format(d, c)
+                          for d, c in sorted(uncounted.items())[:4])))
     drift = db.new_drift(before, after)
     if drift:
         problems.append("counter drifted: " + db.describe_drift(drift))
 
-    return (not problems), "deployed {:.3f}, change {:.3f}: {} held / {} counted | {}".format(
-        value, expected_change, sum(held.values()) or 0, sum(counted.values()) or 0,
+    return (not problems), "deployed {:.3f}, {} new denomination(s), {} uncounted | {}".format(
+        value, len(new_denoms), len(uncounted),
         db.format_evidence(before, after)), "; ".join(problems)
 
 

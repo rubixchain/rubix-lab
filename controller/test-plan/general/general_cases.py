@@ -59,6 +59,8 @@ import db_client as db
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import general_cases_integrity
+import general_cases_drift
+import general_cases_locks
 
 SKIP = "SKIP"
 
@@ -401,13 +403,32 @@ CASES = {
     "GEN-IN-13": general_cases_integrity.gen_in_13,
     "GEN-IN-14": general_cases_integrity.gen_in_14,
     "GEN-IN-15": general_cases_integrity.gen_in_15,
+
+    # Drift CHARACTERISATION. GEN-IN-08 detects that the books do not
+    # balance; these say which operation and which denomination, so the
+    # finding can be acted on rather than only reported.
+    "GEN-IN-16": general_cases_drift.gen_in_16,
+    "GEN-IN-17": general_cases_drift.gen_in_17,
+    "GEN-IN-18": general_cases_drift.gen_in_18,
+    "GEN-IN-19": general_cases_drift.gen_in_19,
+
+    # NOT PR #739 cases. The second run's drift traced to lock release and
+    # pledge decrement - both on paths this PR does not touch. These attribute
+    # those findings to their own code, so a drift number in a PR report is
+    # never mistaken for a regression of the change under test.
+    "GEN-IN-20": general_cases_locks.gen_in_20,
+    "GEN-IN-21": general_cases_locks.gen_in_21,
+    "GEN-IN-22": general_cases_locks.gen_in_22,
+    "GEN-IN-23": general_cases_locks.gen_in_23,
 }
 
 # Shape checks first: if the counter is already wrong before any operation
 # runs, GEN-IN-10 and GEN-IN-11 cannot attribute drift to the mint or the deploy
 # and will honestly SKIP rather than blame the wrong thing.
 ORDER = ["GEN-IN-08", "GEN-IN-09", "GEN-IN-10", "GEN-IN-11",
-         "GEN-IN-12", "GEN-IN-13", "GEN-IN-14", "GEN-IN-15"]
+         "GEN-IN-12", "GEN-IN-13", "GEN-IN-14", "GEN-IN-15",
+         "GEN-IN-16", "GEN-IN-17", "GEN-IN-18", "GEN-IN-19",
+         "GEN-IN-20", "GEN-IN-21", "GEN-IN-22", "GEN-IN-23"]
 
 TIMING_CASES = set()
 
@@ -424,9 +445,14 @@ TIMING_CASES = set()
 # ---------------------------------------------------------------------------
 
 LANES = {
+    # RESERVED: these two define the baseline every other denomination case
+    # is attributed against, so their wallet must be touched by nothing else in
+    # the entire run. Without the reservation they were handed a host two
+    # earlier waves had already used, and reported drift they could not
+    # attribute - which then blocked eleven other cases.
     "gen-denom-baseline": {
         "cases": ["GEN-IN-08", "GEN-IN-09"],
-        "hosts": 1, "fund": 4,
+        "hosts": 1, "fund": 4, "reserve": True,
     },
     "gen-denom-after-ft": {
         "cases": ["GEN-IN-10"],
@@ -439,9 +465,28 @@ LANES = {
 
     # Read-only fleet sweeps. One host is enough - they walk every host in the
     # context themselves, and they need no balance at all.
+    # RESERVED and last: these sweep the WHOLE fleet, so they should see it
+    # after everything else has finished. Their own host stays clean so the
+    # sweep is never reporting its own side effects.
+    # RESERVED: each isolates ONE operation and reconciles across it, so the
+    # wallet must be touched by nothing else or the attribution is worthless -
+    # which is exactly what went wrong when GEN-IN-08 ran on a shared host.
+    "gen-drift-attribution": {
+        "cases": ["GEN-IN-16", "GEN-IN-17", "GEN-IN-18", "GEN-IN-19"],
+        "hosts": 1, "fund": 40, "reserve": True,
+    },
+    # RESERVED: GEN-IN-20/21 deliberately fail operations and count what they
+    # leave locked, so nothing else may touch their wallet or the count is
+    # meaningless. GEN-IN-23 drives traffic through a shared quorum, which it
+    # cannot own - it measures only the drift IT introduced.
+    "gen-lock-release": {
+        "cases": ["GEN-IN-20", "GEN-IN-21", "GEN-IN-23"],
+        "hosts": 2, "fund": 30, "reserve": True,
+    },
     "gen-fleet-invariants": {
-        "cases": ["GEN-IN-12", "GEN-IN-13", "GEN-IN-14", "GEN-IN-15"],
-        "hosts": 1, "fund": 0,
+        "cases": ["GEN-IN-12", "GEN-IN-13", "GEN-IN-14", "GEN-IN-15",
+                  "GEN-IN-22"],
+        "hosts": 1, "fund": 0, "reserve": True,
     },
 }
 
