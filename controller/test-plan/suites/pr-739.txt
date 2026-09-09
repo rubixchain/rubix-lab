@@ -38,6 +38,10 @@ SC-*            # collateral values, subscription timing, quorum pledge
 
 # --- FT mint denomination accounting (977f6fba) -----------------------------
 FT-P-*          # mint from part tokens, audit the burn, mint again, spend leftovers
+                # (includes FT-P-09 walk-to-zero and FT-P-10 multi-part burn)
+FT-DB-04        # DB-SEED: the clamp AT zero. No natural sequence reaches it,
+                # so it is named explicitly rather than matched by FT-P-*.
+                # Reserved lane, runs LAST - it writes to token_denom.
 
 # --- Cross-asset: the ONLY cases that run both fixes at once ----------------
 CRS-C-*         # bundled deploy+transfer, and the concurrent deploy/mint race

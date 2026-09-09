@@ -652,15 +652,36 @@ def sc_db_03(ctx, ci):
         return SKIP, "database unreachable", str(e)
 
     # A whole denomination the wallet actually holds, so an FT mint will burn it.
-    target = None
-    for d in sorted(counter, reverse=True):
-        if d >= 1.0 and real.get(d, 0) > 0:
-            target = d
-            break
+    # BUILD the precondition rather than skipping on it. The last run skipped
+    # here because the wallet had been drained of whole tokens by an earlier
+    # case - a state one round of funding fixes. Skipping on a fixable
+    # precondition is how a branch stays unproven run after run while the
+    # report shows nothing wrong.
+    def _pick():
+        for d in sorted(counter, reverse=True):
+            if d >= 1.0 and real.get(d, 0) > 0:
+                return d
+        for d in sorted(counter, reverse=True):
+            for rd, rc_ in real.items():
+                if abs(rd - d) < 0.0015 and rc_ > 0 and rd >= 1.0:
+                    return d
+        return None
+
+    target = _pick()
+    if target is None:
+        rc.fund_did(s["host"], s["did"], 5, ctx.port)
+        rc.wait_for_balance(s["host"], s["did"], 5, ctx.port)
+        time.sleep(SETTLE)
+        try:
+            counter = db.denom_counter(s["host"], s["did"])
+            real = db.real_free_denoms(s["host"], s["did"])
+        except db.DBUnavailable as e:
+            return SKIP, "database unreachable", str(e)
+        target = _pick()
     if target is None:
         return SKIP, "no suitable denomination", (
             "needs a whole denomination present in both token_denom and the "
-            "tokens table")
+            "tokens table, and funding 5 RBT did not produce one")
 
     original = counter[target]
     restored = False

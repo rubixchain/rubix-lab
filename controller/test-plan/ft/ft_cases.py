@@ -556,6 +556,15 @@ CASES = {
     "FT-P-07": ft_cases_stress.ft_p_07,
     "FT-P-08": ft_cases_stress.ft_p_08,
 
+    # The three H3 branches the runs had never actually reached. FT-P-06 walks
+    # into a REJECTED mint, so on this fleet it hits the lock leak before it
+    # ever reaches the decrement; FT-P-09 removes the failing mint. FT-P-10 is
+    # the multi-part burn, standalone so it cannot be skipped by FT-P-01.
+    # FT-DB-04 is the only way to reach the clamp AT zero.
+    "FT-P-09": ft_cases_stress.ft_p_09,
+    "FT-P-10": ft_cases_stress.ft_p_10,
+    "FT-DB-04": ft_cases_stress.ft_db_04,
+
     # Production-level volume - see sc_cases_scale.py.
     "FT-X-01": ft_cases_scale.ft_x_01,
     "FT-X-02": ft_cases_scale.ft_x_02,
@@ -566,7 +575,8 @@ CASES = {
 # surfaces), 05 spends what is left. Running one alone reports SKIP rather
 # than a misleading FAIL.
 ORDER = ["FT-P-01", "FT-P-02", "FT-P-03", "FT-P-04", "FT-P-05",
-         "FT-P-06", "FT-P-07", "FT-P-08",
+         "FT-P-06", "FT-P-09", "FT-P-10", "FT-P-07", "FT-P-08",
+         "FT-DB-04",
          "FT-X-01", "FT-X-02"]
 
 TIMING_CASES = set()
@@ -594,7 +604,32 @@ LANES = {
     # the other writers of token_denom and need room to work.
     "ft-exhaustion": {
         "cases": ["FT-P-06"],
-        "hosts": 1, "fund": 4,
+        "hosts": 2, "fund": 4,
+    },
+
+    # FT-P-09 sizes its wallet down to a few whole tokens and needs a sink to
+    # drain into, so two hosts. It must not share with anything that funds.
+    "ft-floor-walk": {
+        "cases": ["FT-P-09"],
+        "hosts": 2, "fund": 8,
+    },
+
+    # FT-P-10 builds its own parts wallet: one funded sender, one receiver that
+    # becomes the wallet. Deliberately NOT sharing with ft-parts, so a failure
+    # there cannot skip this one too - that coupling is what left the branch
+    # unproven for two runs.
+    "ft-parts-burn": {
+        "cases": ["FT-P-10"],
+        "hosts": 2, "fund": 16,
+    },
+
+    # RESERVED: FT-DB-04 WRITES to token_denom. Reserved gives it a host no
+    # other lane is ever allocated, and reserved lanes run in the final wave,
+    # which is the catalogue's DB-SEED rule enforced by the allocator instead
+    # of by remembering to order the suite correctly.
+    "ft-seed-floor": {
+        "cases": ["FT-DB-04"],
+        "hosts": 1, "fund": 12, "reserve": True,
     },
     "ft-interleave": {
         "cases": ["FT-P-07", "FT-P-08"],
