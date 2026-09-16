@@ -735,3 +735,495 @@ def sc_db_03(ctx, ci):
                 "(did={}, denom={}, count={}) on {} - fix by hand before "
                 "trusting later results\n".format(
                     s["did"][:16], target, original, s["host"]))
+
+
+# ---------------------------------------------------------------------------
+# SC-C-31
+# ---------------------------------------------------------------------------
+
+def sc_c_31(ctx, ci):
+    """
+    SC-C-31 - Is the collateral committed by a REJECTED deploy ever released?
+
+    RUNS IMMEDIATELY AFTER SC-C-27, ON THE SAME HOST, BY DESIGN.
+    SC-C-27 creates the condition; this case decides whether it is permanent.
+    Run it alone and it measures a quiet wallet and passes, which is correct
+    but tells you nothing - keep them in the same lane and order.
+
+    WHAT IT CHECKS
+        Read the host's Committed RBT, wait, read it again. Committed
+        (token_status 5) is a TERMINAL state - there is no release path back to
+        Free. If the value SC-C-27 stranded is still there after the network has
+        had every chance to settle, it is lost, not in flight.
+
+    WHY IT MATTERS
+        This is the difference between a bug report and a blocker. SC-C-27
+        showed ~1136 RBT moving to Committed for a deploy that was REJECTED:
+
+            free 1150.438 -> 14.496   committed 420.342 -> 1556.284   locked 0->0
+
+        "locked 0->0" already rules out the lock-release leak seen on .107 -
+        those tokens are not waiting on anything. But a single reading taken
+        seconds after the rejection cannot distinguish "lost" from "not yet
+        cleaned up". A reviewer will ask exactly that, and the honest answer
+        today is that nobody has waited and looked again.
+
+        If the value does come back, this is a timing artefact and SC-C-27
+        should be re-scoped. If it does not, the collateral pre-pass commits
+        value before consensus and never unwinds it on failure - which is
+        unrecoverable loss on a path the user cannot avoid, and blocks the PR.
+
+    MANUAL STEPS
+        1. Right after a rejected deploy, on the deployer host:
+             SELECT ROUND(SUM(token_value)::numeric,3) FROM tokens
+              WHERE did='<DID>' AND token_type=1 AND token_status=5;
+        2. Wait two minutes. Run it again.
+        3. Also count contracts - a rejected deploy must not have created one:
+             SELECT COUNT(*) FROM smart_contracts WHERE deployer_did='<DID>';
+
+    PASS / FAIL
+        PASS  committed FELL over the window - the value is being released and
+              SC-C-27 is a timing artefact, not a loss
+        FAIL  committed is unchanged - it is terminal, and the PR's pre-pass
+              loses it on every rejected deploy
+        SKIP  the host holds no committed RBT (SC-C-27 did not run first)
+    """
+    sc = _link()
+    if not db.available():
+        return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
+    s, _ = ctx.pair(0)
+
+    # Long enough that "still settling" is not a credible explanation. The
+    # measured fleet timing is 1-2s for a receiver to credit and ~15s for a
+    # node restart, so two minutes is an order of magnitude past anything
+    # normal.
+    window = 120
+
+    try:
+        first = db.snapshot(s["host"], s["did"])
+    except db.DBUnavailable as e:
+        return SKIP, "database unreachable", str(e)
+    if first["committed"] < 1.0:
+        return SKIP, "no committed RBT to observe", (
+            "this host holds {:.3f} committed - SC-C-27 either did not run "
+            "first or did not strand anything, so there is nothing to watch "
+            "for release".format(first["committed"]))
+
+    time.sleep(window)
+
+    try:
+        second = db.record("SC-C-31", "after-wait", s["host"], s["did"],
+                           db.snapshot(s["host"], s["did"]))
+        # token_type 4 is a smart contract - the same count GEN-IN-22 uses.
+        rows = db.query(s["host"],
+                        "SELECT COUNT(*) FROM tokens WHERE token_type = %s",
+                        (db.TYPE_SC,))
+        contracts = int(rows[0][0]) if rows else -1
+    except db.DBUnavailable as e:
+        return SKIP, "database unreachable", str(e)
+
+    released = first["committed"] - second["committed"]
+    note = ""
+    if released <= TOL:
+        note = ("{:.3f} RBT is still Committed {}s after the rejection and has "
+                "not moved. Committed is terminal - there is no path back to "
+                "Free - so this value is permanently lost, for a deploy that "
+                "was REJECTED. The collateral pre-pass commits before "
+                "consensus and does not unwind on failure".format(
+                    second["committed"], window))
+        if contracts >= 0:
+            note += "; the host holds {} contract(s) to account for it".format(contracts)
+
+    return (released > TOL), "committed {:.3f} -> {:.3f} over {}s (released {:.3f})".format(
+        first["committed"], second["committed"], window, released), note
+
+
+# ---------------------------------------------------------------------------
+# SC-C-32
+# ---------------------------------------------------------------------------
+
+def sc_c_32(ctx, ci):
+    """
+    SC-C-32 - Is the multi-contract rejection float accumulation, or is
+    multi-contract simply unsupported?
+
+    WHAT IT CHECKS
+        Sends the SAME three-contract request twice with different values:
+
+          EXACT   0.25, 0.5, 0.125   -> 0.875   every value exact in binary
+          INEXACT 0.345, 0.359, 0.317 -> 1.021  none of them exact in binary
+
+        The outcome pair is the answer.
+
+    WHY IT MATTERS
+        SC-C-29 failed with:
+
+            "requestPledgeTokenHandler : transaction amount exceeds 3 decimal
+             places"
+
+        for 0.345+0.359+0.317. Every one of those is a legal 3dp value, and so
+        is their sum. The only way a 3dp check rejects them is if the number it
+        actually tested was not 1.021 - and summing those three in float64
+        gives 1.0209999999999999, which has sixteen.
+
+        That is a hypothesis, and SC-C-29 alone cannot distinguish it from "the
+        API does not support multiple contracts in one request". Those are
+        completely different findings: one is a precision bug worth fixing, the
+        other is a documentation gap. Choosing between them by reading the
+        error string is guessing.
+
+        Binary-exact values settle it. 0.25, 0.5 and 0.125 are all sums of
+        powers of two, so they accumulate with NO error at all - 0.875 exactly.
+        If that triple is accepted and the inexact one is refused, the
+        difference cannot be anything but the accumulation.
+
+    MANUAL STEPS
+        Post one /tx naming three contracts valued 0.25 / 0.5 / 0.125.
+        Then post another naming three valued 0.345 / 0.359 / 0.317.
+        Compare the two responses.
+
+    PASS / FAIL
+        PASS  both accepted - not reproducible on this build
+        FAIL  exact ACCEPTED, inexact REFUSED -> float accumulation CONFIRMED.
+              totalAmount += scInfo.Value needs a decimal-safe sum
+        FAIL  both refused -> multi-contract is not supported at all; a
+              different finding, and the builder's loop over contracts is
+              misleading
+    """
+    sc = _link()
+    s, _ = ctx.pair(0)
+
+    exact = [0.25, 0.5, 0.125]        # 0.875 - representable exactly in float64
+    inexact = [0.345, 0.359, 0.317]   # 1.021 - accumulates to 1.0209999999999999
+
+    ready, why = sc._prepare(ctx, s, sum(exact) + sum(inexact) + 10)
+    if not ready:
+        return SKIP, "setup incomplete", why
+
+    def send(values, label):
+        entries = []
+        for v in values:
+            sc_id, err = sc._new_contract(ctx, s)
+            if err:
+                return None, "generation failed: " + err
+            entries.append({"smartContractId": sc_id, "value": v,
+                            "data": "SC-C-32 " + label})
+        body = {
+            "initiator": s["did"], "owner": "",
+            "tokens": {"rbt": 0, "ft": [], "nft": [],
+                       "smartContract": entries, "transferNftOwnership": False},
+            "memo": "SC-C-32 " + label,
+        }
+        ok, msg, _ = rc._tx(s["host"], body, ctx.port)
+        time.sleep(SETTLE)
+        return ok, str(msg)
+
+    ok_exact, msg_exact = send(exact, "binary-exact")
+    if ok_exact is None:
+        return SKIP, "could not build the exact request", msg_exact
+    ok_inexact, msg_inexact = send(inexact, "binary-inexact")
+    if ok_inexact is None:
+        return SKIP, "could not build the inexact request", msg_inexact
+
+    decimals = "3 decimal places" in msg_inexact
+
+    if ok_exact and not ok_inexact:
+        return False, "exact 0.875 ACCEPTED, inexact 1.021 REFUSED", (
+            "FLOAT ACCUMULATION CONFIRMED. 0.25+0.5+0.125 are exact in binary "
+            "and were accepted; 0.345+0.359+0.317 are not and were refused"
+            + (" with the 3-decimal-places error" if decimals else "") +
+            ". Both sums are legal 3dp values, so the only difference is the "
+            "representation - totalAmount += scInfo.Value accumulates error "
+            "and the precision guard then rejects a value the caller never "
+            "sent. Refusal was: " + msg_inexact)
+    if not ok_exact and not ok_inexact:
+        return False, "both multi-contract requests refused", (
+            "NOT a precision bug - even binary-exact values are refused, so "
+            "multiple contracts in one request are not supported at all. That "
+            "is a documentation gap rather than an arithmetic one, and the "
+            "pre-pass looping over GetAllSmartContracts is misleading. "
+            "Exact refusal: " + msg_exact)
+    if ok_exact and ok_inexact:
+        return True, "both accepted (0.875 and 1.021)", (
+            "not reproducible on this build - SC-C-29's failure did not recur")
+    return False, "exact REFUSED but inexact accepted", (
+        "the opposite of the hypothesis, and not explainable by accumulation. "
+        "Exact refusal: " + msg_exact)
+
+
+# ---------------------------------------------------------------------------
+# SC-C-33
+# ---------------------------------------------------------------------------
+
+def sc_c_33(ctx, ci):
+    """
+    SC-C-33 - What does a SUCCESSFUL deploy do to Committed?
+
+    THE CONTROL FOR SC-C-27 / SC-C-31. Cheap, small value, no quorum
+    out-pledging. It answers the one question those two cannot: is moving
+    collateral into Committed the FAILURE behaviour, or the NORMAL behaviour
+    that the failure path wrongly reuses?
+
+    WHAT IT CHECKS
+        Deploy a small contract that SUCCEEDS. Then:
+          a) did Committed rise by exactly the contract value?
+          b) after a wait, is it still there?
+
+    WHY IT MATTERS
+        SC-C-27 showed ~1136 RBT going to Committed for a REJECTED deploy, and
+        SC-C-31 decides whether it ever comes back. Both measure only the
+        failure path, and a reviewer reading them alone can reasonably answer:
+        "collateral is supposed to be committed - that is what collateral IS".
+
+        Without this control the finding has to be stated as "value moved to
+        Committed", which sounds like correct behaviour. With it the finding
+        becomes precise:
+
+            a successful deploy commits the collateral and gets a contract
+            for it; a rejected deploy commits the SAME value and gets
+            nothing
+
+        That is a one-line statement a developer can act on, and it points
+        straight at the pre-pass running before the consensus outcome is known
+        rather than after it.
+
+        The second reading matters just as much. If Committed is released on a
+        successful deploy, then a release path EXISTS and SC-C-31's failure to
+        observe one is a rejection-only defect. If it is terminal on success
+        too, then Committed is terminal by design and the loss on rejection is
+        unrecoverable by construction. Those are different severities and
+        nothing currently distinguishes them.
+
+    MANUAL STEPS
+        1. On the deployer, before:
+             SELECT ROUND(SUM(token_value)::numeric,3) FROM tokens
+              WHERE did='<DID>' AND token_type=1 AND token_status=5;
+        2. Deploy one contract at a small value that will succeed.
+        3. Read it again immediately, and once more after two minutes.
+        4. The rise should equal the contract value, exactly.
+
+    PASS / FAIL
+        PASS  deploy succeeded and Committed rose by exactly the value - the
+              normal path is well-defined, and SC-C-27 can be reported as the
+              failure path copying it
+        FAIL  Committed rose by something other than the value -> the
+              accounting is wrong even on the success path, which is a larger
+              finding than SC-C-27
+        FAIL  the deploy was rejected - no control was established
+        SKIP  no database, or the wallet could not be funded
+
+        Either way the note records whether the committed value was released,
+        because that is what sets SC-C-27's severity.
+    """
+    sc = _link()
+    if not db.available():
+        return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
+    s, _ = ctx.pair(0)
+
+    value = sc.rand_value(0.100, 0.500)
+    ready, why = sc._prepare(ctx, s, value + 8)
+    if not ready:
+        return SKIP, "setup incomplete", why
+
+    sc_id, err = sc._new_contract(ctx, s)
+    if err:
+        return SKIP, "generation failed", err
+
+    try:
+        before = db.record("SC-C-33", "before", s["host"], s["did"],
+                           db.snapshot(s["host"], s["did"]))
+    except db.DBUnavailable as e:
+        return SKIP, "database unreachable", str(e)
+
+    ok, msg, _ = rc.sc_transaction(s["host"], s["did"], sc_id, value=value,
+                                   data="SC-C-33 success control", port=ctx.port)
+    time.sleep(SETTLE * 2)
+
+    try:
+        after = db.record("SC-C-33", "after deploy", s["host"], s["did"],
+                          db.snapshot(s["host"], s["did"]))
+    except db.DBUnavailable as e:
+        return SKIP, "database unreachable", str(e)
+
+    if not ok:
+        return False, "the control deploy at {:.3f} was REJECTED".format(value), (
+            "this case exists to establish what a SUCCESSFUL deploy does, and "
+            "no success was obtained - so SC-C-27 has no control to be read "
+            "against. Check the quorum's free balance before trusting the "
+            "rollback lane at all. Rejection was: " + str(msg))
+
+    committed = after["committed"] - before["committed"]
+
+    # The same window SC-C-31 uses, so the two readings are comparable.
+    window = 120
+    time.sleep(window)
+    try:
+        settled = db.record("SC-C-33", "after wait", s["host"], s["did"],
+                            db.snapshot(s["host"], s["did"]))
+    except db.DBUnavailable as e:
+        return SKIP, "database unreachable", str(e)
+    released = after["committed"] - settled["committed"]
+
+    if released > TOL:
+        release = ("{:.3f} of it was released within {}s, so a release path "
+                   "DOES exist - which makes SC-C-31 observing none on the "
+                   "rejected path a rejection-only defect".format(released, window))
+    else:
+        release = ("none of it was released within {}s, so Committed is "
+                   "terminal on the success path too - the value SC-C-27 "
+                   "stranded is unrecoverable by construction, not merely "
+                   "uncollected".format(window))
+
+    problems = []
+    if not rc.close_enough(committed, value, tol=TOL * 4):
+        problems.append(
+            "a SUCCESSFUL deploy of {:.3f} committed {:.4f} - the two must be "
+            "equal, and they are not. The collateral accounting is wrong on "
+            "the normal path, which is a larger finding than the rejected "
+            "path".format(value, committed))
+
+    return (not problems), "deploy {:.3f} ok, committed +{:.4f}, {:.4f} still committed after {}s".format(
+        value, committed, settled["committed"] - before["committed"], window), (
+        "; ".join(problems + [release]))
+
+
+# ---------------------------------------------------------------------------
+# SC-C-34
+# ---------------------------------------------------------------------------
+
+def sc_c_34(ctx, ci):
+    """
+    SC-C-34 - At what N does a multi-contract request start failing, and is the
+    guard reading the SUM or the individual values?
+
+    THE LADDER BEHIND SC-C-32. SC-C-32 compares one exact triple against one
+    inexact triple and can only say "accumulation or not". This walks the
+    count, so the report can name the boundary and rule out the two
+    alternative explanations that a single comparison leaves open.
+
+    WHAT IT CHECKS
+        Three requests, in this order:
+
+          N=1   0.345                    one inexact value, alone
+          N=2   0.1 + 0.2   -> 0.3       the canonical float64 failure:
+                                         0.1+0.2 == 0.30000000000000004
+          N=2   0.25 + 0.5  -> 0.75      both exact in binary, same count
+
+        Every value and every sum is a legal 3dp amount, so a correct
+        implementation accepts all three.
+
+    WHY IT MATTERS
+        SC-C-29 failed with "transaction amount exceeds 3 decimal places" for
+        three inexact values. Three explanations survive that one observation:
+
+          1. the sum accumulates float error and the guard tests the sum
+          2. the guard tests each value and 0.345 alone is already rejected
+          3. multiple contracts in one request are simply not supported
+
+        N=1 kills (2): if 0.345 alone is accepted, the individual values are
+        not the problem. Holding N at 2 while swapping exact for inexact kills
+        (3): if the count were the problem, both N=2 requests would fail
+        together. What is left is (1), and it is then confirmed on the single
+        most recognisable example in floating point - 0.1 + 0.2 - which is
+        worth more in a PR comment than any arbitrary triple.
+
+        It also pins the boundary. If N=2 already fails, the fix is not an edge
+        case at three contracts; it is every multi-contract request that does
+        not happen to use binary-exact values, which is nearly all of them.
+
+    MANUAL STEPS
+        Post three separate /tx calls naming 1, then 2, then 2 contracts with
+        the values above, and record each response verbatim. In Go:
+            var t float64; for _, v := range []float64{0.1, 0.2} { t += v }
+            fmt.Println(t)   // 0.30000000000000004
+
+    PASS / FAIL
+        PASS  all three accepted - not reproducible on this build
+        FAIL  N=1 ok, 0.1+0.2 REFUSED, 0.25+0.5 accepted -> accumulation
+              confirmed at N=2, on the sum, not the values
+        FAIL  N=1 ok, both N=2 refused -> the count is the limit, not the
+              arithmetic; SC-C-32's reading should be re-stated
+        FAIL  N=1 refused -> the guard rejects a single legal 3dp value and
+              this is not about multi-contract at all
+        SKIP  setup incomplete
+    """
+    sc = _link()
+    s, _ = ctx.pair(0)
+
+    single = [0.345]
+    inexact = [0.1, 0.2]     # 0.30000000000000004 accumulated in float64
+    exact = [0.25, 0.5]      # 0.75, exact - same count, no accumulation
+
+    ready, why = sc._prepare(ctx, s, sum(single) + sum(inexact) + sum(exact) + 10)
+    if not ready:
+        return SKIP, "setup incomplete", why
+
+    def send(values, label):
+        entries = []
+        for v in values:
+            sc_id, err = sc._new_contract(ctx, s)
+            if err:
+                return None, "generation failed: " + err
+            entries.append({"smartContractId": sc_id, "value": v,
+                            "data": "SC-C-34 " + label})
+        body = {
+            "initiator": s["did"], "owner": "",
+            "tokens": {"rbt": 0, "ft": [], "nft": [],
+                       "smartContract": entries, "transferNftOwnership": False},
+            "memo": "SC-C-34 " + label,
+        }
+        ok, msg, _ = rc._tx(s["host"], body, ctx.port)
+        time.sleep(SETTLE)
+        return ok, str(msg)
+
+    ok_one, msg_one = send(single, "N=1 0.345")
+    if ok_one is None:
+        return SKIP, "could not build the N=1 request", msg_one
+    ok_in, msg_in = send(inexact, "N=2 0.1+0.2")
+    if ok_in is None:
+        return SKIP, "could not build the inexact N=2 request", msg_in
+    ok_ex, msg_ex = send(exact, "N=2 0.25+0.5")
+    if ok_ex is None:
+        return SKIP, "could not build the exact N=2 request", msg_ex
+
+    summary = "N=1 {}, N=2 inexact {}, N=2 exact {}".format(
+        "ok" if ok_one else "REFUSED",
+        "ok" if ok_in else "REFUSED",
+        "ok" if ok_ex else "REFUSED")
+
+    if not ok_one:
+        return False, summary, (
+            "a SINGLE contract at 0.345 - a legal 3dp value - was refused, so "
+            "this is not a multi-contract or accumulation finding at all. "
+            "SC-C-29 and SC-C-32 should both be re-read against this. "
+            "Refusal: " + msg_one)
+
+    if ok_one and not ok_in and ok_ex:
+        return False, summary, (
+            "FLOAT ACCUMULATION CONFIRMED ON THE SUM, AT N=2. 0.345 alone is "
+            "accepted, so individual values are not the problem; 0.25+0.5 at "
+            "the same count is accepted, so the count is not the problem. "
+            "Only 0.1+0.2 fails, and 0.1+0.2 is exactly 0.30000000000000004 "
+            "in float64. The guard is testing an accumulated sum the caller "
+            "never sent. This is not an edge case at three contracts - it is "
+            "every multi-contract request whose values are not binary-exact. "
+            "Refusal: " + msg_in)
+
+    if ok_one and not ok_in and not ok_ex:
+        return False, summary, (
+            "the COUNT is the limit, not the arithmetic: 0.345 alone is "
+            "accepted and both two-contract requests are refused, including "
+            "the binary-exact one that cannot accumulate any error. "
+            "Multi-contract is unsupported from N=2 upward and SC-C-32's "
+            "reading should be re-stated. Inexact refusal: " + msg_in +
+            " | exact refusal: " + msg_ex)
+
+    if ok_one and ok_in and ok_ex:
+        return True, summary, (
+            "all three accepted - the multi-contract refusal seen in SC-C-29 "
+            "did not reproduce on this build")
+
+    return False, summary, (
+        "an outcome no hypothesis predicts - the exact pair was refused while "
+        "the inexact pair was accepted. Record both responses verbatim before "
+        "drawing any conclusion. Exact refusal: " + msg_ex)

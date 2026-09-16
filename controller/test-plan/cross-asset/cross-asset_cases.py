@@ -677,10 +677,190 @@ def crs_c_05(ctx, ci):
     return (not problems), "same-node bundle: A -{:.4f} (transfer {} + value {:.3f}), B +{:.4f}, committed {:.4f}".format(
         a_spent, transfer, value, b_gain, a_committed), "; ".join(problems)
 
+
+# ---------------------------------------------------------------------------
+# CRS-C-06
+# ---------------------------------------------------------------------------
+
+def crs_c_06(ctx, ci):
+    """
+    CRS-C-06 - Does the receiver's over-credit track the COLLATERAL, value for
+    value?
+
+    THE PROOF BEHIND CRS-C-03. Same bundle, run TWICE with two deliberately
+    different contract values, from and to the same pair.
+
+    WHAT IT CHECKS
+        Bundle A: transfer 1.0 + deploy at v1
+        Bundle B: transfer 1.0 + deploy at v2      (v2 chosen well clear of v1)
+
+        Then the receiver's two gains must satisfy, simultaneously:
+
+            gain_A == 1.0 + v1
+            gain_B == 1.0 + v2
+            gain_B - gain_A == v2 - v1
+
+    WHY IT MATTERS
+        CRS-C-03 observed the receiver gaining 1.206 for a 1.0 transfer bundled
+        with a 0.206 deploy, and concluded the extra 0.206 was the collateral.
+        That is an inference from ONE reading, and a single reading cannot
+        exclude the obvious alternatives: a coincidental concurrent credit, a
+        rounding artefact, or a fixed surcharge that merely happened to equal
+        the contract value that run.
+
+        Varying the collateral removes all three at once. A coincidence does
+        not follow v from one run to the next; a fixed surcharge does not
+        change when v changes; a rounding artefact does not scale. If the
+        receiver's excess equals v both times AND the difference between the
+        two excesses equals the difference between the two contract values,
+        the only thing the receiver can be crediting is the collateral itself.
+
+        That matters because CRS-C-03 fails on BOTH builds for DIFFERENT
+        reasons - main rejects the bundle outright, the branch accepts it and
+        over-credits - so compare_reports.py buckets it PRE-EXISTING and the
+        status alone is actively misleading. The finding has to stand on its
+        own evidence rather than on a comparison verdict, and this is that
+        evidence.
+
+        Note the pairing with SC-C-33: on the initiator the collateral goes to
+        Committed, and here the same value ALSO appears as Free on the
+        receiver. If both hold in one run, the value is not merely misplaced -
+        it exists twice.
+
+    MANUAL STEPS
+        Run the CRS-C-03 bundle twice with clearly different contract values,
+        and on the RECEIVER each time:
+          SELECT ROUND(SUM(token_value)::numeric,4) FROM tokens
+           WHERE did='<RDID>' AND token_type=1 AND token_status=0;
+        Subtract. Two gains, two contract values, one subtraction.
+
+    PASS / FAIL
+        PASS  the receiver gained exactly the transfer both times - no
+              over-credit, so CRS-C-03 does not reproduce
+        FAIL  both excesses equal their contract value -> the receiver credits
+              the collateral, CONFIRMED and no longer an inference
+        FAIL  the excess does not track v -> whatever CRS-C-03 saw, it is not
+              the collateral; re-open that case before reporting it
+        SKIP  a bundle was rejected (that is main's behaviour - on the base
+              build this case cannot run, and INCONCLUSIVE is the honest
+              verdict rather than a false PASS)
+    """
+    if not db.available():
+        return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
+    s, r = ctx.pair(0)
+    transfer = 1.0
+
+    # Deliberately far apart, so "the excess tracked v" cannot be satisfied by
+    # noise at the tolerance scale.
+    v1 = _rand_value(0.100, 0.200)
+    v2 = _rand_value(0.700, 0.900)
+
+    ready, why = _prepare(ctx, s, transfer * 2 + v1 + v2 + 10)
+    if not ready:
+        return SKIP, "setup incomplete", why
+
+    def bundle(value, label):
+        """Fire one bundle; return (ok, receiver_gain, initiator_committed, msg)."""
+        sc_id, err = _new_contract(ctx, s)
+        if err:
+            return None, 0.0, 0.0, "generation failed: " + err
+        try:
+            r_before = db.record("CRS-C-06", "before receiver " + label,
+                                 r["host"], r["did"], db.snapshot(r["host"], r["did"]))
+            s_before = db.snapshot(s["host"], s["did"])
+        except db.DBUnavailable as e:
+            return None, 0.0, 0.0, "database unreachable: " + str(e)
+
+        body = {
+            "initiator": s["did"], "owner": r["did"],
+            "tokens": {"rbt": transfer, "ft": [], "nft": [],
+                       "smartContract": [{"smartContractId": sc_id, "value": value,
+                                          "data": "CRS-C-06 " + label}],
+                       "transferNftOwnership": False},
+            "memo": "CRS-C-06 " + label,
+        }
+        ok, msg, _ = rc._tx(s["host"], body, ctx.port)
+        if not ok:
+            return False, 0.0, 0.0, str(msg)
+        time.sleep(SETTLE * 2)
+
+        try:
+            r_after = db.record("CRS-C-06", "after receiver " + label,
+                                r["host"], r["did"], db.snapshot(r["host"], r["did"]))
+            s_after = db.snapshot(s["host"], s["did"])
+        except db.DBUnavailable as e:
+            return None, 0.0, 0.0, "database unreachable: " + str(e)
+        return (True,
+                r_after["free"] - r_before["free"],
+                s_after["committed"] - s_before["committed"],
+                "")
+
+    ok1, gain1, committed1, msg1 = bundle(v1, "v={:.3f}".format(v1))
+    if ok1 is None:
+        return SKIP, "could not run the first bundle", msg1
+    if ok1 is False:
+        return SKIP, "the first bundle was rejected", (
+            "the build under test refuses a bundled transfer+deploy outright, "
+            "so there is no over-credit to measure. This is main's behaviour "
+            "and is the correct SKIP - do not read it as a pass. Rejection: "
+            + msg1)
+
+    ok2, gain2, committed2, msg2 = bundle(v2, "v={:.3f}".format(v2))
+    if ok2 is None:
+        return SKIP, "could not run the second bundle", msg2
+    if ok2 is False:
+        return SKIP, "the second bundle was rejected", (
+            "the first bundle was accepted and the second was not, so the two "
+            "readings are not comparable. Re-run before concluding anything. "
+            "Rejection: " + msg2)
+
+    excess1 = gain1 - transfer
+    excess2 = gain2 - transfer
+    tol = TOL * 4
+
+    clean = rc.close_enough(gain1, transfer, tol=tol) and \
+        rc.close_enough(gain2, transfer, tol=tol)
+    if clean:
+        return True, "receiver +{:.4f} and +{:.4f}, transfer {} both times".format(
+            gain1, gain2, transfer), (
+            "the receiver gained the transfer only, at two different contract "
+            "values - CRS-C-03's over-credit did not reproduce")
+
+    tracks = (rc.close_enough(excess1, v1, tol=tol)
+              and rc.close_enough(excess2, v2, tol=tol)
+              and rc.close_enough(excess2 - excess1, v2 - v1, tol=tol))
+
+    if tracks:
+        note = ("RECEIVER CREDITS THE COLLATERAL - CONFIRMED, not inferred. "
+                "The excess over the transfer was {:.4f} for a {:.3f} contract "
+                "and {:.4f} for a {:.3f} one, and the two excesses differ by "
+                "{:.4f} against a contract-value difference of {:.4f}. A "
+                "coincidence does not follow the value across runs and a fixed "
+                "surcharge does not change with it. isSCDeployCommit requires "
+                "executionRole == Initiator, so on the receiver's node the "
+                "guard is false and the default branch writes the collateral "
+                "as Free owned by the Owner.".format(
+                    excess1, v1, excess2, v2, excess2 - excess1, v2 - v1))
+        if committed1 > tol and committed2 > tol:
+            note += (" The initiator committed {:.4f} and {:.4f} for the same "
+                     "two deploys, so this value is recorded on BOTH nodes - "
+                     "it is duplicated, not moved.".format(committed1, committed2))
+        return False, "receiver excess {:.4f} (v={:.3f}) and {:.4f} (v={:.3f}) - tracks the collateral".format(
+            excess1, v1, excess2, v2), note
+
+    return False, "receiver excess {:.4f} (v={:.3f}) and {:.4f} (v={:.3f}) - does NOT track the collateral".format(
+        excess1, v1, excess2, v2), (
+        "the receiver gained more than the transfer, but the excess does not "
+        "equal the contract value at both points, so whatever CRS-C-03 saw is "
+        "not simply the collateral being credited. Do not report it as such - "
+        "re-open CRS-C-03 with these two readings attached.")
+
+
 CASES = {
     "CRS-C-01": crs_c_01,
     "CRS-C-02": crs_c_02,
     "CRS-C-03": crs_c_03,
+    "CRS-C-06": crs_c_06,
     # CRS-C-04 / CRS-C-05 are written and working but NOT registered: they need
     # a host tagged 'multidid' in hosts.txt, and no host carries that tag yet.
     # Register them here once one does - the functions and the sweep support
@@ -689,7 +869,7 @@ CASES = {
 
 # CRS-C-01 first: if the bundled call is already wrong when run alone, the
 # concurrent case has nothing clean to build on.
-ORDER = ["CRS-C-01", "CRS-C-03", "CRS-C-02"]
+ORDER = ["CRS-C-01", "CRS-C-03", "CRS-C-06", "CRS-C-02"]
 
 TIMING_CASES = set()
 
@@ -706,9 +886,15 @@ LANES = {
     },
     # Reads the RECEIVER's rows, so it needs its own pair - the receiver must
     # not be shared with anything else moving value into it.
+    #
+    # CRS-C-06 belongs in this lane and not beside it: it measures the SAME
+    # receiver's gain across two bundles, so nothing else may credit that DID
+    # in between. Sharing the pair with CRS-C-03 is safe because all three
+    # readings are deltas, and running them apart would need a second reserved
+    # receiver for no gain.
     "crs-receiver-view": {
-        "cases": ["CRS-C-03"],
-        "hosts": 2, "fund": 15,
+        "cases": ["CRS-C-03", "CRS-C-06"],
+        "hosts": 2, "fund": 30,
     },
     # A "crs-intra-node" lane belongs here once a host is tagged 'multidid':
     #     "crs-intra-node": {"cases": ["CRS-C-04", "CRS-C-05"],

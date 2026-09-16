@@ -1421,6 +1421,7 @@ CASES = {
     "SC-Q-09": sc_cases_quorum.sc_q_09,
     "SC-Q-10": sc_cases_quorum.sc_q_10,
     "SC-Q-11": sc_cases_quorum.sc_q_11,
+    "SC-Q-12": sc_cases_quorum.sc_q_12,
 
     # Subscription at fleet scale, and executing from parts wallets.
     "SC-S-06": sc_cases_subs.sc_s_06,
@@ -1455,6 +1456,15 @@ CASES = {
     "SC-C-29": sc_cases_gaps.sc_c_29,
     "SC-C-30": sc_cases_gaps.sc_c_30,
     "SC-DB-03": sc_cases_gaps.sc_db_03,
+
+    # Confirmation cases for the #739 review - each one decides whether a
+    # finding is real and whose code it belongs to.
+    "SC-C-31": sc_cases_gaps.sc_c_31,
+    "SC-C-32": sc_cases_gaps.sc_c_32,
+    # Controls for those two - each removes an alternative explanation a
+    # reviewer would otherwise raise against the finding it backs.
+    "SC-C-33": sc_cases_gaps.sc_c_33,
+    "SC-C-34": sc_cases_gaps.sc_c_34,
 }
 
 # SC-C-04 (the whole-value control) runs BEFORE the repeat cases so that if the
@@ -1474,12 +1484,15 @@ ORDER = [
     "SC-C-13", "SC-C-14", "SC-C-15", "SC-C-16", "SC-C-17",
     "SC-C-18", "SC-C-19",
     "SC-C-20", "SC-C-21", "SC-C-22",
-    "SC-Q-07", "SC-Q-08", "SC-Q-09", "SC-Q-10", "SC-Q-11",
+    "SC-Q-07", "SC-Q-08", "SC-Q-09", "SC-Q-10", "SC-Q-11", "SC-Q-12",
     "SC-S-06", "SC-S-07", "SC-S-08", "SC-S-09", "SC-S-10",
     "SC-C-23", "SC-C-24", "SC-C-25",
     "SC-C-12", "SC-C-26",
     "SC-X-01", "SC-X-02", "SC-X-03", "SC-X-04", "SC-X-05",
-    "SC-C-11", "SC-C-30", "SC-C-29", "SC-C-28", "SC-C-27",
+    "SC-C-11", "SC-C-30", "SC-C-29", "SC-C-32", "SC-C-34", "SC-C-28",
+    # SC-C-33 is the SUCCESS control and must run BEFORE SC-C-27 empties the
+    # wallet - afterwards there is nothing left to deploy successfully with.
+    "SC-C-33", "SC-C-27", "SC-C-31",
     "SC-DB-03",
 ]
 
@@ -1588,7 +1601,7 @@ LANES = {
         "hosts": 1, "fund": 12,
     },
     "sc-quorum-spread": {
-        "cases": ["SC-Q-10", "SC-Q-11"],
+        "cases": ["SC-Q-10", "SC-Q-11", "SC-Q-12"],
         "hosts": 3, "fund": 12,
     },
 
@@ -1650,14 +1663,21 @@ LANES = {
 
     # --- hunk-coverage gaps -------------------------------------------------
     "sc-guard-branches": {
-        "cases": ["SC-C-11", "SC-C-30", "SC-C-29", "SC-C-28"],
+        "cases": ["SC-C-11", "SC-C-30", "SC-C-29", "SC-C-32", "SC-C-34",
+                  "SC-C-28"],
         "hosts": 1, "fund": 20,
     },
     # SC-C-27 must out-pledge a quorum, so it needs a wallet larger than the
     # quorum's free balance - by far the most expensive lane to fund.
     "sc-rollback": {
-        "cases": ["SC-C-27"],
-        "hosts": 1, "fund": 2100,
+        # Order inside this lane is the whole experiment, on ONE wallet:
+        #   SC-C-33  a deploy that SUCCEEDS - what Committed does normally
+        #   SC-C-27  a deploy that is REJECTED - what Committed does then
+        #   SC-C-31  two minutes later - is any of it released
+        # 33 must come first; after 27 the wallet is empty and no successful
+        # deploy is possible, so the control could never be taken.
+        "cases": ["SC-C-33", "SC-C-27", "SC-C-31"],
+        "hosts": 1, "fund": 2120,
     },
     # DB-SEED: writes to the database deliberately. Own wallet, and it runs
     # last in the catalogue order so a mid-case failure cannot poison anything

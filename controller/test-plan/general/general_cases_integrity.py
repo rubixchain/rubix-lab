@@ -21,12 +21,35 @@ SKIP = "SKIP"
 
 
 def _hosts(ctx):
+    """EVERY ready host in the run, quorums included - not just this lane's.
+
+    These are the fleet-wide sweeps. Scoping them to a lane does not make them
+    weaker, it makes them WRONG: a lane holds 2-4 hosts, and "no negative
+    counters across 4 host(s)" prints the same shape as "across 31 host(s)"
+    while checking 13% of the fleet. That is not a smaller test, it is a test
+    that reports a clean result it did not earn.
+
+    `ctx.fleet` is populated by case_runner.build_lanes. The fallback exists
+    only for a context built by another driver (smoke_test), and says so in
+    the result rather than quietly under-reporting - see _scope() below.
+    """
+    entries = list(ctx.fleet) if getattr(ctx, "fleet", None) else (
+        list(ctx.senders) + list(ctx.receivers) + list(ctx.quorum_hosts))
     seen, out = set(), []
-    for e in list(ctx.senders) + list(ctx.receivers) + list(ctx.quorum_hosts):
+    for e in entries:
         if e["host"] not in seen:
             seen.add(e["host"])
             out.append(e)
     return out
+
+
+def _scope(ctx):
+    """A label for the result line, so the reader knows what was swept.
+
+    Every fleet-wide case reports "N host(s) checked". That number is only
+    meaningful alongside whether N was the fleet or one lane.
+    """
+    return "fleet" if getattr(ctx, "fleet", None) else "LANE ONLY"
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +102,8 @@ def gen_in_12(ctx, ci):
 
     if not checked:
         return SKIP, "no host reachable", "could not read token_denom anywhere"
-    return (not bad), "{} host(s) checked, {} negative row(s)".format(checked, len(bad)), (
+    return (not bad), "{} host(s) checked ({}), {} negative row(s)".format(
+        checked, _scope(ctx), len(bad)), (
         "" if not bad else "; ".join(bad[:5]) +
         " - the burn path floors at zero deliberately, so a negative count "
         "means that floor was bypassed")
@@ -137,8 +161,8 @@ def gen_in_13(ctx, ci):
 
     if not checked:
         return SKIP, "no host reachable", "could not read the tokens table anywhere"
-    return (not findings), "{} host(s) checked, {} orphan token(s)".format(
-        checked, total), (
+    return (not findings), "{} host(s) checked ({}), {} orphan token(s)".format(
+        checked, _scope(ctx), total), (
         "" if not findings else "; ".join(findings[:4]) +
         " - these count toward the balance and the denomination counter, so "
         "selection will pick them and then fail validation")
@@ -193,8 +217,8 @@ def gen_in_14(ctx, ci):
 
     if not checked:
         return SKIP, "no host reachable", "could not read the tokens table anywhere"
-    return (not findings), "{} host(s) checked, {} duplicate id(s)".format(
-        checked, total), (
+    return (not findings), "{} host(s) checked ({}), {} duplicate id(s)".format(
+        checked, _scope(ctx), total), (
         "" if not findings else "; ".join(findings[:4]) +
         " - the same token persisted twice on one node, which the split path "
         "could produce on a retry without an ON CONFLICT guard")
@@ -262,8 +286,8 @@ def gen_in_15(ctx, ci):
 
     if not checked:
         return SKIP, "no host reachable", "could not read the tokens table anywhere"
-    return (not findings), "{} host(s) checked, {} locked token(s) worth {:.3f}".format(
-        checked, total_rows, total_value), (
+    return (not findings), "{} host(s) checked ({}), {} locked token(s) worth {:.3f}".format(
+        checked, _scope(ctx), total_rows, total_value), (
         "" if not findings else "; ".join(findings[:5]) +
         " - Locked is transient; anything still Locked belongs to an operation "
         "that failed without releasing, and that value is stranded")

@@ -95,8 +95,11 @@ def build_ctx(n_quorum=3, n_pairs=6):
     # Receivers also send in some cases, so they need a quorum mapping too.
     sender_quorum.update({r["host"]: quorum_hosts[i % n_quorum]
                           for i, r in enumerate(receivers)})
+    # `fleet` must be populated or the fleet-wide sweeps take their fallback
+    # branch and validate a shape the real runner never passes them.
     return CaseContext(_Args.port, quorum_hosts, senders, receivers,
-                       sender_quorum, _Args())
+                       sender_quorum, _Args(),
+                       fleet=quorum_hosts + senders + receivers)
 
 
 # ---------------------------------------------------------------------------

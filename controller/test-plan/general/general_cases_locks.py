@@ -43,12 +43,32 @@ TOL = 0.0015
 
 
 def _hosts(ctx):
+    """EVERY ready host in the run, quorums included - not just this lane's.
+
+    Used by the fleet-wide sweeps (GEN-IN-15, GEN-IN-22). Scoping those to a
+    lane does not make them weaker, it makes them WRONG: a reserved lane holds
+    four hosts, and "0 stranded locks across 4 host(s)" prints the same shape
+    as "across 31 host(s)" while checking 13% of the fleet. Found in the
+    2026-09-09 PR #739 baseline, where GEN-IN-15's "0 locked tokens" was
+    meaningless because it was not looking at the fleet at all.
+
+    `ctx.fleet` is populated by case_runner.build_lanes. The fallback covers a
+    context built by another driver (smoke_test) and is reported rather than
+    hidden - see _scope().
+    """
+    entries = list(ctx.fleet) if getattr(ctx, "fleet", None) else (
+        list(ctx.senders) + list(ctx.receivers) + list(ctx.quorum_hosts))
     seen, out = set(), []
-    for e in list(ctx.senders) + list(ctx.receivers) + list(ctx.quorum_hosts):
+    for e in entries:
         if e["host"] not in seen:
             seen.add(e["host"])
             out.append(e)
     return out
+
+
+def _scope(ctx):
+    """A label for the result line, so the reader knows what was swept."""
+    return "fleet" if getattr(ctx, "fleet", None) else "LANE ONLY"
 
 
 def _prepare(ctx, entry, need):
@@ -324,8 +344,8 @@ def gen_in_22(ctx, ci):
 
     if not checked:
         return SKIP, "no host reachable", "could not read the tokens table anywhere"
-    return (not orphaned), "{} host(s) checked, {} holding committed RBT".format(
-        checked, len(rows)), (
+    return (not orphaned), "{} host(s) checked ({}), {} holding committed RBT".format(
+        checked, _scope(ctx), len(rows)), (
         "; ".join(orphaned) if orphaned else
         ("; ".join(rows[:4]) + " - committed is TERMINAL, so any of this that "
          "does not correspond to a real contract is permanently lost"

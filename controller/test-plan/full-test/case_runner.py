@@ -88,7 +88,8 @@ class CaseContext:
     """What every case gets. Same shape as smoke_test's SmokeContext plus
     the extras full-catalogue cases need."""
 
-    def __init__(self, port, quorum_hosts, senders, receivers, sender_quorum, args):
+    def __init__(self, port, quorum_hosts, senders, receivers, sender_quorum, args,
+                 fleet=None):
         self.port = port
         self.quorum_hosts = quorum_hosts
         self.senders = senders
@@ -96,6 +97,22 @@ class CaseContext:
         self.sender_quorum = sender_quorum
         self.pairs = list(zip(senders, receivers))
         self.args = args
+
+        # EVERY ready host in the run, quorums included - not just this lane's.
+        #
+        # A lane's senders/receivers are deliberately narrow: that isolation is
+        # what makes balance-delta assertions valid. But the fleet-wide
+        # integrity sweeps (GEN-IN-12/13/14/15/22) are the opposite kind of
+        # case - they exist to find damage nobody attributed to anything, and
+        # they can only do that by looking at everything.
+        #
+        # They used to walk senders+receivers+quorums, which in a RESERVED lane
+        # is four hosts. "0 locked tokens across 4 host(s)" prints identically
+        # to "0 locked tokens across 31 host(s)" and reads as a clean pass, so
+        # a real finding on any of the other 27 hosts simply vanished. Found in
+        # the 2026-09-09 PR #739 baseline, where those five cases reported
+        # "4 host(s) checked" against an earlier run's "31".
+        self.fleet = list(fleet) if fleet else []
 
     def pair(self, i=0):
         """A (sender, receiver) pair. Cases that need an isolated pair should
@@ -266,7 +283,7 @@ def build_lanes(module, order, ready, quorum_hosts, sender_quorum, args):
     if not spec_all:
         half = max(1, len(pool) // 2)
         ctx = CaseContext(args.port, quorum_hosts, pool[:half], pool[half:],
-                          sender_quorum, args)
+                          sender_quorum, args, fleet=ready)
         return [[Lane("all", list(order), ctx, args.fund_sender)]], {}
 
     # RESERVED LANES first. A lane with "reserve": True holds its hosts for the
@@ -295,7 +312,7 @@ def build_lanes(module, order, ready, quorum_hosts, sender_quorum, args):
         senders = mine[:1]
         receivers = mine[1:] or mine[:1]
         ctx = CaseContext(args.port, quorum_hosts, senders, receivers,
-                          sender_quorum, args)
+                          sender_quorum, args, fleet=ready)
         reserved_lanes.append(Lane(name, cases, ctx,
                                    int(spec.get("fund", args.fund_sender))
                                    + FUND_SAFETY_MARGIN))
@@ -334,7 +351,7 @@ def build_lanes(module, order, ready, quorum_hosts, sender_quorum, args):
         senders = mine[:1]
         receivers = mine[1:] or mine[:1]
         ctx = CaseContext(args.port, quorum_hosts, senders, receivers,
-                          sender_quorum, args)
+                          sender_quorum, args, fleet=ready)
         lanes.append(Lane(name, cases, ctx,
                           int(spec.get("fund", args.fund_sender)) + FUND_SAFETY_MARGIN))
 

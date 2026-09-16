@@ -482,3 +482,137 @@ def sc_q_11(ctx, ci):
     return (not problems), "{}/{} concurrent deploys ok, quorum denom {}".format(
         len(outcomes) - len(failed), len(outcomes),
         "ok" if not drift else "DRIFT"), "; ".join(problems)
+
+
+# ---------------------------------------------------------------------------
+# SC-Q-12
+# ---------------------------------------------------------------------------
+
+def sc_q_12(ctx, ci):
+    """
+    SC-Q-12 - NEW quorum counter drift caused by one concurrent burst.
+
+    NOT A PR #739 CASE. The pledge path is not modified by this PR.
+
+    WHAT IT CHECKS
+        Measure the quorum's counter-vs-reality gap BEFORE a burst of
+        concurrent deploys and again after, and report only the CHANGE.
+
+    WHY IT MATTERS
+        Every other drift case reports an ABSOLUTE gap, and on this fleet that
+        number is now permanently non-zero. Quorum .104 sits at exactly:
+
+            denom 0.001  counter 5123  free 5120   drift 3
+            denom 0.010  counter 5490  free 5488   drift 2      = 0.023 RBT
+
+        That is history. Between the run that created it and the reading above,
+        the counters grew by roughly 3,400 and 3,640 - thousands of further
+        pledges - and the drift did not move by one. Ordinary operation counts
+        correctly; the gap was made once, during a 28-wallet burst, and it
+        never self-corrects because nothing re-derives the array.
+
+        So GEN-IN-08 and SC-X-04 will now fail on EVERY future run against a
+        number that has nothing to do with that run, and a genuine new leak
+        would hide underneath it. A permanently red case has stopped carrying
+        information.
+
+        Measuring the delta fixes both halves: it is zero on a clean build
+        regardless of accumulated history, and it attributes any new drift to
+        the burst that caused it.
+
+    MANUAL STEPS
+        1. Record the quorum's array and its real free tokens (see DB-SCHEMA
+           "Recipes"), and note the per-denomination gap.
+        2. Fire concurrent deploys from several senders through that quorum.
+        3. Wait for everything to settle, then record both again.
+        4. Compare the GAPS, not the counts.
+
+    PASS / FAIL
+        PASS  no denomination's gap widened - concurrent pledging is safe on
+              this build, whatever history the wallet carries
+        FAIL  a gap widened -> this burst lost that many decrements. Concurrent
+              writers to one (did, denom) row are not serialised
+        SKIP  fewer than 3 hosts in this lane, or no quorum
+    """
+    sc = _link()
+    if not db.available():
+        return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
+
+    senders = [e for e in (list(ctx.senders) + list(ctx.receivers))][:4]
+    if len(senders) < 3:
+        return SKIP, "need 3 hosts", (
+            "this lane has {} host(s); a burst needs at least 3".format(len(senders)))
+    q = _quorum_of(ctx, senders[0])
+    if q is None:
+        return SKIP, "no quorum", "cannot measure quorum drift without one"
+
+    def gaps():
+        """Per-denomination (counter - real_free), keyed to 3dp."""
+        counter = db.denom_counter(q["host"], q["did"])
+        real = db.real_free_denoms(q["host"], q["did"])
+        keys = set(round(d, 3) for d in counter) | set(round(d, 3) for d in real)
+        out = {}
+        for k in keys:
+            c = sum(v for d, v in counter.items() if round(d, 3) == k)
+            r = sum(v for d, v in real.items() if round(d, 3) == k)
+            out[k] = c - r
+        return out
+
+    values = [sc.rand_value(0.100, 0.500) for _ in senders]
+    for e, v in zip(senders, values):
+        rc.quorum_add(e["host"], q["did"], ctx.port)
+        ready, why = sc._prepare(ctx, e, v + 4)
+        if not ready:
+            return SKIP, "setup incomplete", "{}: {}".format(e["host"], why)
+
+    # Several rounds, so the burst is wide AND repeated - one round of three is
+    # what SC-Q-11 already does and it has never reproduced the drift.
+    rounds = 5
+    prepared = []
+    for _ in range(rounds):
+        for e, v in zip(senders, values):
+            sc_id, err = sc._new_contract(ctx, e)
+            if err:
+                return SKIP, "generation failed", "{}: {}".format(e["host"], err)
+            prepared.append((e, sc_id, v))
+
+    try:
+        before = gaps()
+    except db.DBUnavailable as e:
+        return SKIP, "database unreachable", str(e)
+
+    def fire(item):
+        e, sc_id, v = item
+        return rc.sc_transaction(e["host"], e["did"], sc_id, value=v,
+                                 data="SC-Q-12 burst", port=ctx.port)
+
+    with ThreadPoolExecutor(max_workers=len(senders)) as pool:
+        outcomes = list(pool.map(fire, prepared))
+    ok_count = sum(1 for o in outcomes if o and o[0])
+
+    # Generous settle: a widened gap must not be an artefact of reading while
+    # pledges are still open.
+    time.sleep(SETTLE * 5)
+
+    try:
+        after = gaps()
+    except db.DBUnavailable as e:
+        return SKIP, "database unreachable", str(e)
+
+    widened = {}
+    for k in set(before) | set(after):
+        delta = after.get(k, 0) - before.get(k, 0)
+        if delta > 0:
+            widened[k] = delta
+
+    note = ""
+    if widened:
+        note = ("this burst of {} concurrent deploy(s) lost {} decrement(s): "
+                "{} - concurrent writers to the same (did, denom) row are not "
+                "serialised. NOT a #739 path".format(
+                    len(prepared), sum(widened.values()),
+                    ", ".join("{:.3f}+{}".format(k, v)
+                              for k, v in sorted(widened.items()))))
+
+    return (not widened), "{}/{} deploy(s) ok through quorum {}, new drift {}".format(
+        ok_count, len(prepared), q["host"], sum(widened.values()) if widened else 0), note
