@@ -136,13 +136,21 @@ def verdict_quad(m1, m2, b1, b2):
     """Four-report mode. Repeatability is checked BEFORE anything else."""
     if None in (m1, m2, b1, b2):
         return INCONCLUSIVE, "missing from at least one report"
+    # SKIP is checked BEFORE disagreement. A case that SKIPPED did not run -
+    # its precondition failed - so "PASS then SKIP" is not the build
+    # disagreeing with itself, it is one run with nothing to say. Calling that
+    # FLAKY hid real flakes among setup failures (32 of 50 on 2026-09-18),
+    # and the two have opposite fixes: a flake needs the case stabilised, a
+    # skip needs the run's setup fixed.
+    runs = (("main-1", m1), ("main-2", m2), ("branch-1", b1), ("branch-2", b2))
+    skipped = [name for name, s in runs if s == "SKIP"]
+    if skipped:
+        return INCONCLUSIVE, "skipped on {}".format(
+            "all four runs" if len(skipped) == 4 else ", ".join(skipped))
     if m1 != m2:
         return FLAKY, "main disagrees with itself: {} then {}".format(m1, m2)
     if b1 != b2:
         return FLAKY, "branch disagrees with itself: {} then {}".format(b1, b2)
-    if m1 == "SKIP" or b1 == "SKIP":
-        return INCONCLUSIVE, "skipped on {}".format(
-            "both" if m1 == b1 == "SKIP" else ("main" if m1 == "SKIP" else "branch"))
     if m1 == "PASS" and b1 == "FAIL":
         return INTRODUCED, "passed twice on main, failed twice on the branch"
     if m1 == "FAIL" and b1 == "PASS":
@@ -165,6 +173,10 @@ def main():
     p.add_argument("--evidence", action="store_true",
                    help="print the actual/ result line for FIXED and "
                         "INTRODUCED cases - what the change looks like")
+    p.add_argument("--detail", default="", metavar="ID[,ID...]",
+                   help="print status, actual AND note for these cases from "
+                        "every report, then exit - the why behind a verdict, "
+                        "including each SKIP's reason")
     args = p.parse_args()
 
     quad = bool(args.main or args.branch)
@@ -191,11 +203,38 @@ def main():
         ids = sorted(set(chg) | set(base))
         sources = [("change  ", cp), ("baseline", bp)]
 
+    runs = ([m1, m2, b1, b2] if quad else [chg, base])
+
+    if args.detail:
+        wanted = [t.strip() for t in args.detail.split(",") if t.strip()]
+        for tid in wanted:
+            print("=" * 78)
+            print(tid)
+            for (label, path), rows in zip(sources, runs):
+                row = rows.get(tid)
+                if not row:
+                    print("  {:<12} (not in this report)".format(label))
+                    continue
+                print("  {:<12} {}".format(label, row.get("status")))
+                print("      actual : {}".format((row.get("actual") or "-").strip()))
+                note = (row.get("note") or "").strip()
+                if note:
+                    print("      note   : {}".format(note))
+        print("=" * 78)
+        return
+
     print("=" * 78)
     print("CAUSATION COMPARISON" + ("  (4 reports, flake-controlled)" if quad
                                     else "  (2 reports, NO flake control)"))
-    for label, path in sources:
-        print("  {} : {}".format(label, os.path.basename(path)))
+    # Pass/fail/skip per run. A run whose SKIP count stands out from its twin
+    # had a setup problem (funding, quorum, reachability) - its verdicts are
+    # weaker than the others', and that is visible here before any bucket.
+    for (label, path), rows in zip(sources, runs):
+        c = {"PASS": 0, "FAIL": 0, "SKIP": 0}
+        for r in rows.values():
+            c[r.get("status")] = c.get(r.get("status"), 0) + 1
+        print("  {} : {}   pass {:>2}  fail {:>2}  skip {:>2}".format(
+            label, os.path.basename(path), c["PASS"], c["FAIL"], c["SKIP"]))
     print("  {} case(s) compared".format(len(ids)))
     print("=" * 78)
 
