@@ -8,10 +8,10 @@ per-asset case module against it. To run a different asset, point --cases at
 that module; nothing here changes.
 
 A case module must expose:
-    CASES = {"RBT-001": fn, ...}   fn(ctx, ci) -> (passed, actual, note)
-    ORDER = ["RBT-001", ...]        execution order
+    CASES = {"RBT-M-02": fn, ...}  fn(ctx, ci) -> (passed, actual, note)
+    ORDER = ["RBT-M-02", ...]       execution order
 
-`ci` is a CaseInfo carrying the row from rubix-lab-test-catalogue.csv (test id,
+`ci` is a CaseInfo carrying the row from master/master-catalogue.csv (test id,
 case text, expected result, other checks, notes) so a case can assert
 against what the catalogue actually says rather than a hardcoded copy.
 
@@ -22,12 +22,14 @@ Three outcomes, deliberately distinct:
               Used where the case needs machinery this runner doesn't have
               (node kills, DB seeding, a second DID on one node) or where
               setup would be prohibitively expensive (see the minting note in
-              rbt_cases.py). A SKIP is an honest gap, not a success.
+              the RBT section of master_cases.py). A SKIP is an honest gap,
+              not a success.
 
 Usage:
-    python3 case_runner.py --cases rbt            # test-plan/rbt/rbt_cases.py
-    python3 case_runner.py --cases rbt --only RBT-001,RBT-005
-    python3 case_runner.py --cases rbt --quorum-fund 5000
+    python3 case_runner.py --cases master                     # every case
+    python3 case_runner.py --cases master --only 'RBT-*'      # one asset
+    python3 case_runner.py --cases master --only RBT-M-02,RBT-S-01
+    python3 case_runner.py --suite pr-739                     # a named selection
 """
 
 import argparse
@@ -51,15 +53,15 @@ from smoke_test import (
     setup_quorums, assign_and_fund_senders,
 )
 
-# The catalogue is the source of truth. master-test-cases.xlsx is NOT -
-# it stopped being updated and now holds stale IDs.
-CATALOGUE_PATH = os.path.join(HERE, "..", "rubix-lab-test-catalogue.csv")
+# The master catalogue is the source of truth for case wording; the code for
+# every case lives in master/master_cases.py.
+CATALOGUE_PATH = os.path.join(HERE, "..", "master", "master-catalogue.csv")
 
 SKIP = "SKIP"
 
 
 class CaseInfo:
-    """One row of rubix-lab-test-catalogue.csv."""
+    """One row of master/master-catalogue.csv."""
 
     def __init__(self, test_id, asset="", case="", expected="", checks="", notes=""):
         self.test_id = test_id
@@ -126,14 +128,10 @@ class CaseContext:
 def load_master(path=None):
     """Load the catalogue, keyed by Test ID.
 
-    Reads rubix-lab-test-catalogue.csv - the single source of truth. It used to
-    read master-test-cases.xlsx, which silently went stale: it still holds the
-    old 259 rows with pre-rename IDs, so every case added or renamed since
-    (SC-C-*, FT-P-*, GEN-IN-*, and the whole cross-cutting matrix) matched
-    nothing and reported with EMPTY 'Test Case' and 'Expected Result' columns.
-    The run was correct; the report just could not say what it had tested.
-
-    A CSV also avoids needing openpyxl at all.
+    Reads master/master-catalogue.csv - the single source of truth. A case
+    whose Test ID has no row there still runs, but reports with EMPTY 'Test
+    Case' and 'Expected Result' columns, so every case in master_cases.py must
+    have a catalogue row.
     """
     path = path or CATALOGUE_PATH
     if not os.path.exists(path):
@@ -158,10 +156,11 @@ def load_master(path=None):
 SUITES_DIR = os.path.join(HERE, "..", "suites")
 
 # Which module owns each Test ID prefix, so a suite file can list cases without
-# also having to name the modules they live in.
+# also having to name the modules they live in. Every asset now lives in the
+# master script.
 PREFIX_MODULE = {
-    "RBT": "rbt", "FT": "ft", "NFT": "nft",
-    "SC": "sc", "CRS": "cross-asset", "GEN": "general",
+    "RBT": "master", "FT": "master", "NFT": "master",
+    "SC": "master", "CRS": "master", "GEN": "master",
 }
 
 
@@ -357,6 +356,29 @@ def build_lanes(module, order, ready, quorum_hosts, sender_quorum, args):
 
     if lanes:
         waves.append(lanes)
+
+    # UNLANED cases. Once a module defines LANES, only cases named in a lane
+    # were ever scheduled - anything else was neither run nor reported. Merging
+    # the RBT cases (which never had lanes) into master_cases.py turned that
+    # into 71 silent omissions. They now run together in one lane over the
+    # rotating pool, in a wave of their own: the original no-LANES behaviour,
+    # so cases that need many sender/receiver pairs still get them.
+    laned = set()
+    for spec in spec_all.values():
+        laned |= set(spec.get("cases", []))
+    unlaned = [c for c in order if c not in laned]
+    if unlaned and pool:
+        half = max(1, len(pool) // 2)
+        ctx = CaseContext(args.port, quorum_hosts, pool[:half],
+                          pool[half:] or pool[:half], sender_quorum, args,
+                          fleet=ready)
+        waves.append([Lane("unlaned", unlaned, ctx,
+                           args.fund_sender + FUND_SAFETY_MARGIN)])
+    elif unlaned:
+        for c in unlaned:
+            skipped[c] = ("no hosts for unlaned cases",
+                          "every pool host is reserved by another lane")
+
     if reserved_lanes:
         # Their own wave, LAST: the integrity sweeps should see the fleet as it
         # is after everything else has finished, while their own wallets have
@@ -628,11 +650,11 @@ def main():
     # actual value used is always stated in that case's report row, so a
     # reduced run is never mistaken for the full one.
     p.add_argument("--large-mint", type=int, default=2000,
-                   help="RBT-003 single-mint size (~15s per 1000)")
+                   help="RBT-M-03 single-mint size (~15s per 1000)")
     p.add_argument("--decimal-samples", type=int, default=3,
-                   help="RBT-029 values per decimal place (catalogue asks 10)")
+                   help="RBT-P-01 values per decimal place (catalogue asks 10)")
     p.add_argument("--repeat-count", type=int, default=25,
-                   help="RBT-032 repetitions (catalogue asks 1000, ~33 min)")
+                   help="RBT-P-04 repetitions (catalogue asks 1000, ~33 min)")
     # --- mixed-version runs -------------------------------------------------
     # Roles are normally derived from the REACHABLE host list
     # (quorum = first N, then senders/receivers alternate). That is fine for a
@@ -745,10 +767,8 @@ def main():
     if not order:
         sys.exit("ERROR: nothing to run.")
 
-    # A case module may carry its own catalogue text (CASE_INFO) instead of
-    # having rows in master-test-cases.xlsx - the core-derived cases come from
-    # the product's suite, not the sheet. Only read the workbook when some case
-    # actually needs it, so those runs don't require openpyxl at all.
+    # A case module may carry its own catalogue text (CASE_INFO); otherwise
+    # the wording comes from the master catalogue.
     case_info = getattr(module, "CASE_INFO", {})
     master = load_master()
 

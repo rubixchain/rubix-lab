@@ -24,8 +24,9 @@ controller/              run FROM the controller
   wipe-node-db.sh        destructive DB + DID reset (parallel)
   exec-update/           build a branch and deploy it to running nodes
   test-plan/             the test catalogue and its runners
-    full-test/           master-test-cases.xlsx, case_runner.py, smoke_test.py
-    rbt/ ft/ nft/ sc/ cross-asset/ general/   per-asset case modules
+    master/              master-catalogue.csv + master_cases.py: every lab case
+    full-test/           case_runner.py, validate_cases.py, smoke_test.py, clients
+    suites/              named selections of master cases (e.g. one PR's)
 
 systems/                 goes ON each lab machine
   install/               setup.sh, config.toml.template, systemd unit

@@ -13,9 +13,9 @@ Deliberately split in two:
       list. This file just loops over whatever's in there.
 
 Single script by design: the point of a smoke test is proving the whole
-pipeline end to end in one run. The modular per-asset runners
-(test-plan/rbt/, test-plan/ft/, ...) are the separate, later thing for
-running the full 250-case catalogue piece by piece - this isn't a
+pipeline end to end in one run. The catalogue cases
+(test-plan/master/master_cases.py, driven by case_runner.py) are the
+separate thing for running the catalogue asset by asset - this isn't a
 replacement for those, it shares the same rubix_client.py underneath.
 
 Common-part flow (see also project memory "test-flow-design"):

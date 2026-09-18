@@ -1,0 +1,30 @@
+Test ID,Asset,Op Group,Test Case,Covered By,Implemented Legacy ID
+RBT-M-01,RBT,Mint,Mint local RBT on a node,rubixgoplatform test/integration: Minting phase,RBT-001
+RBT-T-01,RBT,Transfer,Send 1 RBT from A to B,rubixgoplatform test/integration: Shuttle (A->B),RBT-005
+RBT-T-02,RBT,Transfer,Send RBT back from B to A,rubixgoplatform test/integration: Shuttle (B->A),RBT-006
+RBT-T-03,RBT,Transfer,Send RBT to a DID that does not exist,rubixgoplatform test/integration: NEG_INVALID_RECEIVER_DID,RBT-007
+RBT-T-04,RBT,Transfer,Send RBT to a badly formatted DID,rubixgoplatform test/integration: NEG_INVALID_RECEIVER_DID,RBT-008
+RBT-T-06,RBT,Transfer,Send RBT between two DIDs on the same node,rubixgoplatform test/integration: Intra-node RBT ping-pong,RBT-010
+RBT-V-13,RBT,Transfer Value,Send a negative amount,rubixgoplatform test/integration: NEG_NON_POSITIVE_AMOUNT,RBT-025
+RBT-V-14,RBT,Transfer Value,Send more than the wallet holds,rubixgoplatform test/integration: NEG_RBT_INSUFFICIENT,RBT-026
+RBT-P-02,RBT,Precision,Send an amount with 4 or more decimal places,rubixgoplatform test/integration: NEG_RBT_DECIMAL_PLACES,RBT-031
+FT-M-01,FT,Mint,Create a new FT by burning RBT,rubixgoplatform test/integration: FT phase: FT_LIST / FT_BALANCE,
+FT-T-01,FT,Transfer,Send 1 FT,rubixgoplatform test/integration: FT phase: FT_TX_LIST,
+FT-T-02,FT,Transfer,Send part of the FTs held,rubixgoplatform test/integration: FT phase: transfers a slice of each batch,
+FT-T-10,FT,Transfer,Send FTs between two DIDs on the same node,rubixgoplatform test/integration: Intra-node FT back-and-forth,
+NFT-M-01,NFT,Create,Create an NFT with metadata and artifact,rubixgoplatform test/integration: NFT phase: create,
+NFT-D-01,NFT,Deploy,Deploy an NFT to the chain,rubixgoplatform test/integration: NFT phase: deploy,
+NFT-E-01,NFT,Execute,Owner executes their own NFT,rubixgoplatform test/integration: NFT phase: self-execute,
+NFT-E-02,NFT,Execute,Another node subscribes then executes,rubixgoplatform test/integration: NFT_CHAIN_SYNC (cross-node subscribe + execute),
+NFT-C-01,NFT,Child Mint,Mint child NFTs under a parent,rubixgoplatform test/integration: NFT_MINT_CHILDREN,
+NFT-C-03,NFT,Child Mint,Check parent lists all its children,rubixgoplatform test/integration: NFT_CHILDREN_MINTED,
+NFT-C-04,NFT,Child Mint,Check each child points back to the parent,rubixgoplatform test/integration: NFT_PARENT_OF,
+NFT-X-01,NFT,Transfer,Transfer NFT ownership to another node,rubixgoplatform test/integration: NFT phase: ownership transfer,
+SC-D-01,SC,Deploy,Deploy a smart contract,rubixgoplatform test/integration: SC phase: deploy / SC_LIST,
+SC-E-01,SC,Execute,Deployer executes their own contract,rubixgoplatform test/integration: SC phase: self-execute,
+SC-E-02,SC,Execute,Another node subscribes then executes,rubixgoplatform test/integration: SC_CHAIN_SYNC (cross-node subscribe + execute),
+SC-K-01,SC,Callback,Register a callback URL,rubixgoplatform test/integration: SC_REGISTER_CALLBACK / SC_CALLBACK_REGISTER,
+SC-K-02,SC,Callback,Execute and check the callback actually arrives,rubixgoplatform test/integration: SC_CALLBACK_DELIVERED,
+SC-K-03,SC,Callback,Check who is named in the callback message,rubixgoplatform test/integration: SC_CALLBACK_INITIATOR,
+CRS-02,Cross-Asset,Combined,Send RBT plus execute an NFT and a contract in one call,rubixgoplatform test/integration: BUNDLED_TX (RBT + NFT exec + SC exec),
+CRS-03,Cross-Asset,Combined,Send RBT plus every FT plus every NFT and contract at once,rubixgoplatform test/integration: ALL_IN_ONE,

@@ -29,12 +29,12 @@ WHAT IT DOES NOT CATCH
     shape, not a substitute for a real run.
 
 USAGE
-    python3 validate_cases.py                 # every asset module
-    python3 validate_cases.py --cases sc      # one module
-    python3 validate_cases.py --verbose       # show each case's return value
+    python3 validate_cases.py                   # every case module
+    python3 validate_cases.py --cases master    # one module
+    python3 validate_cases.py --verbose         # show each case's return value
 
 Exit code is non-zero if any case raised, so this can gate a run:
-    python3 validate_cases.py && python3 case_runner.py --cases sc
+    python3 validate_cases.py && python3 case_runner.py --cases master
 """
 
 import argparse

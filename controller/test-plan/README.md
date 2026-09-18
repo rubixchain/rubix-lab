@@ -1,6 +1,12 @@
 # Rubix Lab — Test Catalogue
 
-`rubix-lab-test-catalogue.csv` — 259 cases, opens directly in Excel.
+`master/master-catalogue.csv` — 396 cases, opens directly in Excel. The code
+for every implemented case is in `master/master_cases.py`; cases rubix core's
+own integration suite already covers are listed in `master/core-covered.csv`
+instead.
+
+    python3 full-test/validate_cases.py --cases master        # offline shape check
+    python3 full-test/case_runner.py --cases master --only 'SC-C-*'
 
 Organised by **asset first**, then by operation. Written in plain language so the
 row itself explains the test. Each case cites the code it came from, so it can be
@@ -26,14 +32,14 @@ and **Precision** (1000 repeated 0.001 transfers, checking for drift).
 
 ## Layout
 
-| Asset | Functional | Performance | Total |
-|---|---|---|---|
-| RBT | 80 | 8 | 88 |
-| FT | 50 | 5 | 55 |
-| NFT | 32 | 4 | 36 |
-| Smart Contract | 15 | 2 | 17 |
-| Cross-Asset | 11 | 1 | 12 |
-| General | 41 | 10 | 51 |
+| Asset | Functional | Performance | Total | Implemented |
+|---|---|---|---|---|
+| RBT | 82 | 9 | 91 | 71 |
+| FT | 70 | 7 | 77 | 13 |
+| NFT | 38 | 6 | 44 | 0 |
+| Smart Contract | 76 | 10 | 86 | 56 |
+| Cross-Asset | 27 | 3 | 30 | 4 |
+| General | 58 | 10 | 68 | 17 |
 
 **Operation groups** differ per asset because the assets genuinely differ:
 
@@ -61,6 +67,9 @@ and **Precision** (1000 repeated 0.001 transfers, checking for drift).
 | Also Check In Same Run | Extra things to verify from that same run — avoids repeat runs |
 | Priority | P0 blocking / P1 core / P2 depth |
 | Code Ref | Source file:line the rule comes from |
+| Legacy ID | The case's old `RBT-NNN` number, for RBT cases renumbered into the catalogue |
+| Implemented In | `master` when `master_cases.py` has code for the case; blank if not yet written |
+| Core Overlap | Set when rubix core's CI makes the same assertion but the case is kept - with the reason (usually a multi-quorum or fleet-scale condition core's 3-node cluster cannot produce) |
 
 ### Setup methods
 
