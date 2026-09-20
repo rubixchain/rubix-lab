@@ -215,34 +215,6 @@ def writable_query(host, sql, params=None, port=DB_PORT,
         conn.close()
 
 
-def assert_read_only(host, port=DB_PORT):
-    """Prove the read path really cannot write. Returns (ok, note).
-
-    Attempts a harmless write on a normal query() connection and expects it to
-    be REFUSED. Used by preflight so the guarantee is verified on the actual
-    fleet rather than assumed from the code.
-    """
-    try:
-        query(host, "CREATE TEMP TABLE _lab_write_probe (x int)", port=port)
-    except DBUnavailable:
-        raise
-    except Exception as e:
-        if "read-only" in str(e).lower():
-            return True, "server refused a write on the read path, as intended"
-        return False, "write was refused, but not as a read-only error: {}".format(e)
-    return False, ("A WRITE SUCCEEDED ON THE READ PATH - default_transaction_read_only "
-                   "is not being applied. Do not run DB cases until this is fixed")
-
-
-def ping(host, port=DB_PORT):
-    """Return (ok, note) - a cheap reachability probe used by preflight."""
-    try:
-        query(host, "SELECT 1", port=port)
-        return True, ""
-    except DBUnavailable as e:
-        return False, str(e)
-
-
 # ---------------------------------------------------------------------------
 # Denomination counter
 # ---------------------------------------------------------------------------

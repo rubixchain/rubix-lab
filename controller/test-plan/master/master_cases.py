@@ -137,7 +137,6 @@ TOL = 0.0015
 #     same again to pledge it. Not a tweak - a multi-hour setup.
 
 
-#!/usr/bin/env python3
 
 
 FAKE_DID = "bafybmi" + "z" * 52       # 59 chars, right prefix, never created
@@ -1303,7 +1302,6 @@ def rbt_b_08(ctx, ci):
 #     where the damage shows.
 
 
-#!/usr/bin/env python3
 
 
 # Repetition and interleaving cases live alongside; imported into
@@ -1803,8 +1801,6 @@ def ft_p_05(ctx, ci):
 # -----------------------------------------------------------------------------
 # ft_cases_stress.py - repetition and interleaving against the FT burn path.
 #
-# Imported by ft_cases.py.
-#
 # The FT-P-01..05 chain proves one mint from parts behaves, and that a second
 # mint still works. These push further on the specific mechanism 977f6fba
 # changed:
@@ -1817,7 +1813,6 @@ def ft_p_05(ctx, ci):
 # write hit denom=0).
 
 
-#!/usr/bin/env python3
 
 
 def _ft_stress_name():
@@ -2461,7 +2456,7 @@ def ft_db_04(ctx, ci):
 # -----------------------------------------------------------------------------
 # ft_cases_scale.py - the FT burn path under sustained load.
 #
-# Imported by ft_cases.py. Run via the pr-739-stress suite, after the functional
+# Run as a stress selection, after the functional
 # suite passes.
 #
 # The functional FT cases mint twice. 977f6fba changed a statement that runs on
@@ -2470,7 +2465,6 @@ def ft_db_04(ctx, ci):
 # are busy at once rather than taking turns.
 
 
-#!/usr/bin/env python3
 
 
 def _ft_scale_name():
@@ -2742,10 +2736,9 @@ def ft_x_02(ctx, ci):
 #     which is exactly where every other SC case sits.
 
 
-#!/usr/bin/env python3
 
 
-# Cases added while reviewing PR #739 live in sibling files purely to keep
+# Cases added in the collateral review live in sibling files purely to keep
 # this one readable. They are ordinary SC catalogue cases and are imported
 # into CASES/ORDER below, so nothing else needs to know they are separate.
 
@@ -3667,8 +3660,8 @@ def sc_q_06(ctx, ci):
                                  q["did"], db.snapshot(q["host"], q["did"]))
         # The quorum's OWN counter matters too. Pledging moves its tokens out of
         # Free (core/wallet/pledge.go:222), so its token_denom must decrement -
-        # the same class of bug this PR fixes on the deploy and mint paths, but
-        # on a path the PR does NOT touch. A failure here is a new finding.
+        # the same class of bug as the deploy and mint paths, but on a
+        # separate path. A failure here is a separate finding.
         q_drift_before = db.denom_drift(q["host"], q["did"])
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
@@ -4094,10 +4087,9 @@ def _need_sub():
 # Collateral - value ladder, wallet shapes, sequential deploys
 # (was sc/sc_cases_extra.py)
 # -----------------------------------------------------------------------------
-# sc_cases_extra.py - SC cases added while reviewing PR #739's diff.
+# sc_cases_extra.py - SC cases added in the collateral review.
 #
-# Imported by sc_cases.py; not run on its own. Split out only because sc_cases.py
-# was getting long - these are ordinary SC catalogue cases, not a separate suite.
+# Ordinary SC catalogue cases, not a separate suite.
 #
 # WHAT THESE ADD OVER THE ORIGINAL SC-C-* SET
 #     The original cases prove a deploy COSTS the right amount, measured from the
@@ -4122,7 +4114,6 @@ def _need_sub():
 #     WHAT IT CHECKS / WHY IT MATTERS / MANUAL STEPS / PASS-FAIL
 
 
-#!/usr/bin/env python3
 
 
 # ---------------------------------------------------------------------------
@@ -4518,7 +4509,7 @@ def sc_c_19(ctx, ci):
 # -----------------------------------------------------------------------------
 # sc_cases_db.py - row-level database checks around a smart contract deploy.
 #
-# Imported by sc_cases.py. These go below the totals every other case works
+# These go below the totals every other case works
 # from: which ROWS exist afterwards, not just what they sum to.
 #
 # WHY ROW-LEVEL AT ALL
@@ -4537,12 +4528,11 @@ def sc_c_19(ctx, ci):
 #     These bind to table and column names (tokens.parent_token_id,
 #     tokenchain.position, transactions.info). That is a real cost: if the
 #     product reshapes those tables, these break before anything else. They are
-#     worth it here because this PR's whole subject is what lands in those
+#     worth it here because the subject is exactly what lands in those
 #     tables - but they are the first cases to revisit after a schema change.
 #     DB-SCHEMA.md records the shape they were written against.
 
 
-#!/usr/bin/env python3
 
 
 # ---------------------------------------------------------------------------
@@ -4832,8 +4822,6 @@ def sc_c_22(ctx, ci):
 # -----------------------------------------------------------------------------
 # sc_cases_quorum.py - what the QUORUM does during a smart contract deploy.
 #
-# Imported by sc_cases.py.
-#
 # WHY A SEPARATE GROUP
 #     Every other SC case looks at the deployer. These look at the other side of
 #     the same transaction. A deploy can be perfectly correct from the deployer's
@@ -4842,12 +4830,10 @@ def sc_c_22(ctx, ci):
 #
 #     Pledging moves quorum tokens out of Free (core/wallet/pledge.go:222), so
 #     the quorum's token_denom must decrement exactly as the deployer's does.
-#     That is the SAME class of bug PR #739 fixes on two other paths, on a path
-#     the PR does NOT touch - so a failure here is a new finding, not a
-#     regression.
+#     That is the SAME class of bug as the deploy and FT-burn paths, on a
+#     separate path - so a failure here is its own finding.
 
 
-#!/usr/bin/env python3
 
 
 def _quorum_of(ctx, entry):
@@ -4868,8 +4854,8 @@ def sc_q_07(ctx, ci):
 
     WHY IT MATTERS
         Pledging takes quorum tokens out of Free, so its counter must decrement
-        - the identical situation to the two bugs this PR fixes, on a third
-        path nobody has touched. And the quorum is shared: a drifting counter
+        - the identical situation to the deploy and FT-burn counters, on a
+        third path. And the quorum is shared: a drifting counter
         there does not break one wallet, it eventually stops the quorum
         selecting tokens for ANY sender, which surfaces as unrelated transfers
         failing across the fleet.
@@ -4933,7 +4919,7 @@ def sc_q_07(ctx, ci):
         "ok" if not drift else "DRIFT"), (
         "" if not drift else db.describe_drift(drift) +
         " - pledging moved tokens out of Free without decrementing the counter. "
-        "This path is not part of PR #739, so this is a new finding")
+        "This is the pledge path, separate from deploy and FT burn")
 
 
 # ---------------------------------------------------------------------------
@@ -4956,7 +4942,7 @@ def sc_q_08(ctx, ci):
         suggests - and the fleet then sees "quorum cannot pledge" long before
         the quorum looks empty.
 
-        This is the quorum-side mirror of the deployer bug this PR fixes.
+        This is the quorum-side mirror of the deployer counter.
 
     MANUAL STEPS
         On the quorum, before and after (6 = Pledged, 7 = QuorumPledged):
@@ -5301,8 +5287,6 @@ def sc_q_12(ctx, ci):
     """
     SC-Q-12 - NEW quorum counter drift caused by one concurrent burst.
 
-    NOT A PR #739 CASE. The pledge path is not modified by this PR.
-
     WHAT IT CHECKS
         Measure the quorum's counter-vs-reality gap BEFORE a burst of
         concurrent deploys and again after, and report only the CHANGE.
@@ -5417,7 +5401,7 @@ def sc_q_12(ctx, ci):
     if widened:
         note = ("this burst of {} concurrent deploy(s) lost {} decrement(s): "
                 "{} - concurrent writers to the same (did, denom) row are not "
-                "serialised. NOT a #739 path".format(
+                "serialised".format(
                     len(prepared), sum(widened.values()),
                     ", ".join("{:.3f}+{}".format(k, v)
                               for k, v in sorted(widened.items()))))
@@ -5431,8 +5415,6 @@ def sc_q_12(ctx, ci):
 # (was sc/sc_cases_subs.py)
 # -----------------------------------------------------------------------------
 # sc_cases_subs.py - subscription at scale, and execution from parts wallets.
-#
-# Imported by sc_cases.py.
 #
 # WHY MORE SUBSCRIPTION CASES
 #     SC-S-01..05 use one contract and four subscribers. That answered the
@@ -5452,7 +5434,6 @@ def sc_q_12(ctx, ci):
 #     SUCCESS - so an incomplete subscriber looks exactly like a healthy one.
 
 
-#!/usr/bin/env python3
 
 
 # Shared by the SC-S-06/07 pair: 06 builds the fixture, 07 inspects it.
@@ -6180,11 +6161,9 @@ def sc_c_25(ctx, ci):
 # -----------------------------------------------------------------------------
 # sc_cases_stress.py - concurrency and scale against the collateral path.
 #
-# Imported by sc_cases.py.
-#
 # WHY THESE EXIST
 #     Every other collateral case runs one deploy at a time on a quiet wallet.
-#     PR #739's own code comment names a hazard that only appears when that is
+#     The collateral-split code comment names a hazard that only appears when that is
 #     not true:
 #
 #         "This runs BEFORE the non-RBT tx begins: PersistGenesisTransaction
@@ -6196,14 +6175,13 @@ def sc_c_25(ctx, ci):
 #     cause one. Concurrent deploys from a single wallet are exactly the shape
 #     that would - two splits, two genesis persists, one wallet's rows.
 #
-#     The other target is token_denom itself. Two of the three fixes in this PR
+#     The other target is token_denom itself. Two counter fixes
 #     write that table from DIFFERENT code paths - post_consensus_persistence.go
 #     for a deploy, token_chain.go for an FT burn - and neither appears to
 #     coordinate with the other. Running both against one DID at once is the
 #     obvious race and is covered by CRS-C-02 in the cross-asset module.
 
 
-#!/usr/bin/env python3
 
 
 # ---------------------------------------------------------------------------
@@ -6220,7 +6198,7 @@ def sc_c_12(ctx, ci):
         counter is consistent afterwards.
 
     WHY IT MATTERS
-        This is the case PR #739's own comment is defending against. The
+        This is the case the collateral-split code comment defends against. The
         collateral split runs BEFORE the outer transaction opens, because
         PersistGenesisTransaction takes its own connection and would otherwise
         deadlock against locks the outer transaction already holds - waiting
@@ -6440,7 +6418,7 @@ def sc_c_26(ctx, ci):
 # -----------------------------------------------------------------------------
 # sc_cases_scale.py - the collateral and denomination paths under production-level load.
 #
-# Imported by sc_cases.py. Run via the pr-739-stress suite, AFTER the functional
+# Run as a stress selection, AFTER the functional
 # suite passes - at this volume a single rejection tells you nothing, because you
 # cannot separate a real defect from ordinary contention unless you already know
 # the basics are sound.
@@ -6470,7 +6448,6 @@ def sc_c_26(ctx, ci):
 #        real question at the end is whether the books still balance.
 
 
-#!/usr/bin/env python3
 
 
 # Scaled by --scale so a smoke run and a full run use the same code path.
@@ -7016,9 +6993,9 @@ def sc_x_05(ctx, ci):
 # Collateral - rejection, release, multi-contract, drift probes
 # (was sc/sc_cases_gaps.py)
 # -----------------------------------------------------------------------------
-# sc_cases_gaps.py - paths in PR #739 that the first full run did not reach.
+# sc_cases_gaps.py - collateral paths the first full run did not reach.
 #
-# Imported by sc_cases.py. Written after reviewing the first green run against
+# Written after reviewing the first green run against
 # the diff, where four branches turned out to have no coverage at all.
 #
 #     1. POST-SPLIT ROLLBACK. The collateral split runs in a pre-pass that
@@ -7047,7 +7024,6 @@ def sc_x_05(ctx, ci):
 #        wrong, and nothing was looking there.
 
 
-#!/usr/bin/env python3
 
 
 # ---------------------------------------------------------------------------
@@ -7765,7 +7741,7 @@ def sc_c_31(ctx, ci):
         If the value does come back, this is a timing artefact and SC-C-27
         should be re-scoped. If it does not, the collateral pre-pass commits
         value before consensus and never unwinds it on failure - which is
-        unrecoverable loss on a path the user cannot avoid, and blocks the PR.
+        unrecoverable loss on a path the user cannot avoid.
 
     MANUAL STEPS
         1. Right after a rejected deploy, on the deployer host:
@@ -7778,7 +7754,7 @@ def sc_c_31(ctx, ci):
     PASS / FAIL
         PASS  committed FELL over the window - the value is being released and
               SC-C-27 is a timing artefact, not a loss
-        FAIL  committed is unchanged - it is terminal, and the PR's pre-pass
+        FAIL  committed is unchanged - it is terminal, and the pre-pass
               loses it on every rejected deploy
         SKIP  the host holds no committed RBT (SC-C-27 did not run first)
     """
@@ -8232,8 +8208,8 @@ def sc_c_34(ctx, ci):
 #
 # Run via:  cd test-plan/full-test && python3 case_runner.py --cases cross-asset
 #
-# WHY THIS MODULE MATTERS FOR PR #739
-#     The PR fixes token_denom accounting on TWO separate code paths:
+# WHY THIS MODULE MATTERS
+#     token_denom accounting is updated on TWO separate code paths:
 #
 #       df07a49f  core/wallet/post_consensus_persistence.go   (SC deploy collateral)
 #       977f6fba  core/wallet/token_chain.go                  (RBT burnt for FT mint)
@@ -8250,7 +8226,6 @@ def sc_c_34(ctx, ci):
 #     WHAT IT CHECKS / WHY IT MATTERS / MANUAL STEPS / PASS-FAIL
 
 
-#!/usr/bin/env python3
 
 
 def _rand_value(lo, hi):
@@ -8426,7 +8401,7 @@ def crs_c_02(ctx, ci):
         denomination counter must still match the real free tokens afterwards.
 
     WHY IT MATTERS
-        This is the sharpest test in the suite for PR #739, because it is the
+        This is the sharpest test in the suite for the counter fixes, because it is the
         only one that runs BOTH fixes at once.
 
           df07a49f  decrements token_denom from post_consensus_persistence.go
@@ -8928,13 +8903,6 @@ def crs_c_06(ctx, ci):
         two excesses equals the difference between the two contract values,
         the only thing the receiver can be crediting is the collateral itself.
 
-        That matters because CRS-C-03 fails on BOTH builds for DIFFERENT
-        reasons - main rejects the bundle outright, the branch accepts it and
-        over-credits - so compare_reports.py buckets it PRE-EXISTING and the
-        status alone is actively misleading. The finding has to stand on its
-        own evidence rather than on a comparison verdict, and this is that
-        evidence.
-
         Note the pairing with SC-C-33: on the initiator the collateral goes to
         Committed, and here the same value ALSO appears as Free on the
         receiver. If both hold in one run, the value is not merely misplaced -
@@ -9133,7 +9101,6 @@ def crs_c_06(ctx, ci):
 #     would be indistinguishable in the report.
 
 
-#!/usr/bin/env python3
 
 
 # ---------------------------------------------------------------------------
@@ -9483,15 +9450,12 @@ def gen_in_11(ctx, ci):
 # -----------------------------------------------------------------------------
 # general_cases_integrity.py - fleet-wide database invariants.
 #
-# Imported by general_cases.py.
-#
 # These take no action. They read the fleet and assert things that must be true
 # regardless of what ran before - which makes them the cases that catch damage
 # nobody attributed to anything. Run them at the END of a cycle: a failure here
 # means one of the earlier cases broke something quietly.
 
 
-#!/usr/bin/env python3
 
 
 def _gen_integrity_hosts(ctx):
@@ -9773,8 +9737,6 @@ def gen_in_15(ctx, ci):
 # -----------------------------------------------------------------------------
 # general_cases_drift.py - characterise the denomination drift, not just detect it.
 #
-# Imported by general_cases.py.
-#
 # WHAT WAS OBSERVED
 #     On a fleet where every token was minted by the FIXED binary - wiped first,
 #     registry reset, nothing left from 1.0.4 - the counter still diverged:
@@ -9810,7 +9772,6 @@ def gen_in_15(ctx, ci):
 #     denomination, a split reaching a new level.
 
 
-#!/usr/bin/env python3
 
 
 def _gen_drift_name():
@@ -10199,32 +10160,11 @@ def gen_in_19(ctx, ci):
 # -----------------------------------------------------------------------------
 # general_cases_locks.py - lock release, pledge decrement, and orphaned collateral.
 #
-# Imported by general_cases.py.
-#
-# THESE ARE NOT ABOUT PR #739, AND THE REPORT SHOULD SAY SO.
-#     The second full run found drift on two hosts. Reading the token statuses
-#     settled where it came from, and neither answer implicates the PR:
-#
-#       .107   counter 212, free 4, LOCKED 208   -> drift == locked, exactly
-#              (and 23/1/22 at 0.005; 208+22 = the 230 GEN-IN-15 reported)
-#       .104   counter 6078, free 6069, PLEDGED 6356, locked 0
-#              -> ~0.14% of pledges did not decrement
-#
-#     So .107 is a LOCK RELEASE failure and .104 is a PLEDGE DECREMENT leak.
-#     Both live on paths this PR does not modify - core/transaction.go:70/:77/:88
-#     and core/wallet/pledge.go:222.
-#
-#     The same reading is positive evidence FOR the PR: .107 held 610 BurntForFT
-#     tokens at 0.001 and 606 Burnt + 168 BurntForFT at 0.005, and the drift
-#     equals the LOCKED count, not the burnt count. Roughly 1,384 burns all
-#     decremented correctly. That is the path 977f6fba fixes.
-#
-#     These cases exist so those findings are attributed to their own code rather
-#     than to the change under test. A drift number with no attribution attached
-#     to a PR report is worse than no number at all.
+# Lock release (core/transaction.go:70/:77/:88) and pledge decrement
+# (core/wallet/pledge.go:222). Each case attributes drift to its own code
+# path, so a drift number is never mistaken for a regression elsewhere.
 
 
-#!/usr/bin/env python3
 
 
 def _gen_locks_hosts(ctx):
@@ -10233,9 +10173,7 @@ def _gen_locks_hosts(ctx):
     Used by the fleet-wide sweeps (GEN-IN-15, GEN-IN-22). Scoping those to a
     lane does not make them weaker, it makes them WRONG: a reserved lane holds
     four hosts, and "0 stranded locks across 4 host(s)" prints the same shape
-    as "across 31 host(s)" while checking 13% of the fleet. Found in the
-    2026-09-09 PR #739 baseline, where GEN-IN-15's "0 locked tokens" was
-    meaningless because it was not looking at the fleet at all.
+    as "across 31 host(s)" while checking 13% of the fleet.
 
     `ctx.fleet` is populated by case_runner.build_lanes. The fallback covers a
     context built by another driver (smoke_test) and is reported rather than
@@ -10284,8 +10222,7 @@ def gen_in_20(ctx, ci):
     """
     GEN-IN-20 - A rejected transfer must release every lock it took.
 
-    NOT A PR #739 CASE. Lock release lives in core/transaction.go:70/:77/:88,
-    which this PR does not touch.
+    Lock release lives in core/transaction.go:70/:77/:88.
 
     WHAT IT CHECKS
         Count the wallet's Locked tokens, deliberately fail a transfer, and
@@ -10368,8 +10305,6 @@ def gen_in_20(ctx, ci):
 def gen_in_21(ctx, ci):
     """
     GEN-IN-21 - Measure how fast locks accumulate over repeated failures.
-
-    NOT A PR #739 CASE.
 
     WHAT IT CHECKS
         Fail a transfer ten times in a row and record the Locked count after
@@ -10462,7 +10397,7 @@ def gen_in_22(ctx, ci):
     """
     GEN-IN-22 - Committed RBT must correspond to contracts that exist.
 
-    NOT A PR #739 CASE in origin, though it is the invariant SC-C-27 violates.
+    This is the invariant SC-C-27 violates.
 
     WHAT IT CHECKS
         For each host, compare the total RBT in Committed status against the
@@ -10545,7 +10480,7 @@ def gen_in_23(ctx, ci):
     """
     GEN-IN-23 - A quorum's counter must decrement for every token it pledges.
 
-    NOT A PR #739 CASE. Pledging is core/wallet/pledge.go:222, untouched here.
+    Pledging is core/wallet/pledge.go:222.
 
     WHAT IT CHECKS
         Drive a series of transactions through one quorum, then reconcile that
@@ -10637,7 +10572,7 @@ def gen_in_24(ctx, ci):
     """
     GEN-IN-24 - A rejected FT MINT must release every lock it took.
 
-    NOT A PR #739 CASE. Lock release lives in core/transaction.go:70/:77/:88.
+    Lock release lives in core/transaction.go:70/:77/:88.
 
     WHAT IT CHECKS
         Count Locked tokens, request an FT mint that cannot possibly be backed,
@@ -10913,7 +10848,7 @@ _FT_LANES = {
         "hosts": 2, "fund": 35,
     },
 
-    # --- scale lanes (pr-739-stress) ---------------------------------------
+    # --- scale lanes (stress) ---------------------------------------
     # FT-X-01 burns one RBT per mint for 100 mints, so it needs real balance.
     "ft-scale-mints": {
         "cases": ["FT-X-01"],
@@ -10945,7 +10880,7 @@ _SC_CASES = {
     "SC-S-04": sc_s_04,
     "SC-S-05": sc_s_05,
 
-    # PR #739 review additions - value ladder, wallet shapes, deep split,
+    # Collateral review additions - value ladder, wallet shapes, deep split,
     # balance boundary, sustained load, and the row-level DB checks.
     "SC-C-13": sc_c_13,
     "SC-C-14": sc_c_14,
@@ -10980,7 +10915,7 @@ _SC_CASES = {
     "SC-C-12": sc_c_12,
     "SC-C-26": sc_c_26,
 
-    # Production-level volume. Run via the pr-739-stress suite AFTER
+    # Production-level volume. Run as a stress selection AFTER
     # the functional suite passes - at this scale a single rejection
     # cannot be told from ordinary contention unless the basics are
     # already known good. Each reports WHERE the invariant first
@@ -11000,7 +10935,7 @@ _SC_CASES = {
     "SC-C-30": sc_c_30,
     "SC-DB-03": sc_db_03,
 
-    # Confirmation cases for the #739 review - each one decides whether a
+    # Confirmation cases - each one decides whether a
     # finding is real and whose code it belongs to.
     "SC-C-31": sc_c_31,
     "SC-C-32": sc_c_32,
@@ -11074,7 +11009,7 @@ _SC_LANES = {
         "hosts": 2, "fund": 10,
     },
 
-    # --- PR #739 review additions ------------------------------------------
+    # --- Collateral review additions ------------------------------------------
     # The ladder spends the sum of 13 values (~17.5), so it is funded well
     # above every other lane.
     "sc-value-ladder": {
@@ -11150,7 +11085,7 @@ _SC_LANES = {
         "hosts": 5, "fund": 10,
     },
 
-    # --- scale lanes (pr-739-stress) ---------------------------------------
+    # --- scale lanes (stress) ---------------------------------------
     # Funded well above the functional lanes: SC-X-01 alone runs 200 deploys,
     # and a lane that runs dry mid-run reports funding as a defect.
     "sc-scale-deploys": {
@@ -11274,10 +11209,9 @@ _GEN_CASES = {
     "GEN-IN-18": gen_in_18,
     "GEN-IN-19": gen_in_19,
 
-    # NOT PR #739 cases. The second run's drift traced to lock release and
-    # pledge decrement - both on paths this PR does not touch. These attribute
-    # those findings to their own code, so a drift number in a PR report is
-    # never mistaken for a regression of the change under test.
+    # Lock release and pledge decrement. These attribute drift to its own
+    # code path, so a drift number is never mistaken for a regression of the
+    # change under test.
     "GEN-IN-20": gen_in_20,
     "GEN-IN-21": gen_in_21,
     "GEN-IN-22": gen_in_22,

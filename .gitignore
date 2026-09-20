@@ -22,7 +22,6 @@ controller/versions.xlsx
 
 # Written by the test-plan preflight and asset runners — point-in-time
 # snapshots with real IPs and DIDs.
-controller/test-plan/full-test/preflight-context.json
 controller/test-plan/full-test/smoke-test-roles.txt
 
 # Local mutable state, not shared history — same reasoning as hosts.txt

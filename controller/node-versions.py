@@ -44,10 +44,6 @@ DEFAULT_REMOTE_DIR = "~/Desktop/rubix"
 DEFAULT_TIMEOUT = 8
 
 VERSION_RE = re.compile(r"Rubix Core Version\s*:\s*(\S+)")
-# The version string alone cannot tell two builds of the same release apart -
-# main and a PR branch both report e.g. v1.0.5 - so the commit is what proves
-# a deploy actually swapped the binary.
-COMMIT_RE = re.compile(r"Current Commit\s*:\s*([0-9a-fA-F]+)")
 
 
 def get_version(host, user, remote_dir, timeout):
@@ -70,18 +66,17 @@ def get_version(host, user, remote_dir, timeout):
 
     if proc.returncode != 0:
         err = (proc.stderr or "").strip().splitlines()
-        return None, None, "ssh failed: {}".format(err[-1] if err else "exit {}".format(proc.returncode))
+        return None, "ssh failed: {}".format(err[-1] if err else "exit {}".format(proc.returncode))
 
     m = VERSION_RE.search(proc.stdout)
     if not m:
-        return None, None, "version line not found in output"
-    c = COMMIT_RE.search(proc.stdout)
-    return m.group(1), (c.group(1)[:8] if c else None), ""
+        return None, "version line not found in output"
+    return m.group(1), ""
 
 
 def check_host(host, user, remote_dir, timeout):
-    version, commit, note = get_version(host, user, remote_dir, timeout)
-    return {"host": host, "version": version, "commit": commit, "note": note}
+    version, note = get_version(host, user, remote_dir, timeout)
+    return {"host": host, "version": version, "note": note}
 
 
 def load_hosts(path):
@@ -138,33 +133,23 @@ def main():
             lambda h: check_host(h, args.user, args.remote_dir, args.timeout), hosts))
 
     width = max(len(r["host"]) for r in results)
-    header = "{:<{w}}  {:<12}  {:<10}  {}".format("HOST", "VERSION", "COMMIT", "NOTE", w=width)
+    header = "{:<{w}}  {:<12}  {}".format("HOST", "VERSION", "NOTE", w=width)
     print(header)
     print("-" * len(header))
     for r in results:
-        print("{:<{w}}  {:<12}  {:<10}  {}".format(
-            r["host"], r["version"] or "-", r["commit"] or "-", r["note"], w=width))
+        print("{:<{w}}  {:<12}  {}".format(r["host"], r["version"] or "-", r["note"], w=width))
 
     ok = [r for r in results if r["version"]]
     print("\nGot version : {}/{}".format(len(ok), len(results)))
 
-    # One line that answers "did the deploy land everywhere": a count per
-    # commit. A single commit across the pool is a clean deploy; two means some
-    # hosts are still on the old binary.
-    commits = {}
-    for r in ok:
-        commits.setdefault(r["commit"] or "unknown", []).append(r["host"])
-    for commit, hs in sorted(commits.items(), key=lambda kv: -len(kv[1])):
-        print("  commit {:<10} on {:>2} host(s)".format(commit, len(hs)))
-
     wb = Workbook()
     ws = wb.active
     ws.title = "Versions"
-    ws.append(["Host", "Version", "Commit", "Note", "Checked At"])
+    ws.append(["Host", "Version", "Note", "Checked At"])
     checked_at = datetime.datetime.now().isoformat(timespec="seconds")
     for r in results:
-        ws.append([r["host"], r["version"] or "", r["commit"] or "", r["note"], checked_at])
-    for col, w in zip("ABCDE", (16, 12, 12, 35, 20)):
+        ws.append([r["host"], r["version"] or "", r["note"], checked_at])
+    for col, w in zip("ABCD", (16, 12, 35, 20)):
         ws.column_dimensions[col].width = w
     wb.save(args.out)
     print("\nSaved to {}".format(args.out))

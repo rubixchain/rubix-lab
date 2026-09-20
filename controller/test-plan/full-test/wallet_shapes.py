@@ -10,7 +10,7 @@ WHY THIS EXISTS
 
     Skipping on a buildable precondition is worse than failing: it silently
     removes coverage while the run still looks healthy. The FT-from-parts
-    chain - a third of the FT verification for PR #739 - did not execute at
+    chain - a third of the FT verification - did not execute at
     all, and the summary said "8 skipped" rather than "a third of this suite
     was not tested".
 

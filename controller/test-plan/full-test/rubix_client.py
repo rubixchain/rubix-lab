@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 rubix_client.py - Shared helpers for the test-plan scripts. Not a script to
-run directly - imported by preflight.py and each test-plan/<asset>/ runner.
+run directly - imported by case_runner.py, smoke_test.py and the case modules.
 
 Core primitive (confirmed against server/*.go in the rubixgoplatform repo):
 almost every mutating call is a 2-step password challenge:

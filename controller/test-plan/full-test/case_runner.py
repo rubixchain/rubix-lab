@@ -29,7 +29,7 @@ Usage:
     python3 case_runner.py --cases master                     # every case
     python3 case_runner.py --cases master --only 'RBT-*'      # one asset
     python3 case_runner.py --cases master --only RBT-M-02,RBT-S-01
-    python3 case_runner.py --suite pr-739                     # a named selection
+    python3 case_runner.py --suite <name>                     # suites/<name>.txt
 """
 
 import argparse
@@ -111,9 +111,7 @@ class CaseContext:
         # They used to walk senders+receivers+quorums, which in a RESERVED lane
         # is four hosts. "0 locked tokens across 4 host(s)" prints identically
         # to "0 locked tokens across 31 host(s)" and reads as a clean pass, so
-        # a real finding on any of the other 27 hosts simply vanished. Found in
-        # the 2026-09-09 PR #739 baseline, where those five cases reported
-        # "4 host(s) checked" against an earlier run's "31".
+        # a real finding on any of the other 27 hosts simply vanished.
         self.fleet = list(fleet) if fleet else []
 
     def pair(self, i=0):
@@ -616,8 +614,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--suite", default="",
-                   help="run a named selection from suites/<name>.txt (e.g. "
-                        "pr-739-sc). Sets --cases, --only and --report-name for "
+                   help="run a named selection from suites/<name>.txt. "
+                        "Sets --cases, --only and --report-name for "
                         "you, so one change's verification is a single reviewed, "
                         "committed file rather than a command someone has to "
                         "remember.")
