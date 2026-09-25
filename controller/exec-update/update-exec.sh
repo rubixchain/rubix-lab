@@ -38,7 +38,7 @@
 #                                  (for a controller with no Go toolchain)
 #   JOBS=1                         deploy one host at a time (default: all at
 #                                  once) - useful when watching a failure
-#   REPO_DIR=~/rubixgoplatform     the checkout to build from
+#   REPO_DIR=~/Desktop/rubixgoplatform   the checkout to build from
 #
 # Typical use on this fleet:
 #   REMOTE_BIN_REL=Desktop/rubix ./update-exec.sh my-branch 192.168.1.104   # one host
@@ -94,7 +94,10 @@ if [ -f "$ENV_FILE" ]; then
   load_env_file "$ENV_FILE"
   echo "Settings loaded from $ENV_FILE"
 fi
-REPO_DIR="${REPO_DIR:-$HOME/rubixgoplatform}"     # product repo clone, for BUILDING (controller-local)
+# Product repo clone, for BUILDING (controller-local). This fleet keeps it at
+# ~/Desktop/rubixgoplatform - NOT inside ~/Desktop/rubix, where a FILE of the
+# same name (the running binary) already lives and would collide with a clone.
+REPO_DIR="${REPO_DIR:-$HOME/Desktop/rubixgoplatform}"
 REMOTE_REPO_REL="${REMOTE_REPO_REL:-rubix-lab}"   # rubix-lab clone location on EACH TARGET, relative to that target's own $HOME
 NODE_NAME="${NODE_NAME:-testnode}"
 SSH_USER="${SSH_USER:-$(whoami)}"

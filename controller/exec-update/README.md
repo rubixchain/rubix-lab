@@ -25,8 +25,10 @@ repo** (`rubixgoplatform`, cloned for *building* a branch) and **this
 actual `nodes/<name>/` folder — see [../../systems/install/README.md](../../systems/install/README.md)).
 
 1. Clone `rubixgoplatform` somewhere on the controller (default
-   `~/rubixgoplatform`, override with `REPO_DIR=/path ./update-exec.sh ...`)
-   — this is the *build* source, unrelated to where `rubix-lab` lives.
+   `~/Desktop/rubixgoplatform`, override with `REPO_DIR=/path ./update-exec.sh ...`)
+   — this is the *build* source, unrelated to where `rubix-lab` lives. Don't put
+   it inside `~/Desktop/rubix`: a file named `rubixgoplatform` (the running
+   binary) already lives there and a clone of the same name would collide.
 2. Install `Go 1.22` + `build-essential` on the controller (needed for
    `make compile-linux`).
 3. Generate an SSH key on the controller if it doesn't have one
