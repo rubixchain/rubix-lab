@@ -42,6 +42,7 @@ CONTAINER="node"
 VOLUME="pgdata_node"
 DB_PORT=5433
 API_PORT=20000
+LAB_SUBNET="192.168.1."      # testnet bootstrap must stay inside the lab
 EXPECT_COMMIT="658cb33f"            # --expect-commit '' to skip the check
 DRY_RUN=1
 SINGLE_HOST=""
@@ -97,10 +98,11 @@ switch_one() {
   local ip="$1"
   if ! ssh -o ConnectTimeout=8 "${SSH_USER}@${ip}" bash -s -- \
         "$NODE_DIR" "$PROFILE_DIR" "$CONTAINER" "$VOLUME" "$DB_PORT" \
-        "$DRY_RUN" "$EXPECT_COMMIT" "$API_PORT" "$ATTEMPTS" "$POLL_INTERVAL" <<'REMOTE_SCRIPT'
+        "$DRY_RUN" "$EXPECT_COMMIT" "$API_PORT" "$ATTEMPTS" "$POLL_INTERVAL" "$LAB_SUBNET" <<'REMOTE_SCRIPT'
 set -euo pipefail
 NODE_DIR="$1"; PROFILE_DIR="$2"; CONTAINER="$3"; VOLUME="$4"; DB_PORT="$5"
 DRY_RUN="$6"; EXPECT_COMMIT="$7"; API_PORT="$8"; ATTEMPTS="$9"; POLL_INTERVAL="${10}"
+LAB_SUBNET="${11}"
 
 eval NODE_DIR="$NODE_DIR"; eval PROFILE_DIR="$PROFILE_DIR"
 CFG="$PROFILE_DIR/config.toml"
@@ -117,17 +119,63 @@ if [ -n "$EXPECT_COMMIT" ]; then
   echo "  binary $have OK"
 fi
 
-mode="$(awk -F'"' '/^network_mode/{print $2}' "$CFG")"
-ln_bs="$(sed -n 's/^localnet_bootstrap_nodes = //p' "$CFG")"
-tn_bs="$(sed -n 's/^testnet_bootstrap_nodes = //p' "$CFG")"
-echo "  config: network_mode=$mode  localnet_bs=${ln_bs:-<none>}  testnet_bs=${tn_bs:-<none>}"
+command -v python3 >/dev/null 2>&1 || { echo "  ERROR: python3 is needed to edit config.toml"; exit 1; }
 
-# Idempotency: only move the bootstrap list when there is one to move and the
-# target is still empty. Re-running otherwise would blank a good testnet list.
-move_bs=0
-if [ -n "$ln_bs" ] && [ "$ln_bs" != "[]" ] && { [ -z "$tn_bs" ] || [ "$tn_bs" = "[]" ]; }; then
-  move_bs=1
-fi
+# The config rewrite lives in python because the arrays are written across
+# several lines by the product's own template:
+#     testnet_bootstrap_nodes = [
+#             "/ip4/.../p2p/...",
+#     ]
+# A line-based edit reads that as the bare "[", concludes the list is already
+# populated, and silently leaves Rubix's public testnet peers in place while
+# switching the node to testnet. That is exactly what happened on .104.
+config_edit() {   # $1 = 1 for dry run
+  python3 - "$CFG" "$LAB_SUBNET" "$1" <<'PY'
+import re, sys
+
+path, subnet, dry = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
+s = open(path, encoding="utf-8").read()
+
+def items(key):
+    m = re.search(r'^%s\s*=\s*\[(.*?)\]' % key, s, re.S | re.M)
+    return None if m is None else re.findall(r'"[^"]*"', m.group(1))
+
+ln, tn = items("localnet_bootstrap_nodes"), items("testnet_bootstrap_nodes")
+if ln is None or tn is None:
+    print("  ERROR: bootstrap keys missing from config.toml")
+    sys.exit(1)
+
+# Whatever localnet was pointing at is what testnet must point at - same swarm,
+# same peer ids. Once moved, localnet is empty and a re-run changes nothing.
+if ln:
+    new_tn, action = ln, "move %d bootstrap entry(ies) from localnet to testnet" % len(ln)
+else:
+    new_tn, action = tn, "localnet list already empty, leaving testnet as it is"
+
+foreign = [e for e in new_tn if subnet not in e]
+if foreign:
+    print("  ERROR: testnet bootstrap would point outside the lab subnet %s:" % subnet)
+    for e in foreign:
+        print("         %s" % e)
+    print("         Those are public Rubix peers from the product template.")
+    print("         Put the lab fullnode entry in localnet_bootstrap_nodes and re-run.")
+    sys.exit(1)
+
+mode = re.search(r'^network_mode\s*=\s*"(.*?)"', s, re.M)
+if dry:
+    print("  config: network_mode=%s, %s" % (mode.group(1) if mode else "?", action))
+    print("          testnet bootstrap becomes: %s" % (", ".join(new_tn) or "[]"))
+    sys.exit(0)
+
+s = re.sub(r'^(network_mode\s*=\s*).*$', lambda m: m.group(1) + '"testnet"', s, count=1, flags=re.M)
+s = re.sub(r'^(testnet_bootstrap_nodes\s*=\s*)\[.*?\]',
+           lambda m: m.group(1) + "[" + ", ".join(new_tn) + "]", s, count=1, flags=re.S | re.M)
+s = re.sub(r'^(localnet_bootstrap_nodes\s*=\s*)\[.*?\]',
+           lambda m: m.group(1) + "[]", s, count=1, flags=re.S | re.M)
+open(path, "w", encoding="utf-8").write(s)
+print("  config: testnet mode, %s" % action)
+PY
+}
 
 if [ -f "$NODE_DIR/localnetswarm.key" ]; then key_action="rename localnetswarm.key -> testnetswarm.key"
 elif [ -f "$NODE_DIR/testnetswarm.key" ]; then key_action="testnetswarm.key already present"
@@ -135,9 +183,8 @@ else echo "  ERROR: no swarm key in $NODE_DIR"; exit 1
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "  would: stop node; $key_action; set network_mode=testnet;"
-  [ "$move_bs" -eq 1 ] && echo "         move bootstrap list to testnet_bootstrap_nodes" \
-                       || echo "         leave bootstrap lists as they are"
+  config_edit 1 || exit 1
+  echo "  would: stop node; $key_action; apply the config above;"
   echo "         drop container '$CONTAINER' + volume '$VOLUME', recreate empty; start node"
   exit 0
 fi
@@ -171,14 +218,8 @@ fi
 
 # --- 3. config -------------------------------------------------------------
 cp "$CFG" "$CFG.localnet.bak"
-sed -i 's|^network_mode = .*|network_mode = "testnet"|' "$CFG"
-if [ "$move_bs" -eq 1 ]; then
-  sed -i "s|^testnet_bootstrap_nodes = .*|testnet_bootstrap_nodes = $ln_bs|" "$CFG"
-  sed -i 's|^localnet_bootstrap_nodes = .*|localnet_bootstrap_nodes = []|' "$CFG"
-  echo "  config: testnet mode, bootstrap moved (backup at config.toml.localnet.bak)"
-else
-  echo "  config: testnet mode, bootstrap left as-is (backup at config.toml.localnet.bak)"
-fi
+config_edit 0 || { echo "  ERROR: config rewrite failed, original kept at config.toml.localnet.bak"; exit 1; }
+echo "  backup at config.toml.localnet.bak"
 
 # --- 4. database -----------------------------------------------------------
 echo "  wiping Postgres..."
