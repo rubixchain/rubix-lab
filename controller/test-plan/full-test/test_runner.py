@@ -37,6 +37,7 @@ Usage:
 
 import argparse
 import csv
+import re
 import datetime
 import importlib.util
 import json
@@ -49,6 +50,7 @@ sys.path.insert(0, HERE)
 
 import rubix_client as rc
 import db_client as db
+import case_evidence
 import report_builder
 
 FIXED_ROLES = {"fullnode", "explorer", "controller"}
@@ -254,6 +256,9 @@ def resolve_ci(tid, master, case_info):
 #   exclusive    run with nothing else running (the fleet-wide sweeps)
 #   last         run after every other unit has finished
 # ---------------------------------------------------------------------------
+
+# Per-case database evidence (case_evidence.finish), written next to the report.
+CASE_EVIDENCE = []
 
 UNIT_DEFAULTS = {"senders": 1, "receivers": 1, "quorums": 1, "fund": 0,
                  "quorum_fund": None, "quorum_pick": "richest",
@@ -501,21 +506,44 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
         say("  -> {:<22} {}".format(unit.name, unit.describe()))
         _run_cases(unit)
 
+    def _run_once(unit, tid, ci, paced):
+        """One run of a case, wrapped in the database check (case_evidence):
+        participants' rows before and after, every transaction found on both
+        nodes, value conserved, nothing left locked, rows consistent, and the
+        fullnode's verdict on each transaction."""
+        started = time.time()
+        state = case_evidence.begin(unit)
+        try:
+            if paced:
+                result = cases_map[tid](unit.ctx, ci)
+            else:
+                with rc.unpaced(*(unit.quorums + unit.senders + unit.receivers)):
+                    result = cases_map[tid](unit.ctx, ci)
+        except Exception as e:
+            result = (False, "exception", "{}: {}".format(type(e).__name__, e))
+        elapsed = round(time.time() - started, 2)
+        try:
+            result, evidence = case_evidence.finish(tid, unit, state, result)
+        except Exception as e:
+            evidence = {"case": tid, "unit": unit.name, "checks": [
+                {"check": "db", "ok": None,
+                 "detail": "DB check could not run: {}: {}".format(type(e).__name__, e)}]}
+        return result, evidence, elapsed
+
     def _run_cases(unit):
         for tid in unit.cases:
             ci = resolve_ci(tid, master, case_info)
-            started = time.time()
-            # Rows before, rows after: a balance cannot tell a correct split
-            # from children with no chain row or a parent left Free. Checked
-            # after EVERY case rather than only where a case remembered to.
-            before = _capture_unit(unit)
-            try:
-                result = cases_map[tid](unit.ctx, ci)
-            except Exception as e:
-                result = (False, "exception", "{}: {}".format(type(e).__name__, e))
-            elapsed = round(time.time() - started, 2)
-            result = _apply_structural_checks(tid, unit, before, result)
+            # The same case WITHOUT delay (the product's raw behaviour), then,
+            # if it made transfers, WITH delay - and the fullnode's verdict on
+            # each transfer is compared between the two (case_evidence.combine).
+            result, evidence, elapsed = _run_once(unit, tid, ci, paced=False)
+            if case_evidence.FULLNODE_HOST and case_evidence.made_transfers(evidence):
+                r2, e2, t2 = _run_once(unit, tid, ci, paced=True)
+                result, evidence = case_evidence.combine(tid, result, evidence, r2, e2)
+                elapsed = round(elapsed + t2, 2)
+            CASE_EVIDENCE.append(evidence)
             unit.rows.append((tid, result, elapsed, ci))
+
             status = ("SKIP" if (isinstance(result[0], str) and result[0] == SKIP)
                       else "PASS" if result[0] is True else "FAIL")
             say("  [{:<4}] {:<11} {:>7.2f}s  {}".format(status, tid, elapsed, result[1]))
@@ -565,71 +593,6 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                 exc = fut.exception()
                 if exc:
                     skip_all(unit, "runner error", "{}: {}".format(type(exc).__name__, exc))
-
-
-def _unit_dids(unit):
-    """Every (host, did) the unit's cases can touch, without duplicates."""
-    seen, out = set(), []
-    for e in list(unit.senders) + list(unit.receivers):
-        key = (e["host"], e["did"])
-        if key not in seen:
-            seen.add(key)
-            out.append(e)
-    return out
-
-
-def _capture_unit(unit):
-    """Row-level snapshot of the unit's wallets before a case runs.
-
-    Returns {} when the database cannot be read - an unreadable DB is an
-    infrastructure problem, not the case's failure, so the case still runs and
-    simply gets no structural check.
-    """
-    if not db.available():
-        return {}
-    out = {}
-    for e in _unit_dids(unit):
-        try:
-            out[(e["host"], e["did"])] = db.capture(e["host"], e["did"])
-        except Exception:
-            continue
-    return out
-
-
-def _apply_structural_checks(tid, unit, before, result):
-    """Compare the rows after the case with the rows before it.
-
-    A case that asserts only on a balance cannot see that a split produced
-    children with no chain row, left the parent Free instead of burnt, or moved
-    the rows without moving token_denom. Those checks are universal, so they run
-    here rather than being repeated - or forgotten - in every case.
-
-    A case cannot PASS on a wallet that is structurally wrong: the verdict is
-    downgraded and the reason lands in the note. A SKIP stays a SKIP.
-    """
-    if not before:
-        return result
-    passed, actual, note = result
-    problems, summary = [], []
-    for (host, did), snap_before in before.items():
-        try:
-            snap_after = db.capture(host, did)
-        except Exception:
-            continue
-        d = db.diff(snap_before, snap_after)
-        if d["created"] or d["removed"] or d["status_changed"] or d["totals"]:
-            summary.append("{}: {}".format(host, db.describe_diff(d)))
-        problems.extend("{} {}".format(host, p)
-                        for p in db.check_invariants(d, snap_after))
-
-    if summary:
-        note = (note + " | " if note else "") + "rows: " + "; ".join(summary)
-    if problems:
-        note = (note + " | " if note else "") + "STRUCTURAL: " + "; ".join(problems[:4])
-        if passed is True:
-            passed = False
-            actual = (actual or "") + " [wallet structurally wrong afterwards]"
-    return (passed, actual, note)
 
 
 # ---------------------------------------------------------------------------
@@ -762,7 +725,7 @@ class CatalogueReport:
     def __init__(self):
         self.rows = []
 
-    def add(self, ci, result, elapsed):
+    def add(self, ci, result, elapsed, db_checks=None):
         """Record a result produced by a unit, without re-running it."""
         passed, actual, note = result
         if isinstance(passed, str) and passed == SKIP:
@@ -774,7 +737,7 @@ class CatalogueReport:
         self.rows.append({
             "test_id": ci.test_id, "case": ci.case, "expected": ci.expected,
             "status": status, "actual": actual, "note": note,
-            "seconds": elapsed,
+            "seconds": elapsed, "db_checks": db_checks or [],
         })
         return status
 
@@ -957,6 +920,12 @@ def main():
     master = load_master()
     units = build_units(module, order)
 
+    # Every verdict rests on database readings; without the driver there would
+    # be no evidence, so do not run at all.
+    if not db.available():
+        sys.exit("ERROR: psycopg2 is not installed - every case is checked against the "
+                 "nodes' databases.\n       sudo apt install -y python3-psycopg2")
+
     all_hosts = rc.load_hosts(args.hosts)
     # The faucet runs on the controller machine (ports 20000 and 20010).
     if "RUBIX_FAUCET_HOST" not in os.environ:
@@ -971,6 +940,12 @@ def main():
     print("Faucet: {}... on {}:{}, quorum {}... on :{} - {}".format(
         rc.FAUCET_DID[:16], rc.FAUCET_HOST, rc.FAUCET_PORT, rc.FAUCET_QUORUM_DID[:16],
         rc.FAUCET_QUORUM_PORT, faucet_note))
+
+    fullnode = [h["host"] for h in all_hosts if h["role"] == "fullnode"]
+    case_evidence.FULLNODE_HOST = fullnode[0] if fullnode else ""
+    rc.FULLNODE_HOST = case_evidence.FULLNODE_HOST     # pacing, see rubix_client
+    print("Fullnode: {}".format(case_evidence.FULLNODE_HOST or
+                                "none in hosts.txt - fullnode acceptance not checked"))
 
     print()
     print("== Fleet: reachability + DIDs ==")
@@ -997,10 +972,11 @@ def main():
     for u in units:
         for tid, result, elapsed, ci in u.rows:
             by_id[tid] = (ci, result, elapsed)
+    checks_by_id = dict((e["case"], e.get("checks", [])) for e in CASE_EVIDENCE)
     for tid in order:
         if tid in by_id:
             ci, result, elapsed = by_id[tid]
-            report.add(ci, result, elapsed)
+            report.add(ci, result, elapsed, checks_by_id.get(tid, []))
 
     # Which DIDs each unit actually used. Without this a finding can only be
     # traced back to a machine while the terminal scrollback is still open.
@@ -1041,6 +1017,11 @@ def main():
                             rc.FAUCET_QUORUM_DID[:16], rc.FAUCET_QUORUM_PORT)),
             ("Quorum floor", "{} RBT before a unit starts, topped up further per "
                              "transfer".format(args.quorum_floor)),
+            ("Fullnode pacing", "each DID waits for the fullnode to process its last "
+                                "transaction before starting the next{}".format(
+                                    "" if not rc._PACE["off"] else
+                                    " - SWITCHED OFF during the run (see output)")),
+            ("Fullnode", case_evidence.FULLNODE_HOST or "not checked"),
             ("Scale knobs", "repeat {} | value ceiling {} | wallet ceiling {} | "
                             "tiny tokens {} | chain hops {} | burst {} "
                             "(default = catalogue size)".format(
@@ -1055,14 +1036,30 @@ def main():
 
     # The raw before/after database readings, next to the report, so a reviewer
     # can check the arithmetic rather than trust the verdict.
-    if db.EVIDENCE:
-        ev_path = rc.new_report_paths(
-            (args.report_name or args.cases.replace(",", "-")) + "_db-evidence",
-            ("json",))["json"]
-        with open(ev_path, "w", encoding="utf-8") as fh:
-            json.dump({"captured": len(db.EVIDENCE), "readings": db.EVIDENCE},
-                      fh, indent=2, default=str)
-        print("DB evidence: {} reading(s) -> {}".format(len(db.EVIDENCE), ev_path))
+    ev_path = rc.new_report_paths(
+        (args.report_name or args.cases.replace(",", "-")) + "_db-evidence",
+        ("json",))["json"]
+    by_case = dict((e["case"], e) for e in CASE_EVIDENCE)
+    with open(ev_path, "w", encoding="utf-8") as fh:
+        json.dump({"cases": [by_case[t] for t in order if t in by_case],
+                   "case_readings": db.EVIDENCE}, fh, indent=2, default=str)
+    print("DB evidence for {} case(s) -> {}".format(len(by_case), ev_path))
+
+    # Fullnode: every rejection this run, grouped by reason, so a pattern
+    # (e.g. previous-transaction mismatches) is visible without opening files.
+    reasons = {}
+    for e in CASE_EVIDENCE:
+        for c in e.get("checks", []):
+            for _tid, r in (c.get("rejected") or {}).items():
+                # IDs differ per transaction; mask them so the same failure groups.
+                key = re.sub(r"bafy\w+|[0-9a-f]{16,}|\d+_\d+(_\d+)?", "<id>",
+                             (r or "").replace("failed to validate transaction:", "")).strip()[:160]
+                reasons.setdefault(key, set()).add(e["case"])
+    if reasons:
+        print()
+        print("Fullnode rejections this run:")
+        for r, cases in sorted(reasons.items(), key=lambda kv: -len(kv[1])):
+            print("  {} case(s): {}  <- {}".format(len(cases), r, ", ".join(sorted(cases))))
 
     timing_ids = set(getattr(module, "TIMING_CASES", set()))
     print()

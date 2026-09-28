@@ -60,6 +60,51 @@ from case_helpers import (
 #     so every balance assertion polls (rc.wait_for_balance) - checking once
 #     immediately reports a false zero.
 #
+# HOW TO READ A CASE
+#     Every case docstring has the same parts:
+#         WHAT IT CHECKS  - the assertion, in plain words
+#         WHY IT MATTERS  - the bug it would catch, and the product code involved
+#         PARTICIPANTS    - what the runner gives it (its NEEDS entry)
+#         MANUAL STEPS    - how to do it BY HAND with curl/psql, no Python
+#         PASS / FAIL     - exactly what makes it pass or fail
+#     If the script and the manual steps disagree, the manual steps are the
+#     specification.
+#
+#     On top of its own assertion, every case gets the runner's database check
+#     (full-test/case_evidence.py): each transaction it made is in the
+#     `transactions` table on both nodes, RBT is conserved across its
+#     participants, nothing is left Locked, the rows are consistent. The
+#     fullnode's accept/reject of each transaction is reported alongside.
+#
+# BY HAND - the commands the MANUAL STEPS refer to
+#     S / R are the sender and receiver node IPs, SD / RD their DIDs:
+#         SD=$(curl -s http://$S:20000/rubix/v1/dids | python3 -c \
+#              'import sys,json; print(json.load(sys.stdin)["result"][0])')
+#
+#     BALANCE      curl -s http://$S:20000/rubix/v1/dids/$SD/balances/rbt
+#                  -> {"balance": free, "locked": ..., "pledged": ...}
+#     QUORUM       curl -s http://$S:20000/rubix/v1/quorums
+#                  (the FIRST entry signs every transfer from this node)
+#     SEND <X>     two steps - the first POST does nothing on its own:
+#                  curl -s -X POST http://$S:20000/rubix/v1/tx \
+#                    -H 'Content-Type: application/json' \
+#                    -d '{"initiator":"'$SD'","owner":"'$RD'","memo":"manual",
+#                         "tokens":{"rbt":<X>,"transferNftOwnership":false}}'
+#                  -> {"result":{"id":"<reqID>"}}, then sign it:
+#                  curl -s -X POST http://$S:20000/rubix/v1/signature \
+#                    -H 'Content-Type: application/json' \
+#                    -d '{"id":"<reqID>","password":"mypassword"}'
+#                  -> {"status":true,"result":{"transactionID":"<TX>"}}
+#     DB           psql -h $S -p 5433 -U rubix -d rubix     (password rubixpass)
+#                  SELECT id FROM transactions WHERE id='<TX>';
+#                  SELECT token_status, SUM(token_value), COUNT(*) FROM tokens
+#                    WHERE did='<DID>' AND token_type=1 GROUP BY token_status;
+#                  (status 0 Free, 1 Locked, 4 Transferred, 5 Committed,
+#                   6/7 Pledged, 8 Burnt, 9 BurntForFT)
+#
+#     The receiver credits 1-2s after the sender's call returns - read its
+#     balance again after a few seconds, never once.
+#
 # Why some cases are SKIP rather than implemented:
 #   * NODE-KILL cases need to stop/restart a node mid-transfer. The controller
 #     can do that over SSH, but doing it *at the right instant* mid-consensus
@@ -246,8 +291,38 @@ def _scale(ctx, name, default):
 
 
 def rbt_v_11(ctx, ci):
-    """Value ladder: climb until it fails, RECORD the largest that worked and
-    how long each rung took. The regression signal is the limit dropping."""
+    """
+    RBT-V-11 - Climb the value ladder until a transfer fails.
+
+    WHAT IT CHECKS
+        One sender sends 1, 10, 100, 500, 1000, 2500, 5000 RBT (up to
+        --value-ceiling) to one receiver, one rung at a time, and records the
+        largest value that went through and how long each rung took. Each rung
+        must move exactly that value: sender down, receiver up.
+
+    WHY IT MATTERS
+        Every whole token is one row, locked, pledged against and persisted
+        individually. The quorum must pledge >= the value
+        (core/consensus/checks.go) and a transaction is processed in batches of
+        TokenBatchSize=100 against 10m/15m quorum timeouts
+        (core/quorum_initiator.go). The rung where it stops is the limit; that
+        limit dropping between releases is the regression.
+
+    PARTICIPANTS
+        1 sender, 1 receiver, 1 quorum. Before each rung the sender and its
+        signing quorum are topped up from the faucet.
+
+    MANUAL STEPS
+        For X in 1 10 100 500 1000 2500 5000:
+          BALANCE on S and R; SEND X from S to R; wait a few seconds;
+          BALANCE on S and R again.
+          then on BOTH nodes: SELECT id FROM transactions WHERE id='<TX>';
+
+    PASS / FAIL
+        Records a limit - PASS means the ladder ran. The Actual column gives
+        the largest value that worked and the time per rung. A rung that fails
+        stops the ladder and its reason is in the note.
+    """
     s, r = ctx.pair(9)
     ceiling = float(_scale(ctx, "value_ceiling", 5000))
     largest, rungs, failure = 0.0, [], ""
@@ -271,8 +346,35 @@ def rbt_v_11(ctx, ci):
 
 
 def rbt_p_04(ctx, ci):
-    """0.001 x N (catalogue: 1000). Every send splits, and the receiver's total
-    must equal exactly N x 0.001 - rounding drift accumulates here first."""
+    """
+    RBT-P-04 - Send 0.001 RBT many times (catalogue: 1000).
+
+    WHAT IT CHECKS
+        One sender sends 0.001 RBT to one receiver N times (--repeat-count,
+        default 1000). Every send must succeed, and the receiver's total gain
+        must be exactly N x 0.001 - no rounding drift.
+
+    WHY IT MATTERS
+        0.001 is MinDecimalUnit, and FloatPrecision rounds at 3dp
+        (math/math.go). Every send splits a token down the parts tree
+        (1 -> 0.5 -> 0.1 -> 0.05 -> 0.01 -> 0.005 -> 0.001), so a thousand of
+        them exercise splitting, change tokens and the denomination counter far
+        more than any single transfer. Drift accumulates here first.
+
+    PARTICIPANTS
+        1 sender, 1 receiver, 1 quorum.
+
+    MANUAL STEPS
+        BALANCE on R. Repeat N times: SEND 0.001 from S to R.
+        BALANCE on R: it must have grown by exactly N x 0.001.
+        In the DB of S: every new part token has a tokenchain row:
+          SELECT t.token_id FROM tokens t WHERE t.did='<SD>' AND t.token_type=1
+            AND NOT EXISTS (SELECT 1 FROM tokenchain c WHERE c.token_id=t.token_id);
+
+    PASS / FAIL
+        PASS  every send accepted and the receiver gained exactly N x 0.001
+        FAIL  any send rejected, or the total is off ("drift detected")
+    """
     s, r = ctx.pair(9)
     n = int(_scale(ctx, "repeat_count", 1000))
     ok, _q, note = _ensure_can_send(ctx, s)
@@ -311,12 +413,39 @@ _BIG_WALLET_PAIR = 13
 
 
 def rbt_w_03(ctx, ci):
-    """Thousands of tiny parts summing past 100, then send 100.
+    """
+    RBT-W-03 - Send 100 RBT from a wallet made of thousands of small parts.
 
-    The parts arrive as fractional transfers from a second DID, so the sender
-    spends parts it did not split itself - the path the minter-allowlist
-    genesis lookup gets wrong on builds without the part-token fixes. A
-    rejection naming ValidateMinterAllowlist is that known bug, not a new one."""
+    WHAT IT CHECKS
+        A second DID (the feeder) sends the sender 0.07 RBT N times
+        (--tiny-tokens, default 2000), so the sender holds only part tokens
+        summing past 100. The sender then sends 100 RBT; it must succeed and
+        move exactly 100.
+
+    WHY IT MATTERS
+        selectTokensForAmount (core/wallet/token_lock.go) has to assemble 100
+        from thousands of small rows, and every one of them has to be locked,
+        pledged against and persisted. The parts were split by the feeder, not
+        the sender, so the sender spends parts second-hand: the path the
+        minter-allowlist genesis lookup gets wrong on builds without the
+        part-token fixes (f890aa01, 257a9e9d, 4601dd04). A rejection naming
+        ValidateMinterAllowlist is that known bug, not a new one.
+
+    PARTICIPANTS
+        2 senders, 2 receivers, 1 quorum. Pair 0 is the sender and the feeder;
+        the 100 RBT goes to pair 1's receiver.
+
+    MANUAL STEPS
+        From the feeder: SEND 0.07 to S, N times.
+        BALANCE on S: >= N x 0.07, all in parts:
+          SELECT token_value, COUNT(*) FROM tokens WHERE did='<SD>'
+            AND token_type=1 AND token_status=0 GROUP BY token_value;
+        SEND 100 from S to the other receiver; BALANCE on both.
+
+    PASS / FAIL
+        PASS  the parts wallet was built and the 100 moved exactly
+        FAIL  a feeder send was rejected, or the 100 did not move exactly
+    """
     s, feeder = ctx.pair(14)
     count = int(_scale(ctx, "tiny_tokens", 2000))
     value = 0.07                           # count x value must clear 100
@@ -347,6 +476,27 @@ def rbt_w_03(ctx, ci):
 
 
 def rbt_s_02(ctx, ci):
+    """
+    RBT-S-02 - Split a token that was already split before.
+
+    WHAT IT CHECKS
+        Not run yet (SKIP). It re-splits a previously split pledge token.
+
+    WHY IT MATTERS
+        Known open bug: the child INSERT in core/wallet/persist_genesis_tx.go
+        has no ON CONFLICT, so re-splitting collides on tokens_pkey. When this
+        case runs it is expected to fail in exactly that way; a different
+        failure is a new finding.
+
+    PARTICIPANTS
+        None - it does nothing yet.
+
+    MANUAL STEPS
+        Not defined yet.
+
+    PASS / FAIL
+        SKIP until written.
+    """
     return SKIP, "not attempted", (
         "KNOWN OPEN BUG (see CLAUDE.md: split-token duplicate key). Reproducing it "
         "requires flipping a parent token's Burnt status directly in Postgres - a "
@@ -355,7 +505,33 @@ def rbt_s_02(ctx, ci):
 
 
 def rbt_s_04(ctx, ci):
-    """Repeated splits on the same wallet, confirming balance after each."""
+    """
+    RBT-S-04 - Fifty splits in a row on one wallet.
+
+    WHAT IT CHECKS
+        One sender sends 0.3 RBT to one receiver 50 times. Each send splits
+        (0.3 is not a whole token) and each must move exactly 0.3, sender and
+        receiver checked after every one.
+
+    WHY IT MATTERS
+        Repeated splitting walks the wallet through ever-more-fragmented
+        states; the change from one split is the input to the next.
+        LockTokensForSplit has a 5-retry / 15s budget
+        (core/wallet/token_lock.go), and the denomination counter is read
+        before the rows - a counter that drifts shows up as a split that
+        cannot find the tokens it was promised.
+
+    PARTICIPANTS
+        1 sender, 1 receiver, 1 quorum.
+
+    MANUAL STEPS
+        50 times: BALANCE on S and R; SEND 0.3 from S to R; BALANCE again -
+        S down exactly 0.3, R up exactly 0.3.
+
+    PASS / FAIL
+        PASS  all 50 exact
+        FAIL  the first split that is rejected or moves the wrong amount
+    """
     s, r = ctx.pair(2)
     n = 50
     ok, note = _prepare_sender(ctx, s, n * 0.3 + 2)
@@ -397,19 +573,122 @@ def _capacity_case(ctx, wanted, memo):
 
 
 def rbt_q_02(ctx, ci):
+    """
+    RBT-Q-02 - 2 senders sharing ONE quorum, all at the same moment.
+
+    WHAT IT CHECKS
+        2 senders each send 1 RBT at once, all signed by the same quorum.
+        Every one must succeed.
+
+    WHY IT MATTERS
+        One quorum signs each transaction (quorumAddresses[0],
+        core/transaction.go), so concurrent senders queue on it. This rung of
+        the ladder shows whether 2 at once still all succeed.
+
+    PARTICIPANTS
+        2 senders, 2 receivers (shared when fewer than senders), 1 quorum.
+
+    MANUAL STEPS
+        Point every sender node at the same quorum (QUORUM shows it first).
+        Fire SEND 1 from all 2 at the same moment (one shell each, started
+        together). Count successes.
+          then on BOTH nodes: SELECT id FROM transactions WHERE id='<TX>';
+
+    PASS / FAIL
+        PASS  all 2 succeeded (and the runner found every one in both nodes'
+              databases)
+        FAIL  any refused, with the refusals in the note
+    """
     return _capacity_case(ctx, 2, "RBT-Q-02")
 
 
 def rbt_q_03(ctx, ci):
+    """
+    RBT-Q-03 - 5 senders sharing ONE quorum, all at the same moment.
+
+    WHAT IT CHECKS
+        5 senders each send 1 RBT at once, all signed by the same quorum.
+        Every one must succeed.
+
+    WHY IT MATTERS
+        One quorum signs each transaction (quorumAddresses[0],
+        core/transaction.go), so concurrent senders queue on it. This rung of
+        the ladder shows whether 5 at once still all succeed.
+
+    PARTICIPANTS
+        5 senders, 5 receivers (shared when fewer than senders), 1 quorum.
+
+    MANUAL STEPS
+        Point every sender node at the same quorum (QUORUM shows it first).
+        Fire SEND 1 from all 5 at the same moment (one shell each, started
+        together). Count successes.
+          then on BOTH nodes: SELECT id FROM transactions WHERE id='<TX>';
+
+    PASS / FAIL
+        PASS  all 5 succeeded (and the runner found every one in both nodes'
+              databases)
+        FAIL  any refused, with the refusals in the note
+    """
     return _capacity_case(ctx, 5, "RBT-Q-03")
 
 
 def rbt_q_04(ctx, ci):
+    """
+    RBT-Q-04 - 10 senders sharing ONE quorum, all at the same moment.
+
+    WHAT IT CHECKS
+        10 senders each send 1 RBT at once, all signed by the same quorum.
+        Every one must succeed.
+
+    WHY IT MATTERS
+        One quorum signs each transaction (quorumAddresses[0],
+        core/transaction.go), so concurrent senders queue on it. This rung of
+        the ladder shows whether 10 at once still all succeed.
+
+    PARTICIPANTS
+        10 senders, 5 receivers (shared when fewer than senders), 1 quorum.
+
+    MANUAL STEPS
+        Point every sender node at the same quorum (QUORUM shows it first).
+        Fire SEND 1 from all 10 at the same moment (one shell each, started
+        together). Count successes.
+          then on BOTH nodes: SELECT id FROM transactions WHERE id='<TX>';
+
+    PASS / FAIL
+        PASS  all 10 succeeded (and the runner found every one in both nodes'
+              databases)
+        FAIL  any refused, with the refusals in the note
+    """
     return _capacity_case(ctx, 10, "RBT-Q-04")
 
 
 def rbt_q_05(ctx, ci):
-    """Catalogue: record time and pass rate at 20."""
+    """
+    RBT-Q-05 - 20 senders sharing ONE quorum, all at the same moment.
+
+    WHAT IT CHECKS
+        20 senders each send 1 RBT at once, all signed by the same quorum.
+        Records time and pass rate.
+
+    WHY IT MATTERS
+        One quorum signs each transaction (quorumAddresses[0],
+        core/transaction.go), so concurrent senders queue on it. This rung of
+        the ladder shows whether 20 at once still all succeed.
+
+    PARTICIPANTS
+        20 senders, 5 receivers (shared when fewer than senders), 1 quorum.
+
+    MANUAL STEPS
+        Point every sender node at the same quorum (QUORUM shows it first).
+        Fire SEND 1 from all 20 at the same moment (one shell each, started
+        together). Count successes.
+          then on BOTH nodes: SELECT id FROM transactions WHERE id='<TX>';
+
+    PASS / FAIL
+        Records time and pass rate - PASS means it ran. The runner's DB check
+        fails it if a "successful" transfer is missing from either node's
+        database.
+    """
     usable, ok, elapsed, detail = _concurrent_transfers(ctx, 20, memo="RBT-Q-05")
     return True, "{}/{} succeeded in {}s (pass rate {:.0f}%)".format(
         ok, usable, elapsed, 100.0 * ok / max(1, usable)), \
@@ -417,6 +696,33 @@ def rbt_q_05(ctx, ci):
 
 
 def rbt_q_06(ctx, ci):
+    """
+    RBT-Q-06 - 40 senders sharing ONE quorum, all at the same moment.
+
+    WHAT IT CHECKS
+        40 senders each send 1 RBT at once, all signed by the same quorum.
+        Every one must succeed.
+
+    WHY IT MATTERS
+        One quorum signs each transaction (quorumAddresses[0],
+        core/transaction.go), so concurrent senders queue on it. This rung of
+        the ladder shows whether 40 at once still all succeed.
+
+    PARTICIPANTS
+        40 senders, 5 receivers (shared when fewer than senders), 1 quorum.
+        Needs 46 nodes: skipped while the pool is smaller.
+
+    MANUAL STEPS
+        Point every sender node at the same quorum (QUORUM shows it first).
+        Fire SEND 1 from all 40 at the same moment (one shell each, started
+        together). Count successes.
+          then on BOTH nodes: SELECT id FROM transactions WHERE id='<TX>';
+
+    PASS / FAIL
+        Records time and pass rate - PASS means it ran. The runner's DB check
+        fails it if a "successful" transfer is missing from either node's
+        database.
+    """
     if len(ctx.pairs) < 40:
         return SKIP, "not attempted", (
             "needs 40 concurrent senders; fleet currently provides {} sender/receiver "
@@ -426,7 +732,34 @@ def rbt_q_06(ctx, ci):
 
 
 def rbt_q_07(ctx, ci):
-    """Climb node count until time or pass rate degrades - RECORD the limit."""
+    """
+    RBT-Q-07 - Climb the number of senders sharing ONE quorum.
+
+    WHAT IT CHECKS
+        With every free node, all sending 1 RBT at the same moment through one
+        quorum, in steps of 2, 5, 10, 20 senders. Records the largest step at
+        which every transfer succeeded.
+
+    WHY IT MATTERS
+        One quorum signs each transaction (quorumAddresses[0],
+        core/transaction.go), so everyone sharing it queues on it. This is the
+        headline number: how many nodes one quorum can serve at once.
+
+    PARTICIPANTS
+        Every free node ("senders": "all"), 5 receivers (shared), 1 quorum.
+        Runs with nothing else running.
+
+    MANUAL STEPS
+        Point every sender node at the same quorum (QUORUM shows it first).
+        For each step, fire SEND 1 from that many senders at the same moment
+        (one shell per sender, started together). Count the successes.
+          then on BOTH nodes: SELECT id FROM transactions WHERE id='<TX>';
+
+    PASS / FAIL
+        Records a limit - PASS means it ran. The Actual column gives the node
+        limit and the per-step results; the runner's DB check fails the case if
+        any "successful" transfer is not in both nodes' databases.
+    """
     results = []
     limit = 0
     for n in (2, 5, 10, min(20, len(ctx.pairs))):
@@ -443,8 +776,32 @@ def rbt_q_07(ctx, ci):
 
 
 def rbt_q_13(ctx, ci):
-    """How fast a quorum frees up: fire back-to-back through one sender and
-    record the interval."""
+    """
+    RBT-Q-13 - How fast one quorum frees up: 20 transfers back to back.
+
+    WHAT IT CHECKS
+        One sender sends 1 RBT twenty times in a row, each as soon as the
+        previous returns, and records the time each took. Records whether the
+        quorum ever refused a transfer because it was still busy.
+
+    WHY IT MATTERS
+        A quorum's pledge is released by the unpledge path after the
+        transaction settles (core/callback.go). If release lags behind arrival,
+        a well-funded quorum can still stall under a steady stream.
+
+    PARTICIPANTS
+        1 sender, 1 receiver, 1 quorum.
+
+    MANUAL STEPS
+        20 times, back to back: SEND 1 from S to R; note the time each takes.
+        On the quorum's node, pledged value should fall back after each:
+          SELECT token_status, SUM(token_value) FROM tokens
+            WHERE did='<QUORUM DID>' AND token_type=1 GROUP BY token_status;
+
+    PASS / FAIL
+        Records timings - PASS means it ran. A refusal is recorded with the
+        count of successes before it.
+    """
     s, r = ctx.pair(4)
     n = 20
     ok, note = _prepare_sender(ctx, s, n + 2)
@@ -463,12 +820,52 @@ def rbt_q_13(ctx, ci):
 
 
 def rbt_l_02(ctx, ci):
+    """
+    RBT-L-02 - Pledged tokens cannot be spent while pledged.
+
+    WHAT IT CHECKS
+        Not run yet (SKIP). A quorum that is pledging tokens for one
+        transaction tries to spend those same tokens.
+
+    WHY IT MATTERS
+        ValidatePledgeTransferDisjoint (core/consensus/checks.go) must stop a
+        token being both pledged and transferred.
+
+    PARTICIPANTS
+        None - it does nothing yet.
+
+    MANUAL STEPS
+        Not defined yet.
+
+    PASS / FAIL
+        SKIP until written.
+    """
     return SKIP, "not attempted", (
         "needs to identify a currently-pledged token and attempt to spend it - "
         "requires pledge-table visibility (see RBT-L-01).")
 
 
 def rbt_l_03(ctx, ci):
+    """
+    RBT-L-03 - Interrupt a transfer after pledge, before it finishes.
+
+    WHAT IT CHECKS
+        Not run yet (SKIP - NODE-KILL). Stop a node between the pledge and the
+        end of consensus, then check what is left Locked or Pledged.
+
+    WHY IT MATTERS
+        Three separate lock-release paths exist (core/transaction.go); a
+        failure that leaves tokens stuck is a real bug.
+
+    PARTICIPANTS
+        None - it does nothing yet.
+
+    MANUAL STEPS
+        Not defined yet (needs a node stopped at a precise moment).
+
+    PASS / FAIL
+        SKIP until the runner can kill a node mid-transfer.
+    """
     return SKIP, "not attempted", (
         "NODE-KILL: must interrupt a transfer between pledge and completion. The "
         "controller can stop a node over SSH, but hitting that window mid-consensus "
@@ -479,8 +876,33 @@ def rbt_l_03(ctx, ci):
 # Concurrency (061-067)
 # ---------------------------------------------------------------------------
 def rbt_n_01(ctx, ci):
-    """Double spend: same wallet, whole balance, to two receivers at once.
-    Exactly one must win."""
+    """
+    RBT-N-01 - Double spend: the whole balance to two receivers at once.
+
+    WHAT IT CHECKS
+        One sender fires two transfers of its ENTIRE free balance at the same
+        moment, to two different receivers. Exactly one may succeed.
+
+    WHY IT MATTERS
+        Token locking (core/wallet/token_lock.go) and the TOCTOU retry
+        (core/transaction.go) must make the second transfer find nothing left.
+        Both succeeding means value was created.
+
+    PARTICIPANTS
+        2 senders, 2 receivers, 1 quorum (one sender is used; the two
+        receivers must differ). The quorum is topped up to pledge the whole
+        balance.
+
+    MANUAL STEPS
+        BALANCE on S -> B. In two shells started together:
+          SEND B from S to R1   and   SEND B from S to R2.
+        BALANCE on S, R1, R2.
+
+    PASS / FAIL
+        PASS  exactly one succeeded
+        FAIL  both succeeded ("DOUBLE SPEND")
+        FAIL  both were rejected
+    """
     s, r1 = ctx.pair(5)
     _s2, r2 = ctx.pair(6)
     ok, note = _prepare_sender(ctx, s, 2)
@@ -511,7 +933,31 @@ def rbt_n_01(ctx, ci):
 
 
 def rbt_n_10(ctx, ci):
-    """Many transfers from ONE wallet at once."""
+    """
+    RBT-N-10 - Fifty transfers from ONE wallet at the same moment.
+
+    WHAT IT CHECKS
+        One sender fires 50 transfers of 1 RBT at once to one receiver. The
+        sender must end exactly (number that succeeded) lower.
+
+    WHY IT MATTERS
+        Fifty operations lock tokens from one wallet concurrently. Two of them
+        must never lock the same token, and a rejected one must release what
+        it locked (core/wallet/token_lock.go, core/transaction.go).
+
+    PARTICIPANTS
+        1 sender, 1 receiver, 1 quorum.
+
+    MANUAL STEPS
+        BALANCE on S. Start 50 shells together, each: SEND 1 from S to R.
+        BALANCE on S: fell by exactly the number of successes.
+        In S's DB, nothing left Locked:
+          SELECT COUNT(*) FROM tokens WHERE did='<SD>' AND token_status=1;
+
+    PASS / FAIL
+        PASS  the sender spent exactly as much as succeeded
+        FAIL  "balance does not match successes"
+    """
     s, r = ctx.pair(7)
     n = 50
     ok, note = _prepare_sender(ctx, s, n + 2)
@@ -532,7 +978,29 @@ def rbt_n_10(ctx, ci):
 
 
 def rbt_n_11(ctx, ci):
-    """Many transfers INTO one receiver at once - receiver total must be exact."""
+    """
+    RBT-N-11 - Many senders into ONE receiver at the same moment.
+
+    WHAT IT CHECKS
+        Eight senders each send 1 RBT to the same receiver at once. The
+        receiver's gain must equal the number that succeeded.
+
+    WHY IT MATTERS
+        Concurrent credits to one wallet: the receiver persists each incoming
+        transaction (core/transaction.go receiver persistence); a lost or
+        doubled credit shows up here.
+
+    PARTICIPANTS
+        8 senders, 1 receiver, 1 quorum.
+
+    MANUAL STEPS
+        BALANCE on R. From 8 sender nodes at once: SEND 1 to R.
+        BALANCE on R after a few seconds: up by exactly the successes.
+
+    PASS / FAIL
+        PASS  the receiver gained exactly the number of successes
+        FAIL  "receiver total is not the exact sum"
+    """
     target = ctx.receivers[0]
     senders = [e for e in ctx.senders + ctx.receivers[1:] if e["did"] != target["did"]]
     for s in senders:
@@ -551,7 +1019,29 @@ def rbt_n_11(ctx, ci):
 
 
 def rbt_n_12(ctx, ci):
-    """Two nodes sending to each other simultaneously - no deadlock."""
+    """
+    RBT-N-12 - Two nodes sending to each other at the same moment.
+
+    WHAT IT CHECKS
+        A sends 1 RBT to B while B sends 1 RBT to A, simultaneously. Both must
+        succeed - no deadlock.
+
+    WHY IT MATTERS
+        Each side locks its own tokens and credits the other's; lock ordering
+        across the two nodes (and the shared quorum's pledge lock, SELECT FOR
+        UPDATE ... ORDER BY token_id, core/pledge_v2.go) must not deadlock.
+
+    PARTICIPANTS
+        1 sender, 1 receiver, 1 quorum (the receiver sends too).
+
+    MANUAL STEPS
+        In two shells started together: SEND 1 from A to B, SEND 1 from B to A.
+        BALANCE on both.
+
+    PASS / FAIL
+        PASS  both succeeded
+        FAIL  either was rejected or hung
+    """
     a, b = ctx.pair(8)
     _prepare_sender(ctx, a, 2)
     _prepare_sender(ctx, b, 2)
@@ -576,8 +1066,30 @@ def rbt_n_12(ctx, ci):
 
 
 def rbt_n_13(ctx, ci):
-    """Large values in parallel through one quorum - catalogue expects some to
-    fail on pledge shortage, and failures must be clean."""
+    """
+    RBT-N-13 - Large values in parallel through one quorum.
+
+    WHAT IT CHECKS
+        Four senders each send half of the quorum's free balance at the same
+        moment. Records how many succeeded; the ones that do not must fail
+        cleanly.
+
+    WHY IT MATTERS
+        The quorum can pledge for at most two of these at once. The rest must
+        be refused for pledge shortage without leaving anything Locked
+        (core/consensus/checks.go pledge check).
+
+    PARTICIPANTS
+        4 senders, 4 receivers, 1 quorum.
+
+    MANUAL STEPS
+        BALANCE on the quorum -> Q. From 4 senders at once: SEND Q/2.
+        Count successes; in each sender's DB nothing left Locked.
+
+    PASS / FAIL
+        Records the outcome - PASS means it ran; the runner's no_locks and
+        conserved checks catch an unclean refusal.
+    """
     quorum = ctx.quorum_for(ctx.senders[0])
     qbal = _rbt_bal(quorum["host"], quorum["did"], ctx.port) if quorum else 0
     amount = max(1, int(qbal / 2))
@@ -588,7 +1100,28 @@ def rbt_n_13(ctx, ci):
 
 
 def rbt_n_14(ctx, ci):
-    """Mix of tiny and large in parallel - small ones must not be starved."""
+    """
+    RBT-N-14 - Tiny and large transfers mixed, in parallel.
+
+    WHAT IT CHECKS
+        Six senders fire at once: three send 10 RBT, three send 0.001 RBT.
+        All six must succeed - small transfers must not be starved by large.
+
+    WHY IT MATTERS
+        The 0.001 transfers split; the 10s do not. Both share one quorum and
+        run concurrently, so pledge and lock handling must serve both.
+
+    PARTICIPANTS
+        6 senders, 6 receivers, 1 quorum.
+
+    MANUAL STEPS
+        From 6 senders at once: three SEND 10, three SEND 0.001.
+        Count successes by size.
+
+    PASS / FAIL
+        PASS  all six succeeded
+        FAIL  "not all settled", with small and large counts
+    """
     pairs = ctx.pairs[:6]
     for s, _r in pairs:
         _prepare_sender(ctx, s, 12)
@@ -609,11 +1142,29 @@ def rbt_n_14(ctx, ci):
 
 
 def rbt_n_15(ctx, ci):
-    """Every available sender at once; fleet RBT total must be unchanged.
+    """
+    RBT-N-15 - Every node sending at the same moment.
 
-    Funding happens BEFORE the baseline is measured: a faucet top-up brings
-    value in from outside these DIDs, and taking the baseline first would count
-    it as a conservation failure. Only the transfer window is measured."""
+    WHAT IT CHECKS
+        Every free node sends 1 RBT at once, through one quorum. The total RBT
+        across all participants must be unchanged after (value conserved).
+
+    WHY IT MATTERS
+        The fleet-wide burst: the most concurrent load one quorum sees. Value
+        created or lost under load is the worst possible bug.
+
+    PARTICIPANTS
+        Every free node ("senders": "all"), 5 receivers (shared), 1 quorum.
+        Runs with nothing else running.
+
+    MANUAL STEPS
+        Sum BALANCE over all participants. Fire SEND 1 from every sender at
+        once. Sum BALANCE again after a few seconds.
+
+    PASS / FAIL
+        PASS  total conserved
+        FAIL  "NOT conserved"
+    """
     everyone = ctx.senders + ctx.receivers
     for s, _r in ctx.pairs:
         _prepare_sender(ctx, s, 2)
@@ -651,22 +1202,132 @@ def _node_kill_skip(what):
 
 
 def rbt_f_01(ctx, ci):
+    """
+    RBT-F-01 - Stop the receiver node mid transfer.
+
+    WHAT IT CHECKS
+        Not run yet (SKIP - NODE-KILL). Stop the receiver's node while a transfer is in
+        consensus, then check that nothing is left Locked or Pledged and that
+        value is conserved once everything is back.
+
+    WHY IT MATTERS
+        Three separate lock-release paths exist (core/transaction.go) and
+        stale NFT/SC locks are released on startup (fbc03fd4); a failure that
+        strands tokens is a real bug.
+
+    PARTICIPANTS
+        None - it does nothing yet.
+
+    MANUAL STEPS
+        Not defined yet (needs the node stopped at a precise moment).
+
+    PASS / FAIL
+        SKIP until the runner can kill a node mid-transfer.
+    """
     return _node_kill_skip("stop the receiver node")
 
 
 def rbt_f_02(ctx, ci):
+    """
+    RBT-F-02 - Stop the quorum node mid transfer.
+
+    WHAT IT CHECKS
+        Not run yet (SKIP - NODE-KILL). Stop the quorum's node while a transfer is in
+        consensus, then check that nothing is left Locked or Pledged and that
+        value is conserved once everything is back.
+
+    WHY IT MATTERS
+        Three separate lock-release paths exist (core/transaction.go) and
+        stale NFT/SC locks are released on startup (fbc03fd4); a failure that
+        strands tokens is a real bug.
+
+    PARTICIPANTS
+        None - it does nothing yet.
+
+    MANUAL STEPS
+        Not defined yet (needs the node stopped at a precise moment).
+
+    PASS / FAIL
+        SKIP until the runner can kill a node mid-transfer.
+    """
     return _node_kill_skip("stop the quorum node")
 
 
 def rbt_f_03(ctx, ci):
+    """
+    RBT-F-03 - Stop and restart the sender node mid transfer.
+
+    WHAT IT CHECKS
+        Not run yet (SKIP - NODE-KILL). Stop the sender's node while a transfer is in
+        consensus, then check that nothing is left Locked or Pledged and that
+        value is conserved once everything is back.
+
+    WHY IT MATTERS
+        Three separate lock-release paths exist (core/transaction.go) and
+        stale NFT/SC locks are released on startup (fbc03fd4); a failure that
+        strands tokens is a real bug.
+
+    PARTICIPANTS
+        None - it does nothing yet.
+
+    MANUAL STEPS
+        Not defined yet (needs the node stopped at a precise moment).
+
+    PASS / FAIL
+        SKIP until the runner can kill a node mid-transfer.
+    """
     return _node_kill_skip("stop and restart the sender node")
 
 
 def rbt_f_04(ctx, ci):
+    """
+    RBT-F-04 - Restart the database during a transfer.
+
+    WHAT IT CHECKS
+        Not run yet (SKIP - NODE-KILL). Stop the sender's Postgres container while a transfer is in
+        consensus, then check that nothing is left Locked or Pledged and that
+        value is conserved once everything is back.
+
+    WHY IT MATTERS
+        Three separate lock-release paths exist (core/transaction.go) and
+        stale NFT/SC locks are released on startup (fbc03fd4); a failure that
+        strands tokens is a real bug.
+
+    PARTICIPANTS
+        None - it does nothing yet.
+
+    MANUAL STEPS
+        Not defined yet (needs the node stopped at a precise moment).
+
+    PASS / FAIL
+        SKIP until the runner can kill a node mid-transfer.
+    """
     return _node_kill_skip("restart the Postgres container")
 
 
 def rbt_f_05(ctx, ci):
+    """
+    RBT-F-05 - Kill a node during heavy parallel load.
+
+    WHAT IT CHECKS
+        Not run yet (SKIP - NODE-KILL). Stop one node under load while a transfer is in
+        consensus, then check that nothing is left Locked or Pledged and that
+        value is conserved once everything is back.
+
+    WHY IT MATTERS
+        Three separate lock-release paths exist (core/transaction.go) and
+        stale NFT/SC locks are released on startup (fbc03fd4); a failure that
+        strands tokens is a real bug.
+
+    PARTICIPANTS
+        None - it does nothing yet.
+
+    MANUAL STEPS
+        Not defined yet (needs the node stopped at a precise moment).
+
+    PASS / FAIL
+        SKIP until the runner can kill a node mid-transfer.
+    """
     return _node_kill_skip("kill a node during heavy parallel load")
 
 
@@ -674,7 +1335,30 @@ def rbt_f_05(ctx, ci):
 # Bulk / performance (073-080)
 # ---------------------------------------------------------------------------
 def rbt_b_01(ctx, ci):
-    """Many small transfers back-to-back; total value must be exact."""
+    """
+    RBT-B-01 - Two hundred small transfers back to back.
+
+    WHAT IT CHECKS
+        One sender sends 1 RBT to one receiver N times (--burst-count, default
+        200), each as soon as the previous returns. Records the time; the
+        receiver must gain exactly N.
+
+    WHY IT MATTERS
+        Sustained throughput on one pair. Each transfer spends tokens the
+        previous one may have just changed - stale chain tips show up here
+        (and on the fullnode as previous-transaction mismatches).
+
+    PARTICIPANTS
+        1 sender, 1 receiver, 1 quorum.
+
+    MANUAL STEPS
+        BALANCE on R. N times back to back: SEND 1 from S to R.
+        BALANCE on R: up by exactly N.
+
+    PASS / FAIL
+        PASS  none rejected and the receiver gained exactly N
+        FAIL  any rejected, or the total is off
+    """
     s, r = ctx.pair(9)
     n = int(_scale(ctx, "burst_count", 200))
     ok, note = _prepare_sender(ctx, s, n + 2)
@@ -697,8 +1381,30 @@ def rbt_b_01(ctx, ci):
 
 
 def rbt_b_02(ctx, ci):
-    """1,000 RBT back and forth between one pair, 10 times. Each round the
-    quorum pledges 1,000 again, so this is also pledge/unpledge churn."""
+    """
+    RBT-B-02 - 1,000 RBT back and forth, ten times.
+
+    WHAT IT CHECKS
+        1,000 RBT goes A -> B, B -> A, and so on, ten transfers. Each must move
+        exactly 1,000; each transfer's time is recorded.
+
+    WHY IT MATTERS
+        High value repeatedly: the quorum pledges 1,000 each time and must
+        release it before the next (pledge/unpledge churn), and the same
+        tokens bounce between two wallets, growing their chains.
+
+    PARTICIPANTS
+        1 sender, 1 receiver, 1 quorum (both sides send; both are topped up to
+        1,000 first).
+
+    MANUAL STEPS
+        Alternate SEND 1000 A -> B and B -> A, ten times, with BALANCE on both
+        after each.
+
+    PASS / FAIL
+        PASS  all ten exact
+        FAIL  the first transfer that is rejected or inexact
+    """
     s, r = ctx.pair(10)
     amount, rounds = 1000, 10
     for e in (s, r):
@@ -720,7 +1426,28 @@ def rbt_b_02(ctx, ci):
 
 
 def rbt_b_03(ctx, ci):
-    """Raise parallel count step by step; RECORD the pass-rate curve."""
+    """
+    RBT-B-03 - Parallel transfers stepped up, recording the pass rate.
+
+    WHAT IT CHECKS
+        Every free node, stepping 1, 2, 5, 10, 20 senders firing 1 RBT at the
+        same moment through one quorum. Records successes and time per step.
+
+    WHY IT MATTERS
+        The pass-rate curve against concurrency; the point where it bends is
+        the regression signal between releases.
+
+    PARTICIPANTS
+        Every free node ("senders": "all"), 5 receivers, 1 quorum. Runs with
+        nothing else running.
+
+    MANUAL STEPS
+        As RBT-Q-07: at each step fire SEND 1 from that many senders at once;
+        count successes and time.
+
+    PASS / FAIL
+        Records a curve - PASS means it ran.
+    """
     curve = []
     for n in (1, 2, 5, 10, min(20, len(ctx.pairs))):
         if n > len(ctx.pairs):
@@ -732,7 +1459,28 @@ def rbt_b_03(ctx, ci):
 
 
 def rbt_b_05(ctx, ci):
-    """Many decimal transfers that force splits; compare against whole-token."""
+    """
+    RBT-B-05 - Five splitting transfers versus five whole-token ones.
+
+    WHAT IT CHECKS
+        One sender sends 0.137 RBT five times, then 1.0 RBT five times, each
+        checked exactly on both sides, and records the time of each group.
+
+    WHY IT MATTERS
+        0.137 needs splits at several levels of the parts tree; 1.0 needs none.
+        The difference is the cost of splitting.
+
+    PARTICIPANTS
+        1 sender, 1 receiver, 1 quorum.
+
+    MANUAL STEPS
+        Five times SEND 0.137, then five times SEND 1, S -> R, with BALANCE on
+        both after each; time each group.
+
+    PASS / FAIL
+        PASS  all ten exact (the times are recorded)
+        FAIL  the first transfer that is rejected or inexact
+    """
     s, r = ctx.pair(11)
     ok, bal, note = _ensure_funded(ctx, s, 6)
     if not ok:
@@ -755,13 +1503,54 @@ def rbt_b_05(ctx, ci):
 
 
 def rbt_b_06(ctx, ci):
+    """
+    RBT-B-06 - Transfers non-stop for hours (soak).
+
+    WHAT IT CHECKS
+        Not run yet (SKIP). A long soak must be scheduled deliberately, not
+        inside a normal catalogue pass.
+
+    PARTICIPANTS
+        None - it does nothing yet.
+
+    MANUAL STEPS
+        Not defined yet.
+
+    PASS / FAIL
+        SKIP until scheduled.
+    """
     return SKIP, "not attempted", (
         "soak test - 'run transfers nonstop for hours'. Needs to be scheduled "
         "deliberately, not run inside a normal catalogue pass.")
 
 
 def rbt_b_07(ctx, ci):
-    """Time transfers as chain history grows on one token path."""
+    """
+    RBT-B-07 - Transfer time as chain history grows.
+
+    WHAT IT CHECKS
+        1 RBT goes A -> B -> A -> ... for N hops (--chain-hops, default 100),
+        each checked exactly. Records the time at hops 1, 10, 50, 100.
+
+    WHY IT MATTERS
+        Every hop adds a row to the token's chain, and each transfer is
+        validated against that chain (TokenChainIntegrityCheck,
+        core/consensus/checks.go). Time should stay flat as the chain grows.
+        Hops are back to back, so the fullnode sees the same token's
+        transactions in quick succession.
+
+    PARTICIPANTS
+        1 sender, 1 receiver, 1 quorum (both sides send).
+
+    MANUAL STEPS
+        Alternate SEND 1 A -> B and B -> A, N times, timing each; BALANCE on
+        both after each. Chain length of a token:
+          SELECT COUNT(*) FROM tokenchain WHERE token_id='<TOKEN>';
+
+    PASS / FAIL
+        PASS  every hop exact (the times are recorded)
+        FAIL  the first hop that is rejected or inexact
+    """
     s, r = ctx.pair(12)
     hops = int(_scale(ctx, "chain_hops", 100))
     timings = []
@@ -780,8 +1569,30 @@ def rbt_b_07(ctx, ci):
 
 
 def rbt_b_08(ctx, ci):
-    """Time a 1 RBT send as the wallet grows to --wallet-ceiling tokens. The
-    curve, not any one point, is the result: it should stay flat."""
+    """
+    RBT-B-08 - Transfer time as the wallet grows.
+
+    WHAT IT CHECKS
+        The sender is grown to 10, 100, 1000, 2500, 5000 tokens (up to
+        --wallet-ceiling) and at each size sends 1 RBT, timed and checked.
+
+    WHY IT MATTERS
+        Token selection and the denomination counter scan what the wallet
+        holds (core/wallet/token_lock.go); a 1 RBT transfer should not get
+        slower because the wallet is big.
+
+    PARTICIPANTS
+        1 sender, 1 receiver, 1 quorum. The sender keeps its tokens between
+        runs, so the wallet is built once.
+
+    MANUAL STEPS
+        Fund S to each size from the faucet; at each, SEND 1 from S to R and
+        time it.
+
+    PASS / FAIL
+        PASS  every size exact (the curve is recorded)
+        FAIL  the transfer failed at a wallet size
+    """
     s, r = ctx.pair(_BIG_WALLET_PAIR)
     ceiling = int(_scale(ctx, "wallet_ceiling", 5000))
     timings = []

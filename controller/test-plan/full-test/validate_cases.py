@@ -137,7 +137,23 @@ def install_stubs():
     # Real signature returns (ok, balance) - a tuple. Stubbing it as a bare
     # bool hid the fact that callers were treating the tuple as truthy.
     rc.wait_for_balance = rec("wait_for_balance", (True, 500.0))
-    rc.initiate_transaction = rec("initiate_transaction", (True, "ok", {}))
+    # Transfers log an operation with a transactionID, as the real client does,
+    # so the runner's per-case DB check (case_evidence.py) runs its full path.
+    import itertools
+    _txn = itertools.count(1)
+
+    def fake_tx(sender_host, initiator_did, receiver_did, rbt=None, **k):
+        calls.append("initiate_transaction")
+        txid = "tx{:08d}".format(next(_txn))
+        rc._log_op(sender_host, rc.EP_TRANSACTION,
+                   {"initiator": initiator_did, "owner": receiver_did,
+                    "tokens": {"rbt": rbt or 0}}, True, "ok", {"transactionID": txid})
+        return True, "ok", {"transactionID": txid}
+    rc.initiate_transaction = fake_tx
+    db.capture = lambda host, did, *a, **k: {
+        "host": host, "did": did, "tokens": {}, "chain_len": {}, "denom": {},
+        "totals": {"free": 500.0, "locked": 0.0, "committed": 0.0,
+                   "burnt_for_ft": 0.0, "burnt": 0.0, "pledged": 0.0}}
     rc.create_smart_contract = rec("create_smart_contract", (True, "ok", "SC" + "a" * 44))
     rc.create_nft = rec("create_nft", (True, "ok", "Qm" + "b" * 44))
     rc.sc_transaction = rec("sc_transaction", (True, "ok", {}))
@@ -224,8 +240,16 @@ def _patch_sleep():
     _time.sleep = lambda *a, **k: None
 
 
+def _fake_fullnode():
+    """A fullnode that answers but has recorded nothing, so every fullnode
+    path runs and returns at once."""
+    tr.case_evidence.FULLNODE_HOST = "192.168.1.101"
+    tr.case_evidence.FULLNODE_WAIT = 0
+
+
 def validate(module_name, verbose=False):
     mod = load_case_module(module_name)
+    _fake_fullnode()
     ctx = build_ctx()
     info = getattr(mod, "CASE_INFO", {})
     failures = []

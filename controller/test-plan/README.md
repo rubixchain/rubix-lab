@@ -119,11 +119,63 @@ different quorum at every hop.
 `GetAllQuorums()` has no `ORDER BY` (`core/wallet/quorum.go`), so "first
 registered" is Postgres row order, not a guarantee.
 
+## Database check and evidence - every case
+
+Every case, whatever it asserts itself, is also checked against the nodes'
+databases (`full-test/case_evidence.py`). Before the case the runner reads the
+wallet rows of all its participants, quorums included; after it:
+
+| Check | What must hold |
+|---|---|
+| `persisted` | every successful transaction's ID is in `transactions` on the sender's node and the receiver's node |
+| `conserved` | the participants' RBT (free + locked + pledged + committed + burnt-for-FT) changed by exactly what came in from the faucet, minus anything sent outside the case |
+| `no_locks` | no RBT left Locked that was not Locked before |
+| `rows_valid` | every new token has a chain row and a legal value; `token_denom` moved with the free rows |
+
+Also reported for every case, **without deciding the verdict** (the fullnode
+observes, it is not part of a transfer): `fullnode` - how many of the case's
+transactions the fullnode accepted (`fullnode_transactions`) and rejected
+(`fullnode_invalid_transactions`, with the reason). The end of the run lists
+every rejection grouped by reason.
+
+The fullnode validates with several workers in parallel and gives a
+transaction 3 attempts ~6s apart (`core/fullnode_txn_processor.go`). Two
+transactions on the same token close together can be checked out of order and
+rejected with a previous-transaction mismatch - that is a fullnode finding.
+**Every case that makes transfers runs twice - without delay, then with
+delay** - and the fullnode's verdict on each transfer is compared:
+
+- *Without delay*: the case runs as written, the product's raw behaviour.
+- *With delay*: before any DID starts a transaction it waits until the
+  fullnode has processed that DID's last one (`rubix_client._pace`). Parallel
+  bursts stay parallel; chains on one token are paced step by step.
+
+Transfers are matched between the runs by who sent to whom, the amount and the
+order (faucet top-ups left out), and each lands in one bucket: **accepted both
+ways**; **accepted only with delay** (the fullnode falls behind when a token
+moves again too soon); **accepted only without delay** (unexpected);
+**rejected both ways** (not a timing problem - the reason is given). The case
+passes only if it passes both ways; the comparison is reported in its row and,
+per transfer with both transaction IDs, under `fullnode_comparison` in the
+evidence file. Cases that make no transfers run once.
+
+The report's notes use roles ("the sender", "receiver 2", "the quorum"), not
+IP addresses; the exact rows and IDs are in the evidence file.
+
+A case that passed its own assertion but fails any of the four checks is **FAIL**. A
+database that cannot be read is reported as such, never as a verdict. The
+runner will not start without `python3-psycopg2`.
+
+**Evidence:** each report row carries a `DB:` summary, and
+`reports/json/<run>_db-evidence.json` holds, per case: the participants, every
+transaction it made (with the transaction ID the node returned), each wallet's
+totals before and after, and each check with its detail.
+
 ## Pass / fail
 
 - Every P0 must pass.
-- Value must reconcile exactly. The runner checks every wallet's rows after
-  each case, and keeps a fleet ledger (fleet + faucet) across runs.
+- Value must reconcile exactly: per case (above) and across runs in the fleet
+  ledger (fleet + faucet).
 - Ladders record a limit; the limit dropping between releases is the
   regression signal.
 - Thresholds are baseline-relative: the first clean run on a known-good release

@@ -123,11 +123,163 @@ def http_json(method, url, timeout=DEFAULT_TIMEOUT, body=None):
         return False, "{}: {}".format(type(e).__name__, e)
 
 
+# ---------------------------------------------------------------------------
+# Operation log
+#
+# Every transaction and FT mint any case (or the faucet) makes is appended
+# here, with the transactionID the node returned. The runner reads the slice a
+# case produced and checks each one against the nodes' databases, so a verdict
+# rests on rows that exist, not only on what the API answered.
+# ---------------------------------------------------------------------------
+
+OPS = []
+_OPS_LOCK = threading.Lock()
+
+
+# ---------------------------------------------------------------------------
+# Pacing for the fullnode
+#
+# The fullnode validates published transactions with several workers in
+# parallel and gives each 3 attempts ~6s apart (core/fullnode_txn_processor.go).
+# If a token is spent again before the fullnode has stored the transaction that
+# delivered it, the two can be validated out of order and the later one is
+# rejected with a previous-transaction mismatch.
+#
+# So before any DID starts a transaction, wait until the fullnode has processed
+# the last transaction that DID sent or received (accepted or rejected - either
+# way it is done with it). It waits on the fullnode's actual state, not a fixed
+# sleep, so an already-processed history costs nothing:
+#   - a chain on one token (hops, back-to-back sends) is paced step by step
+#   - a parallel burst stays parallel: every call in it reads the same, already
+#     processed, previous transaction
+#   - the next case on the same DIDs waits for the previous case's last one
+# If the fullnode database cannot be read, or it keeps not answering, pacing
+# switches itself off and says so, rather than slowing every transaction.
+# ---------------------------------------------------------------------------
+
+FULLNODE_HOST = ""          # set by test_runner from hosts.txt (role fullnode)
+PACE_TIMEOUT = 15           # longest wait for one previous transaction, seconds
+_LAST_TX = {}               # did -> txid of the last successful tx it took part in
+_IN_FLIGHT = {}             # did -> transactions it has started and not finished
+_PACE = {"off": False, "misses": 0}
+_UNPACED = set()            # DIDs a case has taken out of pacing (see unpaced())
+
+
+class unpaced(object):
+    """`with rc.unpaced(a, b):` - these DIDs transact without waiting for the
+    fullnode. The runner uses it for the WITHOUT-delay run of each case (the
+    same case then runs again, paced, to compare what the fullnode did). Per DID, so other units running at the same time
+    are unaffected."""
+
+    def __init__(self, *entries_or_dids):
+        self.dids = [e["did"] if isinstance(e, dict) else e for e in entries_or_dids]
+
+    def __enter__(self):
+        with _OPS_LOCK:
+            _UNPACED.update(self.dids)
+        return self
+
+    def __exit__(self, *exc):
+        with _OPS_LOCK:
+            _UNPACED.difference_update(self.dids)
+        return False
+
+
+def _fullnode_has(txid):
+    import db_client as db        # imported here: db_client is optional for most tools
+    rows = db.query(FULLNODE_HOST,
+                    "SELECT 1 FROM fullnode_transactions WHERE id = %s UNION ALL "
+                    "SELECT 1 FROM fullnode_invalid_transactions "
+                    "WHERE transaction->>'ID' = %s LIMIT 1", (txid, txid))
+    return bool(rows)
+
+
+def _pace(did):
+    """Wait until the fullnode has processed `did`'s last transaction.
+    Returns the seconds waited."""
+    if not FULLNODE_HOST or _PACE["off"] or not did or did in _UNPACED:
+        return 0.0
+    txid = _LAST_TX.get(did)
+    if not txid:
+        return 0.0
+    started = time.time()
+    while time.time() - started < PACE_TIMEOUT:
+        try:
+            if _fullnode_has(txid):
+                _PACE["misses"] = 0
+                return round(time.time() - started, 2)
+        except Exception as e:
+            _PACE["off"] = True
+            print("  [pacing] fullnode database not readable ({}: {}) - pacing off".format(
+                type(e).__name__, e))
+            return round(time.time() - started, 2)
+        time.sleep(0.5)
+    _PACE["misses"] += 1
+    if _PACE["misses"] >= 3:
+        _PACE["off"] = True
+        print("  [pacing] the fullnode has not recorded 3 transactions in a row within "
+              "{}s - pacing off".format(PACE_TIMEOUT))
+    return round(time.time() - started, 2)
+
+
+def _log_op(host, action_path, body, status, message, result, waited=0.0):
+    if action_path not in (EP_TRANSACTION, EP_FT_MINT):
+        return
+    body = body or {}
+    tokens = body.get("tokens") or {}
+    txid = result.get("transactionID") if isinstance(result, dict) else None
+    try:
+        rbt = float(tokens.get("rbt") or 0)
+    except (TypeError, ValueError):
+        rbt = 0.0
+    entry = {
+        "at": round(time.time(), 3),
+        "kind": "tx" if action_path == EP_TRANSACTION else "ft_mint",
+        "host": host,
+        "initiator": body.get("initiator") or body.get("did"),
+        "owner": body.get("owner") or "",
+        "rbt": rbt,
+        "assets": sorted(k for k in ("ft", "nft", "smartContract") if tokens.get(k)),
+        "status": bool(status),
+        "message": str(message or "")[:200],
+        "txid": txid or "",
+        "waited_for_fullnode": waited,
+    }
+    with _OPS_LOCK:
+        OPS.append(entry)
+        if entry["kind"] == "tx" and entry["status"] and txid:
+            for did in (entry["initiator"], entry["owner"]):
+                if did:
+                    _LAST_TX[did] = txid
+
+
 def signed_action(host, action_path, body, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
     """
     POST an action that needs the password-challenge round trip.
     Returns (status: bool, message: str, result: any).
     """
+    waited = 0.0
+    initiator = body.get("initiator") if (action_path == EP_TRANSACTION and body) else None
+    if initiator:
+        # A call from a DID that already has a transaction in flight is part of
+        # a parallel burst: it goes now, with the others, rather than waiting.
+        with _OPS_LOCK:
+            joining = _IN_FLIGHT.get(initiator, 0) > 0
+        if not joining:
+            waited = _pace(initiator)
+        with _OPS_LOCK:
+            _IN_FLIGHT[initiator] = _IN_FLIGHT.get(initiator, 0) + 1
+    try:
+        status, message, result = _signed_action(host, action_path, body, port, timeout)
+    finally:
+        if initiator:
+            with _OPS_LOCK:
+                _IN_FLIGHT[initiator] -= 1
+    _log_op(host, action_path, body, status, message, result, waited)
+    return status, message, result
+
+
+def _signed_action(host, action_path, body, port, timeout):
     base = base_url(host, port)
     ok, payload = http_json("POST", base + action_path, timeout, body)
     if not ok or not isinstance(payload, dict):
