@@ -665,14 +665,16 @@ def check_invariants(d, after):
             "; ".join("{} {} -> {}".format(t, o, n)
                       for t, (o, n) in list(d["value_changed"].items())[:3]))
 
-    # A new part token's parent must be accounted for: still held, or released
-    # by this same operation (burnt on split, or transferred away).
+    # A split must consume its parent: if this wallet still holds the parent
+    # of a part token that just appeared, the parent may not be Free, or the
+    # same value exists twice. (A RECEIVED part's parent stays with the sender
+    # - its absence here is normal, so only a parent held here is checked.)
     for tid, info in d["created"].items():
         parent = info.get("parent")
-        if parent and parent not in after["tokens"] and parent not in d["removed"]:
+        if parent and parent in after["tokens"] and after["tokens"][parent]["status"] == FREE:
             problems.append(
-                "token {} names parent {}, which this wallet neither holds nor "
-                "released in this operation".format(tid, parent))
+                "token {} was split from parent {}, but the parent is still Free - the "
+                "same value is spendable twice".format(tid, parent))
 
     # token_denom must move with the free rows it claims to count.
     moved_rows = {}

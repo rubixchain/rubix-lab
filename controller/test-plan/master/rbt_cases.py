@@ -345,6 +345,29 @@ def rbt_v_11(ctx, ci):
                          "(--value-ceiling {})".format(int(ceiling)))
 
 
+# A loop of sends stops once the node has refused this many IN A ROW - by then
+# it is refusing for a reason, not by chance, and carrying on only burns time.
+# The first refusal's message is kept so the report says WHY.
+STOP_AFTER_REFUSALS = 10
+
+
+def _send_loop(ctx, s, r, amount, n, memo):
+    """Send `amount` from s to r up to n times. Returns (attempted, refused,
+    first_refusal_message, stopped_early)."""
+    refused, in_a_row, first = 0, 0, ""
+    for i in range(n):
+        status, msg = _transfer(ctx, s, r, amount, memo)
+        if status:
+            in_a_row = 0
+            continue
+        refused += 1
+        in_a_row += 1
+        first = first or (msg or "")[:200]
+        if in_a_row >= STOP_AFTER_REFUSALS:
+            return i + 1, refused, first, True
+    return n, refused, first, False
+
+
 def rbt_p_04(ctx, ci):
     """
     RBT-P-04 - Send 0.001 RBT many times (catalogue: 1000).
@@ -385,19 +408,18 @@ def rbt_p_04(ctx, ci):
         return False, "could not fund sender", note
     s0 = _rbt_bal(s["host"], s["did"], ctx.port)
     r0 = _rbt_bal(r["host"], r["did"], ctx.port)
-    failures = 0
-    for _ in range(n):
-        status, _msg = _transfer(ctx, s, r, 0.001, "RBT-P-04")
-        if not status:
-            failures += 1
+    tried, failures, why, stopped = _send_loop(ctx, s, r, 0.001, n, "RBT-P-04")
     time.sleep(3)
     s1 = _rbt_bal(s["host"], s["did"], ctx.port)
     r1 = _rbt_bal(r["host"], r["did"], ctx.port)
-    expected = round(0.001 * (n - failures), 3)
+    expected = round(0.001 * (tried - failures), 3)
     moved = round(r1 - r0, 3)
     if failures:
-        return False, "{}/{} transfers rejected".format(failures, n), \
-            "sender {} -> {}, receiver {} -> {}".format(s0, s1, r0, r1)
+        return False, "{} of {} sends of 0.001 refused{}".format(
+            failures, tried, " - stopped after {} refusals in a row".format(
+                STOP_AFTER_REFUSALS) if stopped else ""), \
+            "node's reason: {} | sender {} -> {}, receiver {} -> {}".format(
+                why, s0, s1, r0, r1)
     if rc.close_enough(moved, expected):
         return True, "{} x 0.001 moved exactly {} (no drift)".format(n, moved), \
             "ran {} (--repeat-count; catalogue asks 1000)".format(n)
@@ -457,15 +479,14 @@ def rbt_w_03(ctx, ci):
     if not ok:
         return False, "precondition not met", note
     s0 = _rbt_bal(s["host"], s["did"], ctx.port)
-    failed = 0
-    for _ in range(count):
-        status, _m = _transfer(ctx, feeder, s, value, "RBT-W-03-build")
-        failed += 0 if status else 1
-    built, s1 = rc.wait_for_balance(s["host"], s["did"], s0 + value * (count - failed) - TOL,
+    tried, failed, why, stopped = _send_loop(ctx, feeder, s, value, count, "RBT-W-03-build")
+    built, s1 = rc.wait_for_balance(s["host"], s["did"], s0 + value * (tried - failed) - TOL,
                                     ctx.port, attempts=30)
     if failed or not built:
-        return False, "could not build the parts wallet", \
-            "{}/{} feeder transfers rejected; sender {} -> {}".format(failed, count, s0, s1)
+        return False, "could not build the parts wallet: {} of {} sends of {} refused{}".format(
+            failed, tried, value, " - stopped after {} refusals in a row".format(
+                STOP_AFTER_REFUSALS) if stopped else ""), \
+            "node's reason: {} | sender {} -> {}".format(why, s0, s1)
     ok, note = _prepare_sender(ctx, s, 100)
     if not ok:
         return False, "precondition not met", note
@@ -1366,18 +1387,16 @@ def rbt_b_01(ctx, ci):
         return False, "precondition not met", note
     r0 = _rbt_bal(r["host"], r["did"], ctx.port)
     t0 = time.time()
-    fails = 0
-    for _ in range(n):
-        status, _m = _transfer(ctx, s, r, 1, "RBT-B-01")
-        if not status:
-            fails += 1
+    tried, fails, why, stopped = _send_loop(ctx, s, r, 1, n, "RBT-B-01")
     elapsed = round(time.time() - t0, 2)
-    credited, r1 = rc.wait_for_balance(r["host"], r["did"], r0 + (n - fails), ctx.port)
+    credited, r1 = rc.wait_for_balance(r["host"], r["did"], r0 + (tried - fails), ctx.port)
     got = round(r1 - r0, 3)
     if fails == 0 and rc.close_enough(got, float(n)):
         return True, "{} transfers in {}s ({:.2f}s each); receiver +{}".format(
             n, elapsed, elapsed / n, got), ""
-    return False, "{}/{} failed; receiver +{} in {}s".format(fails, n, got, elapsed), ""
+    return False, "{} of {} refused{}; receiver +{} in {}s".format(
+        fails, tried, " - stopped after {} refusals in a row".format(STOP_AFTER_REFUSALS)
+        if stopped else "", got, elapsed), "node's reason: {}".format(why) if why else ""
 
 
 def rbt_b_02(ctx, ci):

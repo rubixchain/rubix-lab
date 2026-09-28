@@ -158,7 +158,7 @@ _INVARIANT_PLAIN = (
     ("NO chain row", "a new token has no history record (tokenchain row)"),
     ("not a legal denomination", "a token holds a value no real token can have"),
     ("value changed in place", "a token's value was changed in place"),
-    ("names parent", "a split token's parent is unaccounted for"),
+    ("parent is still Free", "a token was split but its parent is still spendable - the same value exists twice"),
     ("token_denom moved", "the denomination counter (token_denom) disagrees with the actual tokens"),
 )
 
