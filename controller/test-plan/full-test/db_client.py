@@ -347,7 +347,7 @@ def snapshot(host, did, port=DB_PORT):
     }
 
 
-# Every before/after pair a case records lands here, and case_runner writes it
+# Every before/after pair a case records lands here, and test_runner writes it
 # into the run's JSON report. A verdict without the readings behind it asks the
 # reader to trust the harness; a developer reviewing a fix should be able to see
 # the actual rows and check the arithmetic themselves.
@@ -552,3 +552,216 @@ def transaction_participants(host, tx_id, port=DB_PORT):
     if not rows:
         return None, None
     return rows[0][0], rows[0][1]
+
+
+# ---------------------------------------------------------------------------
+# Structural capture and diff
+#
+# A balance says a transfer "worked". It cannot say the split produced the right
+# children, that the parent was burnt rather than left Free, that every new
+# token carries a chain row, or that the denomination counter moved with
+# reality. All of that lives in the ROWS, so a case asserting only on a balance
+# passes while the wallet underneath it is wrong - which is precisely the class
+# of bug this suite exists to find.
+#
+# capture() records the rows, diff() says what changed, and check_invariants()
+# applies the rules that must hold whatever the case was doing, so every case
+# gets them without asking.
+# ---------------------------------------------------------------------------
+
+# The parts tree alternates 2 and 5 children per level down from a whole token,
+# so these are the only values a legal RBT token can hold (core/parts/parts.go
+# MaxPossiblePartsIndexByMaxDecimalPlaces, 3 decimal places = 6 levels).
+LEGAL_DENOMS = (1.0, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001)
+
+
+def _denom_ok(value):
+    return any(abs(value - d) < 1e-9 for d in LEGAL_DENOMS)
+
+
+def capture(host, did, port=DB_PORT, token_type=TYPE_RBT):
+    """Every row describing one DID's wallet, plus the chain length per token.
+
+    Three queries, not one per token: a 50,000-token wallet would otherwise
+    need 50,000 round trips and the case would time out before asserting
+    anything.
+    """
+    tokens = {}
+    for tid, val, status, parent in query(
+            host,
+            "SELECT token_id, token_value, token_status, parent_token_id "
+            "FROM tokens WHERE did = %s AND token_type = %s",
+            (did, token_type), port):
+        tokens[tid] = {"value": float(val), "status": int(status), "parent": parent}
+
+    chain_len = {}
+    for tid, n in query(
+            host,
+            "SELECT tc.token_id, COUNT(*) FROM tokenchain tc "
+            "JOIN tokens t ON t.token_id = tc.token_id "
+            "WHERE t.did = %s AND t.token_type = %s GROUP BY tc.token_id",
+            (did, token_type), port):
+        chain_len[tid] = int(n)
+
+    totals = {}
+    for name, st in (("free", FREE), ("locked", LOCKED), ("committed", COMMITTED),
+                     ("burnt_for_ft", BURNT_FOR_FT), ("burnt", BURNT)):
+        totals[name] = round(sum(t["value"] for t in tokens.values()
+                                 if t["status"] == st), 6)
+    totals["pledged"] = pledged_value(host, did, port)
+
+    return {"host": host, "did": did, "tokens": tokens, "chain_len": chain_len,
+            "denom": denom_counter(host, did, port), "totals": totals}
+
+
+def diff(before, after):
+    """What changed between two captures of the same DID."""
+    b, a = before["tokens"], after["tokens"]
+    created = dict((t, a[t]) for t in a if t not in b)
+    removed = dict((t, b[t]) for t in b if t not in a)
+    status_changed = dict((t, (b[t]["status"], a[t]["status"]))
+                          for t in a if t in b and a[t]["status"] != b[t]["status"])
+    value_changed = dict((t, (b[t]["value"], a[t]["value"]))
+                         for t in a if t in b and abs(a[t]["value"] - b[t]["value"]) > 1e-9)
+    chain_grew = dict((t, (before["chain_len"].get(t, 0), after["chain_len"].get(t, 0)))
+                      for t in after["chain_len"]
+                      if after["chain_len"].get(t, 0) != before["chain_len"].get(t, 0))
+    denom = {}
+    for d_val in set(before["denom"]) | set(after["denom"]):
+        moved = after["denom"].get(d_val, 0) - before["denom"].get(d_val, 0)
+        if moved:
+            denom[round(d_val, 3)] = moved
+    totals = dict((k, round(after["totals"].get(k, 0) - before["totals"].get(k, 0), 6))
+                  for k in set(before["totals"]) | set(after["totals"]))
+    return {"did": after["did"], "host": after["host"],
+            "created": created, "removed": removed,
+            "status_changed": status_changed, "value_changed": value_changed,
+            "chain_grew": chain_grew, "denom": denom,
+            "totals": dict((k, v) for k, v in totals.items() if abs(v) > 1e-9)}
+
+
+def check_invariants(d, after):
+    """Rules that hold after ANY operation. Returns a list of problems.
+
+    Run automatically after every case, so a case that only asserts a balance
+    still catches a malformed wallet underneath it.
+    """
+    problems = []
+
+    for tid, info in d["created"].items():
+        if after["chain_len"].get(tid, 0) < 1:
+            problems.append(
+                "token {} was created with NO chain row - it counts toward the "
+                "balance and the denomination counter, so selection will pick it "
+                "and then fail validation".format(tid))
+        if not _denom_ok(info["value"]):
+            problems.append(
+                "token {} has value {} which is not a legal denomination".format(
+                    tid, info["value"]))
+
+    if d["value_changed"]:
+        problems.append(
+            "a token's value changed in place, which nothing should ever do: " +
+            "; ".join("{} {} -> {}".format(t, o, n)
+                      for t, (o, n) in list(d["value_changed"].items())[:3]))
+
+    # A new part token's parent must be accounted for: still held, or released
+    # by this same operation (burnt on split, or transferred away).
+    for tid, info in d["created"].items():
+        parent = info.get("parent")
+        if parent and parent not in after["tokens"] and parent not in d["removed"]:
+            problems.append(
+                "token {} names parent {}, which this wallet neither holds nor "
+                "released in this operation".format(tid, parent))
+
+    # token_denom must move with the free rows it claims to count.
+    moved_rows = {}
+    def _bump(value, by):
+        key = round(value, 3)
+        moved_rows[key] = moved_rows.get(key, 0) + by
+
+    for tid, info in d["created"].items():
+        if info["status"] == FREE:
+            _bump(info["value"], 1)
+    for tid, info in d["removed"].items():
+        if info["status"] == FREE:
+            _bump(info["value"], -1)
+    for tid, (old, new) in d["status_changed"].items():
+        value = after["tokens"][tid]["value"]
+        if old == FREE and new != FREE:
+            _bump(value, -1)
+        elif new == FREE and old != FREE:
+            _bump(value, 1)
+
+    for denom_v, moved in moved_rows.items():
+        counted = d["denom"].get(denom_v, 0)
+        if moved != counted:
+            problems.append(
+                "denomination {:.3f}: free rows moved by {} but token_denom moved "
+                "by {} - the counter and the rows disagree".format(
+                    denom_v, moved, counted))
+
+    return problems
+
+
+def describe_diff(d):
+    """One line a report row can carry."""
+    bits = []
+    if d["created"]:
+        bits.append("+{} token(s)".format(len(d["created"])))
+    if d["removed"]:
+        bits.append("-{} token(s)".format(len(d["removed"])))
+    if d["status_changed"]:
+        bits.append("{} status change(s)".format(len(d["status_changed"])))
+    if d["chain_grew"]:
+        bits.append("{} chain row(s)".format(
+            sum(n - o for o, n in d["chain_grew"].values())))
+    for k, v in sorted(d["totals"].items()):
+        bits.append("{} {:+.3f}".format(k, v))
+    return ", ".join(bits) or "nothing changed"
+
+
+def expect_spend(before, after, amount, tol=0.0015):
+    """Sender side of a transfer, checked on the rows rather than the balance.
+
+    Free value must fall by exactly `amount`, and if a split was needed the
+    tokens that appeared must be accounted for by a parent that left.
+    Returns (ok, diff, problems).
+    """
+    d = diff(before, after)
+    problems = check_invariants(d, after)
+    spent = before["totals"]["free"] - after["totals"]["free"]
+    if abs(spent - amount) > tol:
+        problems.append("free value fell by {:.4f}, expected {:.4f}".format(spent, amount))
+    burnt_parents = [t for t, (o, n) in d["status_changed"].items() if n == BURNT]
+    if d["created"] and not burnt_parents and not d["removed"]:
+        problems.append(
+            "{} new token(s) appeared with no parent burnt or released - a split "
+            "must consume what it splits".format(len(d["created"])))
+    return (not problems), d, problems
+
+
+def expect_receive(before, after, amount, tol=0.0015):
+    """Receiver side: free value rose by exactly `amount`, in real tokens."""
+    d = diff(before, after)
+    problems = check_invariants(d, after)
+    gained = after["totals"]["free"] - before["totals"]["free"]
+    if abs(gained - amount) > tol:
+        problems.append("free value rose by {:.4f}, expected {:.4f}".format(gained, amount))
+    return (not problems), d, problems
+
+
+def wallet_totals(host, did, port=DB_PORT, token_type=TYPE_RBT):
+    """Value and row count per status for one DID, as SUMs.
+
+    Deliberately not capture(): a fleet-wide ledger over 31 hosts does not need
+    every token row shipped back, only the totals.
+    """
+    out = {}
+    for status, value, count in query(
+            host,
+            "SELECT token_status, COALESCE(SUM(token_value), 0), COUNT(*) "
+            "FROM tokens WHERE did = %s AND token_type = %s GROUP BY token_status",
+            (did, token_type), port):
+        out[int(status)] = (float(value), int(count))
+    return out

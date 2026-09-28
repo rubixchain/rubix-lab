@@ -5,7 +5,7 @@ validate_cases.py - run every case against a FAKE fleet, offline.
 WHY THIS EXISTS
     SC-C-01 and SC-C-02 reached the real fleet and died instantly with
         TypeError: string indices must be integers, not 'str'
-    because they called ctx.quorum_for(host) when case_runner's quorum_for
+    because they called ctx.quorum_for(host) when the runner's quorum_for
     expects the entry DICT. A one-line mistake, but it cost a full setup cycle
     (~60s of minting) to discover, and it would have been caught by calling the
     function even once.
@@ -14,7 +14,7 @@ WHY THIS EXISTS
     proves nothing about whether the code runs. This calls every case.
 
 WHAT IT DOES
-    Builds a CaseContext with the same shape case_runner builds, stubs every
+    Builds a CaseContext with the same shape test_runner builds, stubs every
     rubix_client and db_client function so nothing touches the network or a
     database, then invokes each case and reports anything that raises.
 
@@ -34,7 +34,7 @@ USAGE
     python3 validate_cases.py --verbose         # show each case's return value
 
 Exit code is non-zero if any case raised, so this can gate a run:
-    python3 validate_cases.py && python3 case_runner.py --cases master
+    python3 validate_cases.py && python3 test_runner.py
 """
 
 import argparse
@@ -49,20 +49,25 @@ sys.path.insert(0, HERE)
 import rubix_client as rc
 import db_client as db
 import wallet_shapes as ws
-from case_runner import CaseContext, CaseInfo, load_case_module
+import test_runner as tr
+from test_runner import CaseContext, CaseInfo, load_case_module
 
 
 class _Args:
-    """Stands in for argparse's namespace. Mirrors case_runner's defaults."""
+    """Stands in for argparse's namespace. Mirrors test_runner's defaults."""
     port = 20000
     rbt_amount = 1
     ft_count = 10
     ft_token_count = 1
-    fund_quorum = 2000
-    fund_sender = 200
-    large_mint = 2000
-    decimal_samples = 3
-    repeat_count = 25
+    quorum_floor = 100
+    # Scale knobs kept tiny so offline validation stays instant; every code
+    # path still runs.
+    repeat_count = 3
+    value_ceiling = 10
+    wallet_ceiling = 100
+    tiny_tokens = 3
+    chain_hops = 3
+    burst_count = 3
     callback_host = "192.168.1.103"
     ssh_user = "rubix"
     remote_dir = "~/Desktop/rubix"
@@ -81,7 +86,7 @@ def _entry(n):
 
 
 def build_ctx(n_quorum=3, n_pairs=6):
-    """A CaseContext shaped exactly like the one case_runner passes in.
+    """A CaseContext shaped exactly like the one test_runner passes in.
 
     Six pairs, not two: several cases index ctx.pair(3) or need
     ctx.receivers[3], and a short context would make them SKIP rather than
@@ -122,7 +127,13 @@ def install_stubs():
     rc.get_rbt_balance_detail = rec("get_rbt_balance_detail", (True, dict(balance), ""))
     rc.get_rbt_balance = rec("get_rbt_balance", (True, 500.0, ""))
     rc.quorum_add = rec("quorum_add", (True, "added"))
-    rc.fund_did = rec("fund_did", (True, "minted"))
+    rc.fund_did = rec("fund_did", (True, "from faucet"))
+    rc.faucet_ready = rec("faucet_ready", (True, "faucet holds 2150000.000 RBT free"))
+    # First entry is quorum .200, so _signing_quorum resolves to a real
+    # quorum_hosts entry the way it does on the fleet.
+    rc.get_quorums = rec("get_quorums", (True, ["bafybmi" + "200" * 7], ""))
+    rc.quorum_setup = rec("quorum_setup", (True, "quorum set up"))
+    rc.quorum_reset = rec("quorum_reset", (True, "quorum list reset"))
     # Real signature returns (ok, balance) - a tuple. Stubbing it as a bare
     # bool hid the fact that callers were treating the tuple as truthy.
     rc.wait_for_balance = rec("wait_for_balance", (True, 500.0))
@@ -204,10 +215,13 @@ def install_stubs():
     return calls
 
 
+import time as _time
+_real_sleep = _time.sleep
+
+
 def _patch_sleep():
     """Cases wait for settle windows; offline there is nothing to wait for."""
-    import time
-    time.sleep = lambda *a, **k: None
+    _time.sleep = lambda *a, **k: None
 
 
 def validate(module_name, verbose=False):
@@ -241,6 +255,90 @@ def validate(module_name, verbose=False):
     return failures
 
 
+def validate_schedule(module_name, n_nodes=28):
+    """Drive the real scheduler (test_runner.run_units) over a fake pool.
+
+    Checks what the per-case run cannot: every case is scheduled exactly once,
+    two units running at the same time never share a node, and a unit gets the
+    number of senders/receivers/quorums its NEEDS asks for. Node .104 holds
+    three DIDs, so same-node units have somewhere to go.
+    """
+    import threading
+    mod = load_case_module(module_name)
+    pool = [{"host": "192.168.1.{}".format(104 + i),
+             "dids": ["bafybmi{:0>52}".format("{}{}".format(i, k)) for k in range(3 if i == 0 else 1)]}
+            for i in range(n_nodes)]
+    fleet = [{"host": n["host"], "did": d} for n in pool for d in n["dids"]]
+    units = tr.build_units(mod, list(mod.ORDER))
+
+    lock = threading.Lock()
+    active, overlaps, seen = {}, [], []
+    peak = [0]
+    unit_of = {t: u for u in units for t in u.cases}
+    ended = set()
+    ran_ordinary = set()
+
+    def wrap(tid, fn):
+        def run(ctx, ci):
+            hosts = {e["host"] for e in ctx.senders + ctx.receivers + ctx.quorum_hosts}
+            u = unit_of[tid]
+            with lock:
+                for other, oh in active.items():
+                    if hosts & oh:
+                        overlaps.append("{} and {} share {}".format(tid, other, sorted(hosts & oh)))
+                if u.exclusive and active:
+                    overlaps.append("{} is exclusive but ran beside {}".format(tid, sorted(active)))
+                if u.spec["last"] and ran_ordinary - ended:
+                    overlaps.append("{} is 'last' but started before {} finished".format(
+                        tid, sorted(ran_ordinary - ended)))
+                if not u.spec["last"]:
+                    ran_ordinary.add(tid)
+                active[tid] = hosts
+                peak[0] = max(peak[0], len(active))
+                seen.append(tid)
+            try:
+                _real_sleep(0.02)       # long enough for units to overlap
+                return fn(ctx, ci)
+            finally:
+                with lock:
+                    del active[tid]
+                    ended.add(tid)
+        return run
+
+    cases_map = {t: wrap(t, f) for t, f in mod.CASES.items()}
+    import io, contextlib
+    with contextlib.redirect_stdout(io.StringIO()):
+        tr.run_units(units, pool, fleet, cases_map, {}, {}, _Args())
+
+    problems = list(overlaps)
+    rows = {}
+    for u in units:
+        s = u.spec
+        if u.hosts and not u.wants_all and not s["same_node"]:
+            got = (len(u.senders), len(u.receivers), len(u.quorums))
+            want = (s["senders"], s["receivers"], s["quorums"])
+            if got != want:
+                problems.append("{} got s/r/q {} but NEEDS {}".format(u.name, got, want))
+        for tid, result, _e, _ci in u.rows:
+            rows.setdefault(tid, []).append(result)
+    for tid in mod.ORDER:
+        if len(rows.get(tid, [])) != 1:
+            problems.append("{} has {} result row(s), expected 1".format(tid, len(rows.get(tid, []))))
+    skipped = sorted(t for t, r in rows.items()
+                     if r and r[0][0] == "SKIP" and r[0][1] == "not enough participants")
+    print("== schedule over a fake pool of {} nodes ==".format(n_nodes))
+    print("  {} unit(s); at most {} running at once".format(len(units), peak[0]))
+    if skipped:
+        print("  not schedulable on {} nodes: {}".format(n_nodes, ", ".join(skipped)))
+    for p_ in problems:
+        print("  [PROBLEM] " + p_)
+    if not problems:
+        print("  every case scheduled once; no shared nodes; exclusive units ran alone; "
+              "'last' units started after the rest finished")
+        print()
+    return problems
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -263,8 +361,13 @@ def main():
         sys.exit("no case modules found")
 
     all_failures = []
+    schedule_problems = []
     for m in modules:
         all_failures += [(m,) + f for f in validate(m, args.verbose)]
+        if hasattr(load_case_module(m), "NEEDS"):
+            schedule_problems += validate_schedule(m)
+    if schedule_problems:
+        sys.exit("{} scheduling problem(s) - see above".format(len(schedule_problems)))
 
     if all_failures:
         print("=" * 62)

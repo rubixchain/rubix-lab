@@ -4,7 +4,7 @@ Scripts and tools for setting up and managing the Rubix Lab (In Office) testing
 environment — a private `localnet` network of office desktops used to test
 releases, bug fixes and new features.
 
-**New here? Start with [SETUP-RUNBOOK.md](SETUP-RUNBOOK.md).**
+**New here? Start with [systems/SETUP-RUNBOOK.md](systems/SETUP-RUNBOOK.md).**
 
 ## Layout
 
@@ -25,10 +25,11 @@ controller/              run FROM the controller
   exec-update/           build a branch and deploy it to running nodes
   test-plan/             the test catalogue and its runners
     master/              master-catalogue.csv + master_cases.py: every lab case
-    full-test/           case_runner.py, validate_cases.py, smoke_test.py, clients
-    suites/              named selections of master cases (e.g. one PR's)
+    full-test/           test_runner.py, validate_cases.py, smoke_test.py, clients
 
 systems/                 goes ON each lab machine
+  SETUP-RUNBOOK.md       phase-by-phase environment setup
+  LAB-QUICKREF.txt       the same setup as commands only, in order
   install/               setup.sh, config.toml.template, systemd unit
   prerequisite/          rubixgoplatform, ipfs, localnetswarm.key
 

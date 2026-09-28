@@ -187,9 +187,9 @@ if [ "${#NOT_READY[@]}" -gt 0 ]; then
   echo
   echo "Common fixes:"
   echo "  DOCKER not enabled  -> ssh <host> sudo systemctl enable --now docker"
-  echo "  PGSQL not running   -> the container is gone; re-create it (see LAB-QUICKREF.txt)"
-  echo "  UNIT not installed  -> run the systemd block from LAB-QUICKREF.txt section 6 on that host"
-  echo "  SUDO fail           -> the sudoers grant is missing; also in LAB-QUICKREF.txt section 6"
+  echo "  PGSQL not running   -> the container is gone; re-create it (see systems/LAB-QUICKREF.txt)"
+  echo "  UNIT not installed  -> run the systemd block from systems/LAB-QUICKREF.txt section 6 on that host"
+  echo "  SUDO fail           -> the sudoers grant is missing; also in systems/LAB-QUICKREF.txt section 6"
   echo "  API fail but UNIT ok-> still starting, or crashed: ssh <host> journalctl -u rubixgoplatform -n 100"
   exit 1
 fi

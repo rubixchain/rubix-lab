@@ -24,12 +24,9 @@ controller/versions.xlsx
 # snapshots with real IPs and DIDs.
 controller/test-plan/full-test/smoke-test-roles.txt
 
-# Local mutable state, not shared history — same reasoning as hosts.txt
-# above. NOTE: unlike the files above, this one is NOT safely disposable —
-# it's the only record of which local-RBT token index range has been
-# allocated fleet-wide, and can't be reconstructed from the network. Don't
-# delete it on the controller; see rubix_client.py's comment on it.
-controller/test-plan/full-test/token_index_registry.json
+# Local mutable state, not shared history. fleet-ledger.json is the run-to-run
+# RBT ledger case_runner compares against; keep it on the controller.
+controller/test-plan/full-test/fleet-ledger.json
 
 # Every test-plan script's report lands here (repo-root reports/), timestamped
 # per run — real fleet data, not something to commit.

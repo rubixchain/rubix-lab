@@ -14,14 +14,14 @@ Deliberately split in two:
 
 Single script by design: the point of a smoke test is proving the whole
 pipeline end to end in one run. The catalogue cases
-(test-plan/master/master_cases.py, driven by case_runner.py) are the
+(test-plan/master/master_cases.py, driven by test_runner.py) are the
 separate thing for running the catalogue asset by asset - this isn't a
 replacement for those, it shares the same rubix_client.py underneath.
 
 Common-part flow (see also project memory "test-flow-design"):
     1. Load hosts.txt -> pool (exclude down + fixed-role hosts).
-    2. Reachability + DID sweep. 0 DIDs -> create (hard-gated: only ever on
-       a confirmed-empty host). >1 DIDs -> excluded, flagged for a human.
+    2. Reachability + DID sweep. 0 DIDs -> excluded (DIDs are created by
+       hand). >1 DIDs -> excluded unless the host is tagged 'multidid'.
     3. Assign roles: N quorum hosts, remaining split into senders/receivers
        (alternating pairs). Written to smoke-test-roles.txt for visual
        cross-reference against the physical machines.
@@ -59,11 +59,9 @@ FIXED_ROLES = {"fullnode", "explorer", "controller"}
 DEFAULT_HOSTS = os.path.join(HERE, "..", "..", "hosts.txt")
 ROLES_PATH = os.path.join(HERE, "smoke-test-roles.txt")
 
-# Delays at genuine async-propagation points. These do NOT fix the token-ID
-# collision bug (that's a product-level issue, see rubix_client.py's
-# allocate_token_index_range comment) - they're for the separate, real gaps
-# where this script fires the next step before the network has had any
-# chance to catch up: pubsub announce propagation, and a stagger so a batch
+# Delays at genuine async-propagation points - the real gaps where this
+# script fires the next step before the network has had any chance to catch
+# up: pubsub announce propagation, and a stagger so a batch
 # of senders doesn't hit the same quorum in the same instant.
 ANNOUNCE_SETTLE_SECONDS = 3     # after the DID/peer announce pass
 QUORUM_SETTLE_SECONDS = 2       # after quorum setup+funding, before senders register against them
@@ -113,8 +111,8 @@ class Report:
 # Common part: pool, DID readiness, role assignment
 # ---------------------------------------------------------------------------
 def sweep_and_prepare(pool, port, timeout):
-    """Reachability + DID check; create a DID where genuinely absent
-    (hard-gated), announce every resulting host. Returns list of
+    """Reachability + DID check (a host with no DID is excluded - DIDs are
+    fixed and never created here), announce every resulting host. Returns list of
     {"host","did"} for hosts that ended up ready, and a list of exclusions."""
     def check(entry):
         host = entry["host"]
@@ -136,12 +134,8 @@ def sweep_and_prepare(pool, port, timeout):
             ready.append({"host": r["host"], "did": r["dids"][0],
                           "dids": list(r["dids"]), "role": r["role"]})
         elif n == 0:
-            did, msg = rc.create_did(r["host"], port)
-            if not did:
-                excluded.append("{} - DID create failed: {}".format(r["host"], msg))
-                continue
-            ready.append({"host": r["host"], "did": did, "dids": [did],
-                          "role": r["role"]})
+            # DIDs are fixed and created by hand - never here.
+            excluded.append("{} - no DID (DIDs are created by hand)".format(r["host"]))
         elif r.get("multidid"):
             # Opted in via hosts.txt. A second DID here is deliberate - it is
             # what makes intra-node cases possible at all, since a same-node
@@ -166,14 +160,45 @@ def sweep_and_prepare(pool, port, timeout):
     return ready, excluded
 
 
-def assign_roles(ready, quorum_count):
+def assign_roles(ready, quorum_count, port=None):
+    """Quorums stay put; senders and receivers are chosen by what they hold.
+
+    Tokens are finite and nobody returns them at the end of a cycle, so a DID
+    that received value last run is exactly the DID that should spend it this
+    run. Assigning by host order instead would hand the sender role to an empty
+    wallet and force a faucet draw for no reason.
+
+    Quorums are NOT reassigned by balance: their pledges are referenced by
+    unpledge_sequence_info rows from earlier runs, and moving the role would
+    strand them. They get topped up instead.
+
+    Without `port` this falls back to the old alternating split, which is what
+    the offline validator uses.
+    """
     if len(ready) < quorum_count + 2:
         sys.exit("ERROR: need at least {} ready hosts ({} quorum + 2), only have {}.".format(
             quorum_count + 2, quorum_count, len(ready)))
     quorum_hosts = ready[:quorum_count]
     rest = ready[quorum_count:]
-    senders = rest[0::2]
-    receivers = rest[1::2]
+
+    if port is not None and len(rest) >= 2:
+        balances = {}
+        for e in rest:
+            ok, detail, _ = rc.get_rbt_balance_detail(e["host"], e["did"], port)
+            balances[e["host"]] = float(detail["balance"]) if ok and detail else 0.0
+        rest = sorted(rest, key=lambda e: -balances.get(e["host"], 0.0))
+        half = max(1, len(rest) // 2)
+        senders = rest[:half]
+        # Poorest first, so the richest sender is paired with the emptiest
+        # receiver and the fleet levels out instead of concentrating.
+        receivers = list(reversed(rest[half:])) or senders[:]
+        print("Roles by balance: senders hold {:.0f}-{:.0f} RBT, receivers {:.0f}-{:.0f}".format(
+            balances.get(senders[0]["host"], 0), balances.get(senders[-1]["host"], 0),
+            balances.get(receivers[0]["host"], 0), balances.get(receivers[-1]["host"], 0)))
+    else:
+        senders = rest[0::2]
+        receivers = rest[1::2]
+
     if not senders or not receivers:
         sys.exit("ERROR: not enough non-quorum hosts to form sender/receiver pairs.")
     return quorum_hosts, senders, receivers
@@ -207,7 +232,7 @@ def setup_quorums(quorum_hosts, args, report):
                 return True, "already at {} RBT".format(current), ""
             status, msg = rc.fund_did(q["host"], q["did"], args.fund_quorum - int(current), args.port)
             if not status:
-                return False, "mint rejected", msg
+                return False, "faucet funding failed", msg
             confirmed, bal1 = rc.wait_for_balance(q["host"], q["did"], args.fund_quorum, args.port)
             if not confirmed:
                 return False, "balance did not reach target", "before={} after={}".format(bal0, bal1)
@@ -238,7 +263,7 @@ def assign_and_fund_senders(quorum_hosts, senders, args, report):
                 return True, "already at {} RBT".format(current), ""
             status, msg = rc.fund_did(s["host"], s["did"], need - int(current), args.port)
             if not status:
-                return False, "mint rejected", msg
+                return False, "faucet funding failed", msg
             confirmed, bal1 = rc.wait_for_balance(s["host"], s["did"], need, args.port)
             if not confirmed:
                 return False, "balance did not reach target", "before={} after={}".format(bal0, bal1)
@@ -274,7 +299,7 @@ def main():
         print("  excluded: {}".format(line))
 
     print("\n== Common: role assignment ==")
-    quorum_hosts, senders, receivers = assign_roles(ready, args.quorum_count)
+    quorum_hosts, senders, receivers = assign_roles(ready, args.quorum_count, args.port)
     write_roles_file(ROLES_PATH, quorum_hosts, senders, receivers)
     print("Quorum: {}  Senders: {}  Receivers: {}".format(
         len(quorum_hosts), len(senders), len(receivers)))

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
 rubix_client.py - Shared helpers for the test-plan scripts. Not a script to
-run directly - imported by case_runner.py, smoke_test.py and the case modules.
+run directly - imported by test_runner.py, smoke_test.py and the case modules.
 
 Core primitive (confirmed against server/*.go in the rubixgoplatform repo):
 almost every mutating call is a 2-step password challenge:
     POST <action>            -> {"result": {"id": "<reqID>"}}   (password needed)
     POST /rubix/v1/signature  body {"id": "<reqID>", "password": DID_PASSWORD}
                               -> final {"status": bool, "message": ..., "result": ...}
-RegisterDID, GenerateLocalRBT and InitiateTransaction (RBT/FT/NFT/SC all go
-through the one /rubix/v1/transaction body) all follow this. signed_action()
+RegisterDID and InitiateTransaction (RBT/FT/NFT/SC all go through the one
+/rubix/v1/tx body) follow this. The lab never mints RBT - see fund_did. signed_action()
 below drives it generically; a handful of calls (CreateDID, AddQuorum,
 GetAllDIDs, balances) are plain single-call GET/POST and use http_json()
 directly.
@@ -24,6 +24,7 @@ import datetime
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -70,10 +71,10 @@ EP_CREATE_DID = "/rubix/v1/dids/create"
 EP_REGISTER_DID = "/rubix/v1/dids/{did}/register"
 EP_SIGNATURE = "/rubix/v1/signature"
 EP_RBT_BALANCE = "/rubix/v1/dids/{did}/balances/rbt"
-EP_GENERATE_LOCAL_RBT = "/rubix/v1/tokens/generate_local_rbt"
 EP_QUORUM_SETUP = "/rubix/v1/quorums/setup"
 EP_QUORUM_ADD = "/rubix/v1/quorums/add"
 EP_QUORUM_LIST = "/rubix/v1/quorums"
+EP_QUORUM_REMOVE_ALL = "/rubix/v1/quorums/remove_all"   # GET, truncates quorum_manager
 EP_TRANSACTION = "/rubix/v1/tx"  # confirmed setup.go:69 - NOT /rubix/v1/transaction
 EP_FT_MINT = "/rubix/v1/fts/mint"
 EP_FT_BALANCE = "/rubix/v1/dids/{did}/balances/ft"
@@ -495,109 +496,158 @@ def get_rbt_balance(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
     return True, detail["balance"], ""
 
 
-# --- Fleet-wide token index registry -----------------------------------
-# generate_local_rbt's token IDs are "<level>_<numberInLevel>", derived from
-# a flat integer index (core/token.go GetTokenLevelAndNumberForGlobalIndex).
-# start_index=0 asks the SERVER for a safe, atomic, but PER-NODE counter
-# that starts at 1 on every node independently - so node A's 12th local
-# mint and node B's 12th local mint are both literally called "10001_12".
-# That's harmless in isolation, but once a transaction touches a shared
-# quorum, TokenChainIntigrityCheck (core/consensus/checks.go) looks the
-# token up by that bare ID with NO per-DID scoping
-# (GetLatestTransactionIdByTokenId(tokenID, ...)) - if the quorum has ITS
-# OWN unrelated local token with the same ID, it finds that instead of the
-# sender's, and correctly reports a chain mismatch. Confirmed by evidence:
-# every failing transfer's "local latest" hash matched exactly by which
-# quorum was involved, not which sender.
+# ---------------------------------------------------------------------------
+# Funding - from the faucet DID only
 #
-# Fix: never use start_index=0 for fleet minting. Instead allocate a
-# strictly increasing GLOBAL range ourselves, seeded far above anything any
-# node could plausibly have minted via the old start_index=0 path, so no
-# two nodes anywhere in the fleet - across any script, any run - ever
-# produce the same token ID.
+# Nothing in the lab mints RBT. Every token a test DID holds was transferred to
+# it from the faucet DID, and every faucet transfer is signed by the faucet
+# quorum. So fleet quorums never pledge for funding, and funding never touches
+# a wallet some other lane is measuring.
 #
-# The registry file is the only record of "how far allocated so far" -
-# unlike dids.xlsx/inventory.json it can't be regenerated from the live
-# network, so treat it like DID key material: don't delete it, and if it's
-# ever lost, re-seed well above the highest index any node has reached
-# rather than restarting at the same seed (that would just reintroduce the
-# same collision for everything minted since).
-TOKEN_INDEX_REGISTRY_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "token_index_registry.json")
-TOKEN_INDEX_SEED = 10_000_000  # comfortably above anything minted so far fleet-wide
+# The faucet runs on the CONTROLLER machine as two nodes:
+#     port 20000  the faucet DID          - holds the RBT and sends it
+#     port 20010  the faucet quorum DID   - signs every faucet transfer
+# Both are set up by hand (quorum added and quorum setup done); the lab only
+# transfers. Each node's DID is read from the node itself, so nothing needs
+# configuring. The faucet node must have EXACTLY ONE quorum registered, the
+# faucet quorum: a transfer is signed by the first entry in that list
+# (quorumAddresses[0], core/transaction.go) and the list has no ORDER BY, so a
+# second entry would make the signer unpredictable. fund_did checks this before
+# every draw and refuses rather than fund through the wrong quorum.
+#
+# DIDs are never discarded. A DID keeps whatever it holds from one cycle to the
+# next and is topped up only by its shortfall.
+#
+# Overrides, only if the setup ever changes:
+#   RUBIX_FAUCET_HOST          controller address (test_runner uses the host
+#                              tagged 'controller' in hosts.txt; else .103)
+#   RUBIX_FAUCET_PORT          faucet DID's node (default 20000)
+#   RUBIX_FAUCET_QUORUM_PORT   faucet quorum's node (default 20010)
+#   RUBIX_FAUCET_CHUNK         largest single faucet transfer, RBT (default 1000)
+# ---------------------------------------------------------------------------
+
+FAUCET_HOST = os.environ.get("RUBIX_FAUCET_HOST", "192.168.1.103")
+FAUCET_PORT = int(os.environ.get("RUBIX_FAUCET_PORT", "20000"))
+FAUCET_QUORUM_PORT = int(os.environ.get("RUBIX_FAUCET_QUORUM_PORT", "20010"))
+# Read from the two faucet nodes by faucet_ready().
+FAUCET_DID = ""
+FAUCET_QUORUM_DID = ""
+# Funding is plumbing, not a test: a large top-up goes out in chunks so it
+# never runs into the quorum timeouts the value ladders exist to measure.
+FAUCET_CHUNK = int(os.environ.get("RUBIX_FAUCET_CHUNK", "1000"))
+
+# One faucet transfer at a time. Units fund in parallel, and many parallel
+# sends from one DID is something the suite TESTS (RBT-N-10) - funding must not
+# depend on it working.
+_FAUCET_LOCK = threading.Lock()
+
+# Values are rounded to 3dp (math/math.go FloatPrecision).
+TOLERANCE = 0.0015
 
 
-def allocate_token_index_range(count, registry_path=TOKEN_INDEX_REGISTRY_PATH):
-    """Reserve `count` consecutive global indices, atomically-enough for a
-    lab that runs one test cycle at a time (simple read-modify-write, no
-    file lock - if you ever run two mint-heavy scripts concurrently against
-    the same fleet, that assumption breaks). Returns the first index of the
-    reserved range - pass it as start_index to generate_local_rbt.
+def transfer_timeout(rbt):
+    """Client timeout for a transfer of `rbt`. The node keeps working after the
+    client gives up, so a timeout that is too short does not stop a transfer -
+    it only makes the caller report failure for something that then succeeds.
+    Scaled to the token count and capped just above TotalQuorumTimeout (15m)
+    plus the adaptive ceiling (30m) in core/quorum_initiator.go."""
+    try:
+        n = float(rbt or 0)
+    except (TypeError, ValueError):
+        n = 0
+    return int(min(2400, max(SIGNATURE_TIMEOUT, 60 + n * 0.2)))
 
-    A MISSING REGISTRY IS A HARD ERROR, not a fresh start. Silently falling
-    back to TOKEN_INDEX_SEED re-issues indices that earlier runs already
-    minted, and every mint in that band then dies with
-    "PersistGenesisTokenRecord: token <id> already exists". That is exactly
-    what happened when the repo restructure moved this directory and left the
-    old registry behind at the previous path - the failure looked like a
-    product bug and was not.
 
-    Rebuild it from the fleet instead (the high-water mark IS recoverable
-    from the tokens table, despite the older note in CLAUDE.md):
-        python3 rebuild_token_registry.py --write
+def _same_did(listed, did):
+    # the quorum list holds bare DIDs today; tolerate a "<peer>.<did>" address
+    return listed == did or str(listed).split(".")[-1] == did
+
+
+def _only_did(port, what, timeout):
+    ok, dids, note = get_dids(FAUCET_HOST, port, timeout)
+    if not ok:
+        return None, "{} node {}:{} did not answer: {}".format(what, FAUCET_HOST, port, note)
+    if len(dids) != 1:
+        return None, "{} node {}:{} holds {} DIDs, expected exactly 1".format(
+            what, FAUCET_HOST, port, len(dids))
+    return dids[0], ""
+
+
+def faucet_ready(timeout=DEFAULT_TIMEOUT):
+    """(ok, note). Reads both faucet DIDs from their nodes, then checks the
+    faucet node has the faucet quorum as its one and only quorum."""
+    global FAUCET_DID, FAUCET_QUORUM_DID
+    faucet, note = _only_did(FAUCET_PORT, "faucet", timeout)
+    if not faucet:
+        return False, note
+    quorum, note = _only_did(FAUCET_QUORUM_PORT, "faucet quorum", timeout)
+    if not quorum:
+        return False, note
+    FAUCET_DID, FAUCET_QUORUM_DID = faucet, quorum
+    ok, quorums, note = get_quorums(FAUCET_HOST, FAUCET_PORT, timeout)
+    if not ok:
+        return False, "faucet node {}:{} did not answer: {}".format(FAUCET_HOST, FAUCET_PORT, note)
+    if len(quorums) != 1 or not _same_did(quorums[0], FAUCET_QUORUM_DID):
+        return False, ("faucet node {}:{} must have exactly one quorum registered, the "
+                       "faucet quorum {}... (port {}); it has {}".format(
+                           FAUCET_HOST, FAUCET_PORT, FAUCET_QUORUM_DID[:16],
+                           FAUCET_QUORUM_PORT, [str(q)[-16:] for q in quorums] or "none"))
+    ok, detail, note = get_rbt_balance_detail(FAUCET_HOST, FAUCET_DID, FAUCET_PORT, timeout)
+    if not ok or not detail:
+        return False, "cannot read the faucet balance: {}".format(note)
+    return True, "faucet holds {:.3f} RBT free".format(detail["balance"])
+
+
+def _whole(amount):
+    """Funding is always whole RBT.
+
+    A fractional payout forces the faucet to split, and a part token spent by a
+    second holder can fail the minter-allowlist genesis lookup (the fix is not
+    in the deployed branch). The faucet only ever hands out whole tokens it
+    minted itself, so every funded wallet starts first-hand and clean; a case
+    that needs parts builds them deliberately.
     """
-    if os.path.exists(registry_path):
-        with open(registry_path, encoding="utf-8") as fh:
-            state = json.load(fh)
-        next_index = state.get("next_index")
-        if not isinstance(next_index, int) or next_index < TOKEN_INDEX_SEED:
-            sys.exit(
-                "ERROR: {} has no usable next_index ({!r}).\n"
-                "       Rebuild it from the fleet:  python3 rebuild_token_registry.py --write"
-                .format(registry_path, next_index))
-    else:
-        sys.exit(
-            "ERROR: token index registry not found at\n"
-            "         {}\n"
-            "       This file is the ONLY record of which local-RBT indices the fleet has\n"
-            "       already minted. Starting over from the seed would re-issue indices that\n"
-            "       already exist, and every mint would fail with\n"
-            "         'PersistGenesisTokenRecord: token <id> already exists'.\n"
-            "\n"
-            "       Rebuild it by reading the high-water mark off the fleet:\n"
-            "         python3 rebuild_token_registry.py            # inspect first\n"
-            "         python3 rebuild_token_registry.py --write    # then write it\n"
-            "\n"
-            "       (If the repo layout moved recently, the old registry may still exist at\n"
-            "        the previous path - rebuilding is safer than copying it.)"
-            .format(registry_path))
-
-    start = next_index
-    with open(registry_path, "w", encoding="utf-8") as fh:
-        json.dump({"next_index": start + count,
-                   "last_allocated_at": datetime.datetime.now().isoformat(timespec="seconds")}, fh, indent=2)
-    return start
+    n = int(amount)
+    return n + 1 if amount > n else max(n, 1)
 
 
 def fund_did(host, did, amount, port=DEFAULT_PORT, timeout=None):
-    """Mint local RBT for a DID, using a fleet-wide-unique index range (see
-    allocate_token_index_range above - never start_index=0 here).
+    """Transfer at least `amount` RBT (whole tokens) from the faucet to `did`.
 
-    TIMEOUT MATTERS: minting is one token per unit in a server-side loop
-    (~15s per 1000). If the HTTP call times out the SERVER KEEPS MINTING -
-    the client just stops listening. Tokens then keep landing during later
-    work, corrupting any balance assertion that follows. So the timeout is
-    scaled to the amount rather than left at the default.
-
-    Returns (status, message)."""
-    n = int(amount)
-    if timeout is None:
-        # ~15s per 1000 tokens, plus generous headroom, floor at the default.
-        timeout = max(SIGNATURE_TIMEOUT, int(n * 0.05) + 30)
-    start_index = allocate_token_index_range(n)
-    body = {"did": did, "number_of_tokens": n, "start_index": start_index}
-    status, message, _ = signed_action(host, EP_GENERATE_LOCAL_RBT, body, port, timeout)
-    return status, message
+    Returns (status, message). Waits until the receiver's free balance shows
+    the credit, so a caller can assert on the balance straight after.
+    """
+    n = _whole(amount)
+    with _FAUCET_LOCK:
+        ok, note = faucet_ready()
+        if not ok:
+            return False, note
+        if did in (FAUCET_DID, FAUCET_QUORUM_DID):
+            return False, "refusing to fund the faucet or its quorum from the faucet"
+        sent = 0
+        while sent < n:
+            chunk = min(FAUCET_CHUNK, n - sent)
+            ok0, detail0, _ = get_rbt_balance_detail(host, did, port)
+            before = detail0["balance"] if ok0 and detail0 else 0.0
+            ok, msg, _ = initiate_transaction(
+                FAUCET_HOST, FAUCET_DID, did, rbt=float(chunk),
+                memo="faucet {} RBT".format(chunk), port=FAUCET_PORT,
+                timeout=timeout or transfer_timeout(chunk))
+            # The receiver credits 1-2s after the sender returns, longer for a
+            # big chunk. Wait on the receiver whatever the faucet answered: a
+            # client timeout does not stop the node, and a transfer that went
+            # through anyway must not be sent a second time.
+            credited, _now = wait_for_balance(host, did, before + chunk - TOLERANCE,
+                                              port, attempts=15 + chunk // 100, delay=2)
+            if not credited:
+                return False, ("faucet transfer of {} RBT to {}... {} (sent {} of {} "
+                               "so far)".format(chunk, did[:16],
+                                                "rejected: {}".format(msg) if not ok
+                                                else "reported success but the "
+                                                "receiver was never credited",
+                                                sent, n))
+            sent += chunk
+    return True, "received {} RBT from the faucet".format(n)
 
 
 def quorum_setup(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
@@ -626,6 +676,29 @@ def quorum_add(host, quorum_did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
     return status, message
 
 
+def quorum_reset(host, quorum_dids, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Make `quorum_dids` the node's whole quorum list, in that order.
+
+    A transfer is signed by the FIRST quorum in the node's list
+    (quorumAddresses[0], core/transaction.go), and the list is read with no
+    ORDER BY (core/wallet/quorum.go). Emptying it first (remove_all truncates
+    quorum_manager) and adding one quorum makes the signer certain rather than
+    whichever row Postgres returns first. The list is per NODE: every DID on
+    the node now uses it. Returns (ok, message)."""
+    ok, payload = http_json("GET", base_url(host, port) + EP_QUORUM_REMOVE_ALL, timeout)
+    if not ok or not isinstance(payload, dict) or not payload.get("status"):
+        return False, "remove_all failed on {}: {}".format(host, payload)
+    for did in quorum_dids:
+        ok, msg = quorum_add(host, did, port, timeout)
+        if not ok:
+            return False, "add {}... on {} failed: {}".format(did[:16], host, msg)
+    ok, listed, note = get_quorums(host, port, timeout)
+    if not ok or [str(q).split(".")[-1] for q in listed] != list(quorum_dids):
+        return False, "quorum list on {} is {} after reset, expected {}".format(
+            host, listed if ok else note, [d[:16] for d in quorum_dids])
+    return True, "quorum list set to {}".format([d[:16] for d in quorum_dids])
+
+
 def get_quorums(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
     ok, payload = http_json("GET", base_url(host, port) + EP_QUORUM_LIST, timeout)
     if not ok:
@@ -644,7 +717,7 @@ def announce_did(host, did, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
 
 def initiate_transaction(sender_host, initiator_did, receiver_did, rbt=None, ft=None,
                           nft=None, smart_contract=None, transfer_nft_ownership=False,
-                          memo="", port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
+                          memo="", port=DEFAULT_PORT, timeout=None):
     """
     Fire a transaction from sender_host. One body shape covers RBT/FT/NFT/SC
     and any combination (types/models/transaction_info.go TransactionRequest).
@@ -663,8 +736,12 @@ def initiate_transaction(sender_host, initiator_did, receiver_did, rbt=None, ft=
     NFT-only execute regardless of what's passed here, so this case is
     forgiving; transfers are not.
 
+    With no timeout given, it is scaled to the RBT value (transfer_timeout).
+
     Returns (status, message, result).
     """
+    if timeout is None:
+        timeout = transfer_timeout(rbt)
     tokens = {"rbt": rbt or 0, "transferNftOwnership": transfer_nft_ownership}
     if ft:
         tokens["ft"] = ft
