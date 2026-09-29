@@ -464,6 +464,15 @@ def get_nft_parent(host, nft_id, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
     return True, (payload.get("result") if isinstance(payload, dict) else None), ""
 
 
+def _subscribe_result(payload):
+    """(ok, message) for a subscribe call. "already subscribed" counts as ok:
+    the node is subscribed, which is the state every caller wants. Without
+    this, each case's second (with-delay) pass re-subscribes to the same topic
+    and fails (SC-S-03/SC-S-04, 2026-09-28)."""
+    msg = payload.get("message", "")
+    return bool(payload.get("status")) or "already subscribed" in msg, msg
+
+
 def subscribe_nft(host, nft_id, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
     """Subscribe so this node can execute an NFT it does not own.
 
@@ -474,7 +483,7 @@ def subscribe_nft(host, nft_id, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
     ok, payload = http_json("GET", base_url(host, port) + EP_NFT_SUBSCRIBE.format(nft=nft_id), timeout)
     if not ok:
         return False, payload
-    return bool(payload.get("status")), payload.get("message", "")
+    return _subscribe_result(payload)
 
 
 def list_smart_contracts(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
@@ -489,7 +498,7 @@ def subscribe_smart_contract(host, sc_id, port=DEFAULT_PORT, timeout=SIGNATURE_T
     ok, payload = http_json("GET", base_url(host, port) + EP_SC_SUBSCRIBE.format(sc=sc_id), timeout)
     if not ok:
         return False, payload
-    return bool(payload.get("status")), payload.get("message", "")
+    return _subscribe_result(payload)
 
 
 def register_sc_callback(host, sc_id, callback_url, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
@@ -646,6 +655,24 @@ def get_rbt_balance(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
     if not ok:
         return False, None, note
     return True, detail["balance"], ""
+
+
+def get_rbt_held(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
+    """Free + locked + pledged RBT, rounded to 3dp (Rubix's precision, 0.001
+    minimum): everything the DID owns that it has not spent, committed or
+    burnt. Returns (ok, held_or_None, note).
+
+    Use this, not the free balance, to measure what an operation SPENT or
+    GAINED. A DID that has ever been a quorum holds pledged tokens, and they
+    turn free only when the tokens they backed are spent again by someone else
+    (CallBackQuorumUnpledge, core/callback.go) - at any moment, from outside
+    the case. That moves pledged -> free and leaves this total unchanged, but
+    makes a free-balance delta wrong (SC-C-13 "cost -9.0", RBT-N-15 "not
+    conserved", 2026-09-28)."""
+    ok, detail, note = get_rbt_balance_detail(host, did, port, timeout)
+    if not ok:
+        return False, None, note
+    return True, round(detail["balance"] + detail["locked"] + detail["pledged"], 3), ""
 
 
 # ---------------------------------------------------------------------------
@@ -1042,10 +1069,16 @@ def close_enough(a, b, tol=0.0015):
 
 def wait_for_balance(host, did, min_amount, port=DEFAULT_PORT, attempts=10, delay=2):
     """Poll RBT balance until it clears min_amount or attempts run out.
-    Minting is asynchronous relative to when the signature call returns."""
+    Minting is asynchronous relative to when the signature call returns.
+
+    Both sides are rounded to 3dp (Rubix's precision, 0.001 minimum): callers
+    pass `before + amount`, and float addition overshoots (58.829 + 6 ==
+    64.82900000000001), so an exact credit of 64.829 would never "clear" and a
+    correct transfer reads as uncredited (RBT-N-11, 2026-09-28)."""
+    min_amount = round(min_amount, 3)
     for _ in range(attempts):
         ok, bal, _ = get_rbt_balance(host, did, port)
-        if ok and bal is not None and bal >= min_amount:
+        if ok and bal is not None and round(bal, 3) >= min_amount:
             return True, bal
         time.sleep(delay)
     ok, bal, _ = get_rbt_balance(host, did, port)

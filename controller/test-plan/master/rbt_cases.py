@@ -124,8 +124,29 @@ MALFORMED_DID = "not-a-valid-did"
 # helpers
 # ---------------------------------------------------------------------------
 def _rbt_bal(host, did, port):
+    """FREE balance - what a DID can spend now. Use for funding decisions."""
     ok, b, _ = rc.get_rbt_balance(host, did, port)
     return b if ok and b is not None else 0.0
+
+
+def _rbt_held(entry, port):
+    """Free + locked + pledged, 3dp - use for spent/gained deltas. A former
+    quorum's pledges turn free at any moment (rc.get_rbt_held), which breaks a
+    free-balance delta but not this one."""
+    ok, h, _ = rc.get_rbt_held(entry["host"], entry["did"], port)
+    return h if ok and h is not None else 0.0
+
+
+def _wait_held(entry, target, port, attempts=10, delay=2):
+    """Poll until the held total reaches `target` (3dp). Returns (reached, held)."""
+    target = round(target, 3)
+    held = _rbt_held(entry, port)
+    for _ in range(attempts):
+        if held >= target:
+            return True, held
+        time.sleep(delay)
+        held = _rbt_held(entry, port)
+    return held >= target, held
 
 
 def _ensure_funded(ctx, entry, need):
@@ -253,13 +274,13 @@ def _expect_success(ctx, s, r, amount, memo="catalogue"):
     ok, note = _prepare_sender(ctx, s, amount)
     if not ok:
         return False, "precondition not met", note
-    s0 = _rbt_bal(s["host"], s["did"], ctx.port)
-    r0 = _rbt_bal(r["host"], r["did"], ctx.port)
+    s0 = _rbt_held(s, ctx.port)
+    r0 = _rbt_held(r, ctx.port)
     status, msg = _transfer(ctx, s, r, amount, memo)
     if not status:
         return False, "rejected", msg
-    credited, r1 = rc.wait_for_balance(r["host"], r["did"], r0 + amount, ctx.port)
-    s1 = _rbt_bal(s["host"], s["did"], ctx.port)
+    credited, r1 = _wait_held(r, r0 + amount, ctx.port)
+    s1 = _rbt_held(s, ctx.port)
     if credited and rc.close_enough(s1, s0 - amount):
         return True, "sender {}->{}  receiver {}->{}".format(s0, s1, r0, r1), ""
     if credited:
@@ -321,7 +342,8 @@ def rbt_v_11(ctx, ci):
     PASS / FAIL
         Records a limit - PASS means the ladder ran. The Actual column gives
         the largest value that worked and the time per rung. A rung that fails
-        stops the ladder and its reason is in the note.
+        stops the ladder and its reason is in the note. FAIL if even the first
+        rung (1 RBT) fails - that measures no limit, it is a broken transfer.
     """
     s, r = ctx.pair(9)
     ceiling = float(_scale(ctx, "value_ceiling", 5000))
@@ -340,7 +362,7 @@ def rbt_v_11(ctx, ci):
             failure = "failed at {}: {} {}".format(amount, actual, note)
             break
         largest = amount
-    return True, "largest value that worked: {} RBT".format(largest), \
+    return largest > 0, "largest value that worked: {} RBT".format(largest), \
         "{} | {}".format(", ".join(rungs), failure or "ladder not exhausted "
                          "(--value-ceiling {})".format(int(ceiling)))
 
@@ -821,7 +843,8 @@ def rbt_q_13(ctx, ci):
 
     PASS / FAIL
         Records timings - PASS means it ran. A refusal is recorded with the
-        count of successes before it.
+        count of successes before it. FAIL if the first transfer is refused:
+        nothing was back to back yet, so it is not a quorum-busy limit.
     """
     s, r = ctx.pair(4)
     n = 20
@@ -834,7 +857,7 @@ def rbt_q_13(ctx, ci):
         status, msg = _transfer(ctx, s, r, 1, "RBT-Q-13")
         timings.append(round(time.time() - t0, 2))
         if not status:
-            return True, "quorum refused a back-to-back transfer after {} successes".format(
+            return len(timings) > 1, "quorum refused a back-to-back transfer after {} successes".format(
                 len(timings) - 1), "timings {}s; msg: {}".format(timings, (msg or "")[:100])
     return True, "{} back-to-back transfers all accepted; per-transfer {}s".format(n, timings), \
         "no interval found at which the quorum refused"
@@ -984,12 +1007,12 @@ def rbt_n_10(ctx, ci):
     ok, note = _prepare_sender(ctx, s, n + 2)
     if not ok:
         return False, "precondition not met", note
-    s0 = _rbt_bal(s["host"], s["did"], ctx.port)
+    s0 = _rbt_held(s, ctx.port)
     fns = [(lambda: _transfer(ctx, s, r, 1, "RBT-N-10")) for _ in range(n)]
     results = _parallel(fns)
     ok_n = sum(1 for status, _m in results if status)
     time.sleep(3)
-    s1 = _rbt_bal(s["host"], s["did"], ctx.port)
+    s1 = _rbt_held(s, ctx.port)
     spent = round(s0 - s1, 3)
     if rc.close_enough(spent, float(ok_n)):
         return True, "{}/{} succeeded; sender spent exactly {} ({} -> {})".format(
@@ -1026,11 +1049,11 @@ def rbt_n_11(ctx, ci):
     senders = [e for e in ctx.senders + ctx.receivers[1:] if e["did"] != target["did"]]
     for s in senders:
         _prepare_sender(ctx, s, 2)
-    r0 = _rbt_bal(target["host"], target["did"], ctx.port)
+    r0 = _rbt_held(target, ctx.port)
     fns = [(lambda s=s: _transfer(ctx, s, target, 1, "RBT-N-11")) for s in senders]
     results = _parallel(fns)
     ok_n = sum(1 for status, _m in results if status)
-    credited, r1 = rc.wait_for_balance(target["host"], target["did"], r0 + ok_n, ctx.port)
+    credited, r1 = _wait_held(target, r0 + ok_n, ctx.port)
     got = round(r1 - r0, 3)
     if credited and rc.close_enough(got, float(ok_n)):
         return True, "{}/{} succeeded; receiver gained exactly {} ({} -> {})".format(
@@ -1190,7 +1213,7 @@ def rbt_n_15(ctx, ci):
     for s, _r in ctx.pairs:
         _prepare_sender(ctx, s, 2)
     time.sleep(2)
-    before = sum(_rbt_bal(e["host"], e["did"], ctx.port) for e in everyone)
+    before = sum(_rbt_held(e, ctx.port) for e in everyone)
 
     pairs = ctx.pairs
     fns = [(lambda s=s, r=r: _transfer(ctx, s, r, 1, "RBT-N-15")) for s, r in pairs]
@@ -1202,7 +1225,7 @@ def rbt_n_15(ctx, ci):
     detail = "; ".join((m or "")[:60] for status, m in results if not status)[:200]
 
     time.sleep(5)
-    after = sum(_rbt_bal(e["host"], e["did"], ctx.port) for e in everyone)
+    after = sum(_rbt_held(e, ctx.port) for e in everyone)
     conserved = rc.close_enough(round(before, 3), round(after, 3), tol=0.01)
     msg = "{}/{} succeeded in {}s; fleet total {} -> {}".format(
         ok, usable, elapsed, round(before, 3), round(after, 3))

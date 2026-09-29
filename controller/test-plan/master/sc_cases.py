@@ -114,6 +114,16 @@ def _sc_bal(ctx, entry):
     return detail if ok else None
 
 
+def _held_drop(before, after):
+    """RBT that left free + locked + pledged between two _sc_bal readings, 3dp
+    (None if either is missing) - see _deploy_and_measure for why not free."""
+    if not (before and after):
+        return None
+    def held(d):
+        return d["balance"] + d["locked"] + d["pledged"]
+    return round(held(before) - held(after), 3)
+
+
 def _sc_prepare(ctx, entry, need):
     """Give `entry` a registered quorum and enough free RBT. Returns (ok, why).
 
@@ -150,8 +160,10 @@ def _sc_prepare(ctx, entry, need):
 def _deploy_and_measure(ctx, entry, value):
     """Deploy one contract at `value` and return (spent, sc_id, error).
 
-    `spent` is the drop in FREE balance across the deploy - which is the number
-    the collateral cases are actually about.
+    `spent` is the drop in free + locked + pledged across the deploy, 3dp -
+    i.e. what moved into Committed. Not the free balance alone: a former
+    quorum's pledges turn free at any moment (rc.get_rbt_held), which made
+    SC-C-13 report costs like -9.0 on 2026-09-28.
     """
     sc_id, err = _sc_new_contract(ctx, entry)
     if err:
@@ -170,7 +182,7 @@ def _deploy_and_measure(ctx, entry, value):
     after = _sc_bal(ctx, entry)
     if after is None:
         return None, sc_id, "balance unreadable after deploy"
-    return (before["balance"] - after["balance"]), sc_id, None
+    return _held_drop(before, after), sc_id, None
 
 
 # ---------------------------------------------------------------------------
@@ -663,7 +675,7 @@ def sc_c_19(ctx, ci):
 
     time.sleep(SETTLE)
     after = _sc_bal(ctx, s)
-    spent = (before["balance"] - after["balance"]) if after else None
+    spent = _held_drop(before, after)
     done = rounds - len(failures) if not failures else len(values) - len(failures)
     expected = sum(values[:done]) if failures else sum(values)
 
@@ -1547,7 +1559,7 @@ def sc_c_12(ctx, ci):
 
     failed = [(v, m, secs) for v, ok, m, secs in outcomes if not ok]
     ok_values = [v for v, ok, _m, _s in outcomes if ok]
-    spent = (before["balance"] - after["balance"]) if (before and after) else None
+    spent = _held_drop(before, after)
     expected = sum(ok_values)
 
     problems = []
@@ -2515,7 +2527,7 @@ def sc_c_29(ctx, ci):
     import json as _json
     blob = _json.dumps(listed)
     present = sum(1 for e in entries if e["smartContractId"] in blob)
-    spent = (bal_before["balance"] - bal_after["balance"]) if (bal_before and bal_after) else None
+    spent = _held_drop(bal_before, bal_after)
     expected = sum(values)
 
     problems = []

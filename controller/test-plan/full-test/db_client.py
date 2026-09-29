@@ -140,6 +140,12 @@ def available():
 # Passed as libpq options at connect time. The server then rejects any write
 # on this session, so read-only does not depend on this file staying careful.
 READ_ONLY_OPTS = "-c default_transaction_read_only=on"
+# The writable connection says "off" explicitly rather than leaving it unset.
+# Unset, it inherits PGOPTIONS from the shell (the docstring above recommends
+# exporting read-only there) or a role default, and every DB-SEED write then
+# fails with "cannot execute ... in a read-only transaction" - which is what
+# FT-DB-04 and SC-DB-03 hit on 2026-09-28.
+WRITABLE_OPTS = "-c default_transaction_read_only=off"
 
 
 def _connect(host, port=DB_PORT, read_only=True):
@@ -150,9 +156,8 @@ def _connect(host, port=DB_PORT, read_only=True):
     """
     psycopg2 = _driver()
     kwargs = dict(host=host, port=port, dbname=DB_NAME, user=DB_USER,
-                  password=DB_PASSWORD, connect_timeout=CONNECT_TIMEOUT)
-    if read_only:
-        kwargs["options"] = READ_ONLY_OPTS
+                  password=DB_PASSWORD, connect_timeout=CONNECT_TIMEOUT,
+                  options=READ_ONLY_OPTS if read_only else WRITABLE_OPTS)
     try:
         return psycopg2.connect(**kwargs)
     except Exception as e:
