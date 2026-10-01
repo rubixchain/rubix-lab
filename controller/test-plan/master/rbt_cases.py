@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import random
+import re
 import string
 import sys
 import time
@@ -541,7 +542,8 @@ def rbt_s_02(ctx, ci):
         SKIP until written.
     """
     return SKIP, "not attempted", (
-        "KNOWN OPEN BUG (see CLAUDE.md: split-token duplicate key). Reproducing it "
+        "KNOWN OPEN BUG: split-token duplicate key (core/wallet/persist_genesis_tx.go, "
+        "child INSERT lacks ON CONFLICT). Reproducing it "
         "requires flipping a parent token's Burnt status directly in Postgres - a "
         "DB-SEED fixture, which is deferred (needs psycopg2 + per-node credentials). "
         "Expected outcome when run: duplicate key on tokens_pkey.")
@@ -593,7 +595,10 @@ def _concurrent_transfers(ctx, n_senders, amount=1, memo="RBT-conc"):
     usable = min(n_senders, len(ctx.pairs))
     pairs = ctx.pairs[:usable]
     for s, _r in pairs:
-        _prepare_sender(ctx, s, amount + 1)
+        ok, note = _prepare_sender(ctx, s, amount + 1)
+        if not ok:
+            # a lab problem - must not be counted as a refused transfer
+            raise RuntimeError("precondition not met for sender {}: {}".format(s["host"], note))
     fns = [(lambda s=s, r=r: _transfer(ctx, s, r, amount, memo)) for s, r in pairs]
     t0 = time.time()
     results = _parallel(fns)
@@ -970,8 +975,21 @@ def rbt_n_01(ctx, ci):
         return True, ("exactly one of two competing full-balance transfers succeeded "
                       "(sender {} -> {})".format(held, final)), ""
     if wins == 0:
+        # "current balance X" in each refusal is what that request could still
+        # lock. If they add up to the whole balance, the two requests split the
+        # wallet between them and each came up short - no double spend, but
+        # neither could win (seen 2026-09-29: 211.323 + 6.85 = 218.173).
+        seen = [float(x) for _s, m in results
+                for x in re.findall(r"current balance ([0-9.]+)", m or "")]
+        if len(seen) == 2 and abs(sum(seen) - held) <= 0.002:
+            return False, "both rejected - the two requests split the wallet", (
+                "each locked part of the {} balance ({} + {}) and found too little "
+                "for the full amount. No double spend, but neither transfer could "
+                "win: the token collection does not let one request take the whole "
+                "wallet when another arrives at the same moment".format(
+                    held, seen[0], seen[1]))
         return False, "both competing transfers were rejected", \
-            "; ".join((m or "")[:80] for _s, m in results)
+            "; ".join((m or "")[:200] for _s, m in results)
     return False, "DOUBLE SPEND: both transfers succeeded", \
         "sender held {} and spent it twice; final balance {}".format(held, final)
 
@@ -1048,7 +1066,9 @@ def rbt_n_11(ctx, ci):
     target = ctx.receivers[0]
     senders = [e for e in ctx.senders + ctx.receivers[1:] if e["did"] != target["did"]]
     for s in senders:
-        _prepare_sender(ctx, s, 2)
+        ok, note = _prepare_sender(ctx, s, 2)
+        if not ok:
+            return False, "precondition not met", note
     r0 = _rbt_held(target, ctx.port)
     fns = [(lambda s=s: _transfer(ctx, s, target, 1, "RBT-N-11")) for s in senders]
     results = _parallel(fns)
@@ -1087,8 +1107,10 @@ def rbt_n_12(ctx, ci):
         FAIL  either was rejected or hung
     """
     a, b = ctx.pair(8)
-    _prepare_sender(ctx, a, 2)
-    _prepare_sender(ctx, b, 2)
+    for e in (a, b):
+        ok, note = _prepare_sender(ctx, e, 2)
+        if not ok:
+            return False, "precondition not met", note
     a0 = _rbt_bal(a["host"], a["did"], ctx.port)
     b0 = _rbt_bal(b["host"], b["did"], ctx.port)
     fns = [
@@ -1168,7 +1190,9 @@ def rbt_n_14(ctx, ci):
     """
     pairs = ctx.pairs[:6]
     for s, _r in pairs:
-        _prepare_sender(ctx, s, 12)
+        ok, note = _prepare_sender(ctx, s, 12)
+        if not ok:
+            return False, "precondition not met", note
     fns = []
     for i, (s, r) in enumerate(pairs):
         amt = 10 if i % 2 == 0 else 0.001
@@ -1181,8 +1205,13 @@ def rbt_n_14(ctx, ci):
     if small_ok == small_n and large_ok == large_n:
         return True, "all settled: {}/{} small, {}/{} large".format(
             small_ok, small_n, large_ok, large_n), ""
+    # Say why each failed, not a guess: on 2026-09-29 this note claimed the
+    # small ones were starved when it was the LARGE ones refused, all by the
+    # ex-quorum ownership bug.
+    why = sorted(set("{} RBT: {}".format(amt, (m or "")[:160])
+                     for amt, (st, m) in results if not st))
     return False, "not all settled: {}/{} small, {}/{} large".format(
-        small_ok, small_n, large_ok, large_n), "small transfers may be starved by large ones"
+        small_ok, small_n, large_ok, large_n), "; ".join(why)
 
 
 def rbt_n_15(ctx, ci):
@@ -1211,7 +1240,9 @@ def rbt_n_15(ctx, ci):
     """
     everyone = ctx.senders + ctx.receivers
     for s, _r in ctx.pairs:
-        _prepare_sender(ctx, s, 2)
+        ok, note = _prepare_sender(ctx, s, 2)
+        if not ok:
+            return False, "precondition not met", note
     time.sleep(2)
     before = sum(_rbt_held(e, ctx.port) for e in everyone)
 

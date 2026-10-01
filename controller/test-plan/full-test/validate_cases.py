@@ -154,6 +154,7 @@ def install_stubs():
         "host": host, "did": did, "tokens": {}, "chain_len": {}, "denom": {},
         "totals": {"free": 500.0, "locked": 0.0, "committed": 0.0,
                    "burnt_for_ft": 0.0, "burnt": 0.0, "pledged": 0.0}}
+    db.ex_pledged_free_value = lambda host, did, *a, **k: 0.0
     rc.create_smart_contract = rec("create_smart_contract", (True, "ok", "SC" + "a" * 44))
     rc.create_nft = rec("create_nft", (True, "ok", "Qm" + "b" * 44))
     rc.sc_transaction = rec("sc_transaction", (True, "ok", {}))

@@ -135,18 +135,49 @@ def role_labels(unit):
 
 
 def plain(text, labels):
-    """Replace IP addresses in a case's own wording with the role they played."""
+    """Replace a participant's IP address in a case's own wording with the role
+    it played. Hosts that are not participants keep their address: a fleet-wide
+    case (GEN-IN-15 and the like) has no roles, and the host IS the finding."""
     text = text or ""
     for host in sorted(labels, key=len, reverse=True):
-        text = text.replace(host, "the " + labels[host])
-    return re.sub(r"\b192\.168\.\d+\.\d+\b", "another node", text)
+        # "quorum 192.168.1.5" -> "the quorum", not "quorum the quorum"
+        text = re.sub(r"\b(?:the\s+)?(?:quorum|sender|receiver)s?\s+" + re.escape(host) + r"\b",
+                      "the " + labels[host], text)
+        text = re.sub(re.escape(host) + r"\b", "the " + labels[host], text)
+    return text
+
+
+# Refusals with a known cause in the product, recognised by their text so a
+# case's note says what they are instead of each run rediscovering them.
+KNOWN_PRODUCT_BUGS = (
+    # Matched on the start of the phrase so a message cut short still counts.
+    ("failed to get quorum DID for t",
+     "the sender was a quorum earlier and is spending a token it pledged then; core "
+     "looks that token up in the CURRENT transaction's pledges instead of the pledge "
+     "transaction (core/consensus/checks.go:308, FindDIDByTokenID(txnInfo.Quorums ...)), "
+     "so it always refuses. A product bug, not a capacity limit"),
+)
+
+
+def known_bug_refusals(ops):
+    """{explanation: count} for refused operations whose message is a known bug."""
+    out = {}
+    for o in ops:
+        if o.get("kind") != "tx" or o.get("status"):
+            continue
+        for marker, words in KNOWN_PRODUCT_BUGS:
+            if marker in (o.get("message") or ""):
+                out[words] = out.get(words, 0) + 1
+    return out
 
 
 def explain_fullnode_reason(reason):
     """A rejection reason in a few plain words."""
     r = reason or ""
     if "chain mismatch" in r or "TokenChainIntigrityCheck" in r:
-        return "previous-transaction mismatch (the fullnode's copy of the token's history was behind)"
+        return "prev-txn mismatch, fullnode behind"
+    if "marked unpledged but not found" in r:
+        return "unpledged token not in its pledge txn"
     if "signature" in r.lower():
         return "signature check failed"
     if "minter" in r.lower() or "allowlist" in r.lower():
@@ -216,6 +247,9 @@ def finish(tid, unit, state, result):
     tx_ok = [o for o in tx if o["status"]]
     funding = [o for o in tx_ok if o["initiator"] not in dids]
     host_role = dict((h, labels.get(h, h)) for h in set(host_of.values()))
+    known = known_bug_refusals(tx)
+    if known:
+        evidence["known_bug_refusals"] = known
 
     # persisted
     no_id = [o for o in tx_ok if not o["txid"]]
@@ -300,15 +334,20 @@ def finish(tid, unit, state, result):
             " incl. {} faucet top-up(s)".format(len(funding)) if funding else "",
             "all went through" if not refused else
             "{} went through, {} refused".format(len(tx_ok), refused)))
+        for why, n in known.items():
+            words.append("KNOWN PRODUCT BUG behind {} of the refusals: {}".format(n, why))
     for c in checks:
         if c["check"] in ("persisted", "conserved", "no_locks", "rows_valid", "fullnode", "db"):
             words.append(c["detail"])
-    summary = "Database: " + "; ".join(words) + "." if words else ""
+    # The full sentence goes to the evidence file; the report shows the short
+    # DB / Fullnode columns (short_db, short_fullnode) and keeps Note for the
+    # case's own words.
+    evidence["db_summary"] = "Database: " + "; ".join(words) + "." if words else ""
     if failed and passed is True:
         passed = False
         actual = (actual or "") + " - but the database check failed: " + \
             "; ".join(c["detail"] for c in failed)
-    return done(summary)
+    return done()
 
 
 def fullnode_outcome(txids, wait=None):
@@ -453,6 +492,101 @@ def compare_runs(without, with_):
     return rows, counts, text
 
 
+# ---------------------------------------------------------------------------
+# Short report columns
+# ---------------------------------------------------------------------------
+
+def _runs(evidence):
+    """[(mode label, run evidence)] - one run, or the two of a combined case."""
+    runs = evidence.get("runs")
+    if runs:
+        return [("w/o delay" if r.get("mode") == "without delay" else "with delay", r)
+                for r in runs]
+    return [("", evidence)]
+
+
+def short_db(evidence):
+    """The DB column: "ok", or which checks failed, per mode when they differ."""
+    out = []
+    for label, run in _runs(evidence):
+        checks = [c for c in run.get("checks", []) if c.get("check") != "fullnode"]
+        bad = [c for c in checks if c.get("ok") is False]
+        unread = [c for c in checks if c.get("ok") is None and c.get("check") == "db"
+                  and "no participants" not in c.get("detail", "")]
+        if not checks or all(c.get("check") == "db" and "no participants" in c.get("detail", "")
+                             for c in checks):
+            text = "-"
+        elif bad:
+            text = "; ".join("{}: {}".format(c["check"], c["detail"]) for c in bad)
+        elif unread:
+            text = "incomplete: " + unread[0]["detail"]
+        else:
+            text = "ok"
+        out.append((label, text))
+    if len(set(t for _l, t in out)) == 1:
+        return out[0][1]
+    return " | ".join("{}: {}".format(l, t) for l, t in out)
+
+
+def short_fullnode(evidence):
+    """The Fullnode column: accepted / rejected (why) / not seen, per mode."""
+    out = []
+    for label, run in _runs(evidence):
+        fn = [c for c in run.get("checks", []) if c.get("check") == "fullnode"]
+        if not fn:
+            continue
+        c = fn[0]
+        st = c.get("status") or {}
+        if not st:
+            out.append((label, c.get("detail", "")))
+            continue
+        acc = sum(1 for v in st.values() if v == "accepted")
+        rej = c.get("rejected") or {}
+        unseen = sum(1 for v in st.values() if v == "not seen")
+        bits = ["{}/{} accepted".format(acc, len(st))]
+        if rej:
+            bits.append("{} rejected ({})".format(
+                len(rej), "; ".join(sorted(set(explain_fullnode_reason(r) for r in rej.values())))))
+        if unseen:
+            bits.append("{} not seen in {}s".format(unseen, FULLNODE_WAIT))
+        out.append((label, ", ".join(bits)))
+    if not out:
+        return "-"
+    if len(out) == 1 or len(set(t for _l, t in out)) == 1:
+        text = out[0][1]
+    else:
+        text = " | ".join("{}: {}".format(l, t) for l, t in out)
+    counts = (evidence.get("fullnode_comparison") or {}).get("counts") or {}
+    if counts.get("only_with_delay"):
+        text += " | {} accepted only WITH delay (fullnode falls behind)".format(
+            counts["only_with_delay"])
+    if counts.get("only_without_delay"):
+        text += " | {} accepted only without delay".format(counts["only_without_delay"])
+    # A "with delay" result only means something for transfers that really
+    # waited for the fullnode.
+    for _label, run in _runs(evidence):
+        if run.get("mode") != "with delay":
+            continue
+        paced_ops = [o for o in run.get("operations", []) if o.get("pacing")]
+        unpaced = [o for o in paced_ops if o["pacing"] in ("timed out", "gave up")]
+        if unpaced:
+            text += " | {} of {} 'with delay' transfers NOT really paced (fullnode >{}s behind)".format(
+                len(unpaced), len(paced_ops), rc.PACE_TIMEOUT)
+    return text
+
+
+def short_known_bugs(evidence):
+    """One line for refusals with a known product cause, or ""."""
+    n = 0
+    for _label, run in _runs(evidence):
+        n += sum((run.get("known_bug_refusals") or {}).values())
+    if not n:
+        return ""
+    return ("KNOWN PRODUCT BUG behind {} refusal(s): the sender had been a quorum and "
+            "core cannot spend tokens it pledged (checks.go:308) - not a lab error, "
+            "not a capacity limit.".format(n))
+
+
 def _status(result):
     passed = result[0]
     if isinstance(passed, str) and passed == "SKIP":
@@ -471,8 +605,13 @@ def combine(tid, r_without, e_without, r_with, e_with):
         passed = s1 != "FAIL" and s2 != "FAIL"
     actual = "Without delay: {} {}. With delay: {} {}.".format(
         s1, r_without[1] or "", s2, r_with[1] or "")
-    note = "{} || WITHOUT DELAY - {} || WITH DELAY - {}".format(
-        text, r_without[2] or "", r_with[2] or "")
+    # The case's own words only; the fullnode comparison has its own column.
+    n1, n2 = (r_without[2] or "").strip(), (r_with[2] or "").strip()
+    if n1 == n2:
+        note = n1
+    else:
+        note = " | ".join(p_ for p_ in ("Without delay: " + n1 if n1 else "",
+                                         "With delay: " + n2 if n2 else "") if p_)
     for e, mode in ((e_without, "without delay"), (e_with, "with delay")):
         e["mode"] = mode
         for c in e.get("checks", []):

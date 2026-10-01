@@ -32,22 +32,41 @@ import json
 # Relative column widths. Narrow columns stay narrow (Test ID, Status,
 # Seconds); the text-heavy ones get the remaining space.
 MAIN_COLS = [
-    ("Test ID", 0.085),
-    ("Test Case", 0.235),
-    ("Expected", 0.165),
-    ("Status", 0.055),
-    ("Actual", 0.235),
-    ("Note", 0.185),
-    ("Sec", 0.040),
+    ("Test ID", 0.065),
+    ("Test Case", 0.150),
+    ("Expected", 0.110),
+    ("Status", 0.045),
+    ("Actual", 0.195),
+    ("Note", 0.180),
+    ("DB check", 0.110),
+    ("Fullnode", 0.115),
+    ("Sec", 0.030),
 ]
 
 FAIL_COLS = [
-    ("Test ID", 0.085),
-    ("Test Case", 0.235),
-    ("Expected", 0.185),
-    ("Actual", 0.245),
-    ("Note", 0.250),
+    ("Test ID", 0.065),
+    ("Test Case", 0.150),
+    ("Expected", 0.115),
+    ("Actual", 0.210),
+    ("Note", 0.230),
+    ("DB check", 0.110),
+    ("Fullnode", 0.120),
 ]
+
+# Notes longer than this are cut in the PDF; the JSON keeps every word.
+NOTE_LIMIT = 400
+
+
+def _short(text, limit=NOTE_LIMIT):
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + " ... (full note in the JSON report)"
+
+
+def _esc(text):
+    """reportlab Paragraph reads <, > and & as markup."""
+    return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 TIMING_COLS = [
     ("Test ID", 0.095),
@@ -197,8 +216,10 @@ def build_pdf(path, title, meta, rows, timing_ids):
                 Paragraph(r["test_id"], cell),
                 Paragraph(r.get("case", ""), cell),
                 Paragraph(r.get("expected", ""), cell),
-                Paragraph(r.get("actual", ""), cell),
-                Paragraph(r.get("note", ""), cell_small),
+                Paragraph(_esc(r.get("actual", "")), cell),
+                Paragraph(_esc(_short(r.get("note", ""))), cell_small),
+                Paragraph(_esc(r.get("db", "-")), cell_small),
+                Paragraph(_esc(r.get("fullnode", "-")), cell_small),
             ])
         t = Table(data, colWidths=[page_w * w for _h, w in FAIL_COLS], repeatRows=1)
         t.setStyle(TableStyle([
@@ -264,8 +285,10 @@ def _results_table(rows, cols, page_w, hdr, cell, cell_small, colors, Table, Tab
             Paragraph(r.get("expected", ""), cell),
             Paragraph('<font color="{}"><b>{}</b></font>'.format(
                 status_colour.get(st, "#000000"), st), cell),
-            Paragraph(r.get("actual", ""), cell),
-            Paragraph(r.get("note", ""), cell_small),
+            Paragraph(_esc(r.get("actual", "")), cell),
+            Paragraph(_esc(_short(r.get("note", ""))), cell_small),
+            Paragraph(_esc(r.get("db", "-")), cell_small),
+            Paragraph(_esc(r.get("fullnode", "-")), cell_small),
             Paragraph(str(r.get("seconds", "")), cell),
         ])
         if st == "FAIL":

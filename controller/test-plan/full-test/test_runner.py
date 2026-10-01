@@ -281,6 +281,7 @@ class Unit(object):
         self.quorums, self.senders, self.receivers = [], [], []
         self.hosts = set()
         self.rows = []              # (test_id, result_tuple, seconds, CaseInfo)
+        self.dirty_spenders = []    # senders/receivers holding ex-pledged tokens
 
     @property
     def wants_all(self):
@@ -359,6 +360,24 @@ def _free_balances(entries, port):
         return dict(ex.map(one, entries))
 
 
+def _ex_pledged(entries):
+    """{did: free RBT held in tokens it pledged as a quorum earlier} - see
+    db.ex_pledged_free_value. Unreadable counts as 0.001 so a DID we cannot
+    check sorts after the clean ones but before the known-bad ones."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(e):
+        try:
+            return e["did"], db.ex_pledged_free_value(e["host"], e["did"])
+        except Exception:
+            return e["did"], 0.001
+
+    if not entries:
+        return {}
+    with ThreadPoolExecutor(max_workers=min(20, len(entries))) as ex:
+        return dict(ex.map(one, entries))
+
+
 def fits(unit, free_nodes, pool_nodes):
     """(fits_now, possible_ever, why_not)."""
     s = unit.spec
@@ -382,7 +401,17 @@ def fits(unit, free_nodes, pool_nodes):
 def allocate(unit, free_nodes, port):
     """Pick this unit's DIDs from the free nodes. Quorums first, then senders
     (the DIDs holding the most, so the faucet is drawn on least), then
-    receivers (the ones holding least, so value spreads out)."""
+    receivers (the ones holding least, so value spreads out).
+
+    Ex-pledged tokens decide first. A DID that was a quorum holds tokens whose
+    last chain entry is "unpledge", and the product refuses to let it spend
+    them (known bug, core/consensus/checks.go:308). Quorums are topped up to
+    the quorum floor, so those DIDs are also the RICHEST - and "richest sends"
+    put them in the sender seat, which is why 2-node shared-quorum cases failed
+    on 2026-09-29 when the same transfers by hand would not. So: DIDs holding
+    ex-pledged tokens are preferred as QUORUMS (pledging them is fine), and
+    DIDs without them are preferred as senders and receivers (receivers send
+    too, in chains and round trips). That also keeps clean DIDs clean."""
     s = unit.spec
     if not unit.needs_nodes:
         return
@@ -404,15 +433,29 @@ def allocate(unit, free_nodes, port):
         for e in entries:
             if e["host"] not in best or bal[e["did"]] > bal[best[e["host"]]["did"]]:
                 best[e["host"]] = e
-        cands = sorted(best.values(), key=lambda e: -bal[e["did"]])
+        taint = _ex_pledged(list(best.values()))
+        dirty = lambda e: taint.get(e["did"], 0.0) > 0
         if s["quorum_pick"] == "poorest":
-            unit.quorums = sorted(cands, key=lambda e: bal[e["did"]])[:s["quorums"]]
+            unit.quorums = sorted(best.values(),
+                                  key=lambda e: (not dirty(e), bal[e["did"]]))[:s["quorums"]]
         else:
-            unit.quorums = cands[:s["quorums"]]
-        rest = [e for e in cands if e not in unit.quorums]
+            unit.quorums = sorted(best.values(),
+                                  key=lambda e: (not dirty(e), -bal[e["did"]]))[:s["quorums"]]
+        rest = sorted((e for e in best.values() if e not in unit.quorums),
+                      key=lambda e: (dirty(e), -bal[e["did"]]))
         n_send = len(rest) - s["receivers"] if unit.wants_all else s["senders"]
-        unit.senders = rest[:n_send]
-        unit.receivers = sorted(rest[n_send:], key=lambda e: bal[e["did"]])[:s["receivers"]]
+        if unit.wants_all:
+            # every node sends; receivers are the poorest of the clean ones
+            unit.receivers = sorted(rest, key=lambda e: (dirty(e), bal[e["did"]]))[:s["receivers"]]
+            unit.senders = [e for e in rest if e not in unit.receivers]
+        else:
+            unit.senders = rest[:n_send]
+            unit.receivers = sorted(rest[n_send:],
+                                    key=lambda e: (dirty(e), bal[e["did"]]))[:s["receivers"]]
+        # Said in the run output: a refusal naming "failed to get quorum DID"
+        # from these is the known bug, not the case.
+        unit.dirty_spenders = ["{} ({:.3f} RBT)".format(e["host"].split(".")[-1], taint[e["did"]])
+                               for e in unit.senders + unit.receivers if dirty(e)]
     unit.hosts = {e["host"] for e in unit.quorums + unit.senders + unit.receivers}
 
 
@@ -504,6 +547,10 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
         unit.ctx = CaseContext(args.port, unit.quorums, unit.senders, receivers,
                                sender_quorum, args, fleet=fleet)
         say("  -> {:<22} {}".format(unit.name, unit.describe()))
+        if unit.dirty_spenders:
+            say("     note: not enough clean nodes free - {} hold(s) tokens pledged as a "
+                "quorum earlier; their 'failed to get quorum DID' refusals are the "
+                "known product bug".format(", ".join(unit.dirty_spenders)))
         _run_cases(unit)
 
     def _run_once(unit, tid, ci, paced):
@@ -515,6 +562,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
         state = case_evidence.begin(unit)
         try:
             if paced:
+                rc.reset_pacing(*(unit.quorums + unit.senders + unit.receivers))
                 result = cases_map[tid](unit.ctx, ci)
             else:
                 with rc.unpaced(*(unit.quorums + unit.senders + unit.receivers)):
@@ -725,8 +773,10 @@ class CatalogueReport:
     def __init__(self):
         self.rows = []
 
-    def add(self, ci, result, elapsed, db_checks=None):
-        """Record a result produced by a unit, without re-running it."""
+    def add(self, ci, result, elapsed, evidence=None):
+        """Record a result produced by a unit, without re-running it. The DB
+        and fullnode readings get their own short columns so Note stays the
+        case's own reason; the full readings are in the evidence file."""
         passed, actual, note = result
         if isinstance(passed, str) and passed == SKIP:
             status = "SKIP"
@@ -734,10 +784,15 @@ class CatalogueReport:
             status = "PASS"
         else:
             status = "FAIL"
+        evidence = evidence or {}
+        known = case_evidence.short_known_bugs(evidence)
         self.rows.append({
             "test_id": ci.test_id, "case": ci.case, "expected": ci.expected,
-            "status": status, "actual": actual, "note": note,
-            "seconds": elapsed, "db_checks": db_checks or [],
+            "status": status, "actual": actual,
+            "note": (known + " " + (note or "")).strip() if known else (note or ""),
+            "db": case_evidence.short_db(evidence) if evidence else "-",
+            "fullnode": case_evidence.short_fullnode(evidence) if evidence else "-",
+            "seconds": elapsed, "db_checks": evidence.get("checks", []),
         })
         return status
 
@@ -972,11 +1027,11 @@ def main():
     for u in units:
         for tid, result, elapsed, ci in u.rows:
             by_id[tid] = (ci, result, elapsed)
-    checks_by_id = dict((e["case"], e.get("checks", [])) for e in CASE_EVIDENCE)
+    evidence_by_id = dict((e["case"], e) for e in CASE_EVIDENCE)
     for tid in order:
         if tid in by_id:
             ci, result, elapsed = by_id[tid]
-            report.add(ci, result, elapsed, checks_by_id.get(tid, []))
+            report.add(ci, result, elapsed, evidence_by_id.get(tid))
 
     # Which DIDs each unit actually used. Without this a finding can only be
     # traced back to a machine while the terminal scrollback is still open.
@@ -1052,7 +1107,9 @@ def main():
         for c in e.get("checks", []):
             for _tid, r in (c.get("rejected") or {}).items():
                 # IDs differ per transaction; mask them so the same failure groups.
-                key = re.sub(r"bafy\w+|[0-9a-f]{16,}|\d+_\d+(_\d+)?", "<id>",
+                # Contract/NFT IDs are base58 "Qm..." hashes.
+                key = re.sub(r"bafy\w+|Qm[1-9A-HJ-NP-Za-km-z]{44}|[0-9a-f]{16,}|\b\d+_\d+(_\d+)?\b",
+                             "<id>",
                              (r or "").replace("failed to validate transaction:", "")).strip()[:160]
                 reasons.setdefault(key, set()).add(e["case"])
     if reasons:
@@ -1060,6 +1117,24 @@ def main():
         print("Fullnode rejections this run:")
         for r, cases in sorted(reasons.items(), key=lambda kv: -len(kv[1])):
             print("  {} case(s): {}  <- {}".format(len(cases), r, ", ".join(sorted(cases))))
+
+    # Refusals with a known product cause (case_evidence.KNOWN_PRODUCT_BUGS):
+    # the cases they touched, so a ladder "limit" or a FAIL they caused is not
+    # read as a new finding or used as a baseline.
+    known = {}
+    for e in CASE_EVIDENCE:
+        for run in [e] + e.get("runs", []):
+            for why, n in (run.get("known_bug_refusals") or {}).items():
+                known.setdefault(why, {})
+                known[why][e["case"]] = known[why].get(e["case"], 0) + n
+    if known:
+        print()
+        print("Known product bugs behind refusals this run (not new findings - do not baseline):")
+        for why, cases in known.items():
+            print("  {} refusal(s) in {}".format(
+                sum(cases.values()),
+                ", ".join("{} ({})".format(c, n) for c, n in sorted(cases.items()))))
+            print("    {}".format(why))
 
     timing_ids = set(getattr(module, "TIMING_CASES", set()))
     print()

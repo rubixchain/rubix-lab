@@ -2312,6 +2312,11 @@ def sc_x_05(ctx, ci):
 # SC-C-27
 # ---------------------------------------------------------------------------
 
+# {deployer DID: {token_id: value}} - the tokens a REJECTED SC-C-27 deploy left
+# Committed. Read by SC-C-31, which runs right after SC-C-27 on the same host.
+_C27_REJECTED = {}
+
+
 def sc_c_27(ctx, ci):
     """
     SC-C-27 - Force a failure AFTER the collateral split has committed.
@@ -2366,24 +2371,50 @@ def sc_c_27(ctx, ci):
     if q is None:
         return SKIP, "no quorum", "cannot out-pledge a quorum that is not known"
 
+    def _quorum_ceiling():
+        # The quorum pledges only Free tokens (core/pledge_v2.go:96), but a
+        # former quorum keeps releasing old pledges back to Free for minutes -
+        # on 2026-09-29 this quorum went 99 -> 209 -> 319 free during the case
+        # and the "unpledgeable" deploy went through. So out-pledge Free AND
+        # Pledged: that is the most it could have free when the pledge runs.
+        free_ = db.value_in_status(q["host"], q["did"], db.FREE)
+        return free_, free_ + db.pledged_value(q["host"], q["did"])
+
     try:
-        q_free = db.value_in_status(q["host"], q["did"], db.FREE)
+        q_free, ceiling = _quorum_ceiling()
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
 
     # The value must exceed what the quorum can pledge but sit within the
     # wallet, so the split succeeds and only the pledge fails.
-    value = round(q_free + 25.0, 3)
+    value = round(ceiling + 25.0, 3)
+    if value > 5000:
+        return SKIP, "quorum too rich to out-pledge", (
+            "quorum {} could pledge up to {:.0f} (free + pledged); out-pledging it "
+            "needs more than the 5,000 RBT a case may use".format(q["host"], ceiling))
     need = value + 10
     ready, why = _sc_prepare(ctx, s, need)
     if not ready:
         return SKIP, "could not fund above the quorum", (
-            "needs {:.0f} RBT to out-pledge quorum {} ({:.0f} free): {}".format(
-                need, q["host"], q_free, why))
+            "needs {:.0f} RBT to out-pledge quorum {} ({:.0f} free + pledged): {}".format(
+                need, q["host"], ceiling, why))
+
+    # Funding takes time and pledges may have been released meanwhile -
+    # re-read right before the deploy and give up rather than guess.
+    try:
+        q_free, ceiling_now = _quorum_ceiling()
+    except db.DBUnavailable as e:
+        return SKIP, "database unreachable", str(e)
+    if ceiling_now >= value:
+        return SKIP, "quorum grew past the probe value", (
+            "quorum {} can now pledge {:.3f} (free + pledged), at or above the "
+            "{:.3f} deploy - it would not fail the pledge".format(q["host"], ceiling_now, value))
 
     before = _sc_bal(ctx, s)
     try:
         locked_before = db.count_in_status(s["host"], s["did"], db.LOCKED)
+        committed_ids_before = set(t for t, _v, _st, _p in
+                                   db.token_rows(s["host"], s["did"], db.COMMITTED))
         snap_before = db.record("SC-C-27", "before", s["host"], s["did"],
                                 db.snapshot(s["host"], s["did"]))
     except db.DBUnavailable as e:
@@ -2401,6 +2432,7 @@ def sc_c_27(ctx, ci):
     try:
         locked_after = db.count_in_status(s["host"], s["did"], db.LOCKED)
         locked_rows = db.token_rows(s["host"], s["did"], db.LOCKED)
+        committed_rows_after = db.token_rows(s["host"], s["did"], db.COMMITTED)
         snap_after = db.record("SC-C-27", "after", s["host"], s["did"],
                                db.snapshot(s["host"], s["did"]))
     except db.DBUnavailable as e:
@@ -2409,8 +2441,14 @@ def sc_c_27(ctx, ci):
     if ok:
         return SKIP, "quorum pledged after all", (
             "the {:.3f} deploy succeeded, so the pledge did not fail and the "
-            "post-split path was never reached. Quorum had {:.0f} free - it may "
-            "have been topped up by another lane".format(value, q_free))
+            "post-split path was never reached. Quorum had {:.0f} free just "
+            "before it".format(value, q_free))
+
+    # Hand SC-C-31 the exact tokens THIS rejection moved into Committed, so it
+    # watches those and not the collateral of contracts that deployed fine
+    # (including a later SC-C-27 run whose deploy succeeds).
+    _C27_REJECTED.setdefault(s["did"], {}).update(
+        (t, v) for t, v, _st, _p in committed_rows_after if t not in committed_ids_before)
 
     problems = []
     stranded = locked_after - locked_before
@@ -2747,16 +2785,34 @@ def sc_c_31(ctx, ci):
         3. Also count contracts - a rejected deploy must not have created one:
              SELECT COUNT(*) FROM smart_contracts WHERE deployer_did='<DID>';
 
+    WHAT IT WATCHES
+        Only the Committed RBT that SC-C-27's REJECTED deploy(s) added on this
+        DID (handed over in _C27_REJECTED). The host's total Committed also
+        holds the collateral of every contract that deployed fine - that is
+        meant to stay, so reading the total alone made this case FAIL on
+        2026-09-29 when SC-C-27 had not been rejected at all.
+
     PASS / FAIL
-        PASS  committed FELL over the window - the value is being released and
-              SC-C-27 is a timing artefact, not a loss
-        FAIL  committed is unchanged - it is terminal, and the pre-pass
-              loses it on every rejected deploy
-        SKIP  the host holds no committed RBT (SC-C-27 did not run first)
+        PASS  committed FELL by what the rejection stranded - the value is
+              being released and SC-C-27 is a timing artefact, not a loss
+        PASS  the rejection committed nothing - nothing to lose
+        FAIL  the stranded value is still Committed - it is terminal, and the
+              pre-pass loses it on every rejected deploy
+        SKIP  SC-C-27 produced no rejected deploy on this DID this run
     """
     if not db.available():
         return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
     s, _ = ctx.pair(0)
+
+    rejected = _C27_REJECTED.pop(s["did"], [])
+    if not rejected:
+        return SKIP, "SC-C-27 produced no rejected deploy", (
+            "nothing to watch: SC-C-27 skipped or its deploy went through, so no "
+            "collateral was committed by a rejection on this DID")
+    stranded = round(sum(v for v in rejected if v > 0), 4)
+    if stranded <= TOL:
+        return True, "rejected deploy(s) committed nothing ({})".format(
+            ", ".join("{:+.4f}".format(v) for v in rejected)), ""
 
     # Long enough that "still settling" is not a credible explanation. The
     # measured fleet timing is 1-2s for a receiver to credit and ~15s for a
@@ -2768,11 +2824,6 @@ def sc_c_31(ctx, ci):
         first = db.snapshot(s["host"], s["did"])
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
-    if first["committed"] < 1.0:
-        return SKIP, "no committed RBT to observe", (
-            "this host holds {:.3f} committed - SC-C-27 either did not run "
-            "first or did not strand anything, so there is nothing to watch "
-            "for release".format(first["committed"]))
 
     time.sleep(window)
 
@@ -2788,19 +2839,20 @@ def sc_c_31(ctx, ci):
         return SKIP, "database unreachable", str(e)
 
     released = first["committed"] - second["committed"]
+    ok = released >= stranded - TOL
     note = ""
-    if released <= TOL:
-        note = ("{:.3f} RBT is still Committed {}s after the rejection and has "
-                "not moved. Committed is terminal - there is no path back to "
-                "Free - so this value is permanently lost, for a deploy that "
-                "was REJECTED. The collateral pre-pass commits before "
+    if not ok:
+        note = ("the rejected deploy(s) moved {:.3f} RBT into Committed and only "
+                "{:.3f} came back in {}s. Committed is terminal - there is no path "
+                "back to Free - so the rest is permanently lost, for a deploy "
+                "that was REJECTED. The collateral pre-pass commits before "
                 "consensus and does not unwind on failure".format(
-                    second["committed"], window))
+                    stranded, max(released, 0.0), window))
         if contracts >= 0:
-            note += "; the host holds {} contract(s) to account for it".format(contracts)
+            note += "; the host holds {} contract(s)".format(contracts)
 
-    return (released > TOL), "committed {:.3f} -> {:.3f} over {}s (released {:.3f})".format(
-        first["committed"], second["committed"], window, released), note
+    return ok, "rejection stranded {:.3f}; committed {:.3f} -> {:.3f} over {}s (released {:.3f})".format(
+        stranded, first["committed"], second["committed"], window, released), note
 
 
 # ---------------------------------------------------------------------------

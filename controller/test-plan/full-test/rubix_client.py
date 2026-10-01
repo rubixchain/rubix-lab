@@ -158,11 +158,27 @@ _OPS_LOCK = threading.Lock()
 # ---------------------------------------------------------------------------
 
 FULLNODE_HOST = ""          # set by test_runner from hosts.txt (role fullnode)
-PACE_TIMEOUT = 15           # longest wait for one previous transaction, seconds
+PACE_TIMEOUT = 60           # longest wait for one previous transaction, seconds
+PACE_MISSES = 3             # timeouts in a row before a DID stops being paced
 _LAST_TX = {}               # did -> txid of the last successful tx it took part in
 _IN_FLIGHT = {}             # did -> transactions it has started and not finished
-_PACE = {"off": False, "misses": 0}
+# "off" only when the fullnode database cannot be read at all. A SLOW fullnode
+# no longer switches pacing off for the whole run: on 2026-09-29 three slow
+# answers did that mid-run, and every later "with delay" run silently had no
+# delay. Now a DID that times out PACE_MISSES times in a row is left unpaced
+# until reset_pacing() (the runner calls it before each paced run), and every
+# operation records whether it really was paced.
+_PACE = {"off": False}
+_MISSES = {}                # did -> timeouts in a row
 _UNPACED = set()            # DIDs a case has taken out of pacing (see unpaced())
+
+
+def reset_pacing(*entries_or_dids):
+    """Forget these DIDs' timeouts - a new paced run starts with them paced.
+    Per DID, so units running at the same time are unaffected."""
+    with _OPS_LOCK:
+        for e in entries_or_dids:
+            _MISSES.pop(e["did"] if isinstance(e, dict) else e, None)
 
 
 class unpaced(object):
@@ -196,33 +212,33 @@ def _fullnode_has(txid):
 
 def _pace(did):
     """Wait until the fullnode has processed `did`'s last transaction.
-    Returns the seconds waited."""
+    Returns (seconds waited, pacing state): "" (not a paced call), "paced",
+    "timed out" (waited PACE_TIMEOUT and went anyway) or "gave up" (this DID
+    timed out PACE_MISSES times in a row in this run - sent without waiting)."""
     if not FULLNODE_HOST or _PACE["off"] or not did or did in _UNPACED:
-        return 0.0
+        return 0.0, ""
     txid = _LAST_TX.get(did)
     if not txid:
-        return 0.0
+        return 0.0, "paced"
+    if _MISSES.get(did, 0) >= PACE_MISSES:
+        return 0.0, "gave up"
     started = time.time()
     while time.time() - started < PACE_TIMEOUT:
         try:
             if _fullnode_has(txid):
-                _PACE["misses"] = 0
-                return round(time.time() - started, 2)
+                _MISSES[did] = 0
+                return round(time.time() - started, 2), "paced"
         except Exception as e:
             _PACE["off"] = True
             print("  [pacing] fullnode database not readable ({}: {}) - pacing off".format(
                 type(e).__name__, e))
-            return round(time.time() - started, 2)
+            return round(time.time() - started, 2), "gave up"
         time.sleep(0.5)
-    _PACE["misses"] += 1
-    if _PACE["misses"] >= 3:
-        _PACE["off"] = True
-        print("  [pacing] the fullnode has not recorded 3 transactions in a row within "
-              "{}s - pacing off".format(PACE_TIMEOUT))
-    return round(time.time() - started, 2)
+    _MISSES[did] = _MISSES.get(did, 0) + 1
+    return round(time.time() - started, 2), "timed out"
 
 
-def _log_op(host, action_path, body, status, message, result, waited=0.0):
+def _log_op(host, action_path, body, status, message, result, waited=0.0, pacing=""):
     if action_path not in (EP_TRANSACTION, EP_FT_MINT):
         return
     body = body or {}
@@ -241,9 +257,13 @@ def _log_op(host, action_path, body, status, message, result, waited=0.0):
         "rbt": rbt,
         "assets": sorted(k for k in ("ft", "nft", "smartContract") if tokens.get(k)),
         "status": bool(status),
-        "message": str(message or "")[:200],
+        # Long enough for the node's own reason: at 200 the wrapper ("peer
+        # request failed: status=400 body={...") ate it and the refusal could
+        # not be classified (case_evidence.KNOWN_PRODUCT_BUGS).
+        "message": str(message or "")[:1000],
         "txid": txid or "",
         "waited_for_fullnode": waited,
+        "pacing": pacing,
     }
     with _OPS_LOCK:
         OPS.append(entry)
@@ -258,7 +278,7 @@ def signed_action(host, action_path, body, port=DEFAULT_PORT, timeout=SIGNATURE_
     POST an action that needs the password-challenge round trip.
     Returns (status: bool, message: str, result: any).
     """
-    waited = 0.0
+    waited, pacing = 0.0, ""
     initiator = body.get("initiator") if (action_path == EP_TRANSACTION and body) else None
     if initiator:
         # A call from a DID that already has a transaction in flight is part of
@@ -266,7 +286,9 @@ def signed_action(host, action_path, body, port=DEFAULT_PORT, timeout=SIGNATURE_
         with _OPS_LOCK:
             joining = _IN_FLIGHT.get(initiator, 0) > 0
         if not joining:
-            waited = _pace(initiator)
+            waited, pacing = _pace(initiator)
+        elif initiator not in _UNPACED and FULLNODE_HOST:
+            pacing = "paced"        # part of a burst whose first call waited
         with _OPS_LOCK:
             _IN_FLIGHT[initiator] = _IN_FLIGHT.get(initiator, 0) + 1
     try:
@@ -275,7 +297,7 @@ def signed_action(host, action_path, body, port=DEFAULT_PORT, timeout=SIGNATURE_
         if initiator:
             with _OPS_LOCK:
                 _IN_FLIGHT[initiator] -= 1
-    _log_op(host, action_path, body, status, message, result, waited)
+    _log_op(host, action_path, body, status, message, result, waited, pacing)
     return status, message, result
 
 

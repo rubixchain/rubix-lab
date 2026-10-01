@@ -182,6 +182,30 @@ def query(host, sql, params=None, port=DB_PORT):
         conn.close()
 
 
+def query_snapshot(host, statements, port=DB_PORT):
+    """Run several SELECTs inside ONE read-only REPEATABLE READ transaction and
+    return [rows, ...] in the same order.
+
+    Every statement sees the same moment of the database. Separate query()
+    calls do not: a node releasing pledges in the background (a former quorum
+    does this for minutes) moves tokens between the calls, and the readings
+    then disagree with each other - which is how SC-S-03 once reported +1.000
+    RBT from nowhere and a token_denom mismatch that were both just timing.
+    """
+    conn = _connect(host, port, read_only=True)
+    try:
+        conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
+        out = []
+        with conn.cursor() as cur:
+            for sql, params in statements:
+                cur.execute(sql, params or ())
+                out.append(cur.fetchall())
+        conn.rollback()
+        return out
+    finally:
+        conn.close()
+
+
 def writable_query(host, sql, params=None, port=DB_PORT,
                    i_understand_this_writes=False):
     """Run a statement that CHANGES DATA. For DB-SEED cases only.
@@ -438,6 +462,29 @@ def pledged_value(host, did, port=DB_PORT):
     return float(rows[0][0]) if rows else 0.0
 
 
+def ex_pledged_free_value(host, did, port=DB_PORT):
+    """Free RBT this DID holds in tokens whose LATEST chain entry is "unpledge" -
+    tokens it pledged as a quorum and got back.
+
+    The product cannot spend these: the quorum's ownership check looks such a
+    token up in the current transaction's pledges instead of the pledge
+    transaction (core/consensus/checks.go:308) and always refuses with "failed
+    to get quorum DID for token". The runner uses this to keep such DIDs out of
+    the sender seat, so a case measures what it was written for rather than
+    tripping over that bug on whichever DID was a quorum earlier.
+    """
+    rows = query(
+        host,
+        "SELECT COALESCE(SUM(t.token_value), 0) FROM tokens t "
+        "JOIN LATERAL (SELECT c.role FROM tokenchain c WHERE c.token_id = t.token_id "
+        "              ORDER BY c.position DESC LIMIT 1) lc ON TRUE "
+        "WHERE t.did = %s AND t.token_type = %s AND t.token_status = %s "
+        # token_role ids follow models.TokenRoleTypes order; 9 = unpledge
+        "  AND lc.role = COALESCE((SELECT id FROM token_role WHERE name = 'unpledge'), 9)",
+        (did, TYPE_RBT, FREE), port)
+    return float(rows[0][0]) if rows else 0.0
+
+
 def open_pledges(host, port=DB_PORT):
     """tx_ids in unpledge_sequence_info with no matching transactions row.
 
@@ -587,36 +634,40 @@ def _denom_ok(value):
 def capture(host, did, port=DB_PORT, token_type=TYPE_RBT):
     """Every row describing one DID's wallet, plus the chain length per token.
 
-    Three queries, not one per token: a 50,000-token wallet would otherwise
+    Four queries, not one per token: a 50,000-token wallet would otherwise
     need 50,000 round trips and the case would time out before asserting
-    anything.
+    anything. All four run in one snapshot (query_snapshot), so the rows, the
+    pledged total and token_denom describe the same moment.
     """
+    token_rows_, chain_rows_, pledged_rows, denom_rows = query_snapshot(host, [
+        ("SELECT token_id, token_value, token_status, parent_token_id "
+         "FROM tokens WHERE did = %s AND token_type = %s", (did, token_type)),
+        ("SELECT tc.token_id, COUNT(*) FROM tokenchain tc "
+         "JOIN tokens t ON t.token_id = tc.token_id "
+         "WHERE t.did = %s AND t.token_type = %s GROUP BY tc.token_id", (did, token_type)),
+        # the same query pledged_value() runs
+        ("SELECT COALESCE(SUM(token_value), 0) FROM tokens "
+         "WHERE did = %s AND token_status IN (%s, %s) AND token_type = %s",
+         (did, PLEDGED, QUORUM_PLEDGED, TYPE_RBT)),
+        # the same query denom_counter() runs
+        ("SELECT denom, count FROM token_denom WHERE did = %s", (did,)),
+    ], port)
+
     tokens = {}
-    for tid, val, status, parent in query(
-            host,
-            "SELECT token_id, token_value, token_status, parent_token_id "
-            "FROM tokens WHERE did = %s AND token_type = %s",
-            (did, token_type), port):
+    for tid, val, status, parent in token_rows_:
         tokens[tid] = {"value": float(val), "status": int(status), "parent": parent}
 
-    chain_len = {}
-    for tid, n in query(
-            host,
-            "SELECT tc.token_id, COUNT(*) FROM tokenchain tc "
-            "JOIN tokens t ON t.token_id = tc.token_id "
-            "WHERE t.did = %s AND t.token_type = %s GROUP BY tc.token_id",
-            (did, token_type), port):
-        chain_len[tid] = int(n)
+    chain_len = dict((tid, int(n)) for tid, n in chain_rows_)
 
     totals = {}
     for name, st in (("free", FREE), ("locked", LOCKED), ("committed", COMMITTED),
                      ("burnt_for_ft", BURNT_FOR_FT), ("burnt", BURNT)):
         totals[name] = round(sum(t["value"] for t in tokens.values()
                                  if t["status"] == st), 6)
-    totals["pledged"] = pledged_value(host, did, port)
+    totals["pledged"] = float(pledged_rows[0][0]) if pledged_rows else 0.0
 
     return {"host": host, "did": did, "tokens": tokens, "chain_len": chain_len,
-            "denom": denom_counter(host, did, port), "totals": totals}
+            "denom": {float(d): int(c) for d, c in denom_rows}, "totals": totals}
 
 
 def diff(before, after):
