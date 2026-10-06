@@ -6,6 +6,7 @@ master-catalogue.csv; this file is the code.
 """
 
 from concurrent.futures import ThreadPoolExecutor
+import collections
 import json
 import os
 import random
@@ -26,6 +27,7 @@ from case_helpers import (
     SKIP,
     TOL,
     _sc_new_contract,
+    node_reason as _node_reason,
     rand_value,
 )
 
@@ -1826,7 +1828,7 @@ def sc_x_01(ctx, ci):
         if ok:
             done += 1
         else:
-            rejected.append((i, str(msg)[:60]))
+            rejected.append((i, _node_reason(msg)))
         if i % checkpoint == 0 and first_drift is None:
             time.sleep(2)
             try:
@@ -1844,8 +1846,13 @@ def sc_x_01(ctx, ci):
     drift = db.new_drift(start, end)
     d = db.delta(start, end)
 
-    spent = -d["free"]
-    expected = sum(values[:done]) if done < total else sum(values)
+    # Free + pledged, so old pledges returning to Free on a former quorum do
+    # not read as spending. And the expected total is the values of the deploys
+    # that WENT THROUGH: refusals land anywhere in the run, so "the first N
+    # values" (what this summed before) invented a 0.097 gap on 2026-10-01.
+    spent = -(d["free"] + d["pledged"])
+    refused_at = set(i for i, _m in rejected)
+    expected = sum(v for i, v in enumerate(values, 1) if i not in refused_at)
     value_gap = abs(spent - expected)
 
     problems = []
@@ -1862,8 +1869,11 @@ def sc_x_01(ctx, ci):
 
     note = "; ".join(problems)
     if rejected and not problems:
-        note = "{} deploy(s) rejected under load (capacity, not correctness); " \
-               "first: {}".format(len(rejected), rejected[0][1])
+        # Name the reason: on 2026-10-01 these were all the minter-allowlist
+        # refusal, which "under load" would have hidden.
+        reasons = collections.Counter(m[:160] for _i, m in rejected)
+        note = "{} deploy(s) refused: {}".format(len(rejected), "; ".join(
+            "{}x {}".format(n, m) for m, n in reasons.most_common(3)))
 
     return (not problems), "{}/{} deployed, spent {:.3f}, counter {}".format(
         done, total, spent, "ok" if not drift else "DRIFT"), note
@@ -2804,55 +2814,48 @@ def sc_c_31(ctx, ci):
         return SKIP, "database driver missing", "sudo apt install -y python3-psycopg2"
     s, _ = ctx.pair(0)
 
-    rejected = _C27_REJECTED.pop(s["did"], [])
-    if not rejected:
+    # Present (even empty) = SC-C-27 got a rejection on this DID. An EMPTY
+    # entry means the rejection committed nothing - on 2026-10-01 that case
+    # was skipped here as "no rejection", which hid a genuine pass.
+    if s["did"] not in _C27_REJECTED:
         return SKIP, "SC-C-27 produced no rejected deploy", (
             "nothing to watch: SC-C-27 skipped or its deploy went through, so no "
             "collateral was committed by a rejection on this DID")
-    stranded = round(sum(v for v in rejected if v > 0), 4)
-    if stranded <= TOL:
-        return True, "rejected deploy(s) committed nothing ({})".format(
-            ", ".join("{:+.4f}".format(v) for v in rejected)), ""
+    stranded = _C27_REJECTED.pop(s["did"])      # {token_id: value}
+    if not stranded:
+        return True, "the rejected deploy committed nothing - no collateral to lose", ""
+    stranded_value = round(sum(stranded.values()), 4)
 
     # Long enough that "still settling" is not a credible explanation. The
     # measured fleet timing is 1-2s for a receiver to credit and ~15s for a
     # node restart, so two minutes is an order of magnitude past anything
     # normal.
     window = 120
-
-    try:
-        first = db.snapshot(s["host"], s["did"])
-    except db.DBUnavailable as e:
-        return SKIP, "database unreachable", str(e)
-
     time.sleep(window)
 
+    # Follow the exact tokens the rejection committed. The DID's total
+    # Committed cannot be used: a later successful deploy (SC-C-27 runs again
+    # with delay) adds collateral that is meant to stay.
     try:
-        second = db.record("SC-C-31", "after-wait", s["host"], s["did"],
-                           db.snapshot(s["host"], s["did"]))
-        # token_type 4 is a smart contract - the same count GEN-IN-22 uses.
-        rows = db.query(s["host"],
-                        "SELECT COUNT(*) FROM tokens WHERE token_type = %s",
-                        (db.TYPE_SC,))
-        contracts = int(rows[0][0]) if rows else -1
+        still = dict((t, v) for t, v, _st, _p in
+                     db.token_rows(s["host"], s["did"], db.COMMITTED) if t in stranded)
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
 
-    released = first["committed"] - second["committed"]
-    ok = released >= stranded - TOL
+    still_value = round(sum(still.values()), 4)
+    released = round(stranded_value - still_value, 4)
+    ok = still_value <= TOL
     note = ""
     if not ok:
-        note = ("the rejected deploy(s) moved {:.3f} RBT into Committed and only "
-                "{:.3f} came back in {}s. Committed is terminal - there is no path "
-                "back to Free - so the rest is permanently lost, for a deploy "
-                "that was REJECTED. The collateral pre-pass commits before "
-                "consensus and does not unwind on failure".format(
-                    stranded, max(released, 0.0), window))
-        if contracts >= 0:
-            note += "; the host holds {} contract(s)".format(contracts)
+        note = ("the rejected deploy moved {:.3f} RBT ({} token(s)) into Committed and "
+                "{:.3f} of it is still there after {}s. Committed is terminal - there is "
+                "no path back to Free - so that value is lost, for a deploy that was "
+                "REJECTED: the collateral pre-pass commits before consensus and does "
+                "not unwind on failure".format(stranded_value, len(stranded),
+                                               still_value, window))
 
-    return ok, "rejection stranded {:.3f}; committed {:.3f} -> {:.3f} over {}s (released {:.3f})".format(
-        stranded, first["committed"], second["committed"], window, released), note
+    return ok, "rejection committed {:.3f} in {} token(s); {:.3f} released, {:.3f} still Committed after {}s".format(
+        stranded_value, len(stranded), released, still_value, window), note
 
 
 # ---------------------------------------------------------------------------

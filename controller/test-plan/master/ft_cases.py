@@ -665,9 +665,24 @@ def ft_db_04(ctx, ci):
     # the seeded row to be the one the burn actually touches.
     target = 1.0
     if _at(real, target) < 1 or _at(counter, target) < 1:
+        # A wallet can hold plenty of RBT and still no whole token - on
+        # 2026-10-01 the sender had just split them all in RBT-P-04. The faucet
+        # sends whole tokens, so take two from it and look again.
+        ok, msg = rc.fund_did(s["host"], s["did"], 2, ctx.port)
+        if not ok:
+            return SKIP, "no whole denomination to seed", (
+                "the wallet holds no free 1.000 token and the faucet top-up that "
+                "would add two failed: {}".format(msg))
+        try:
+            counter = db.denom_counter(s["host"], s["did"])
+            real = db.real_free_denoms(s["host"], s["did"])
+        except db.DBUnavailable as e:
+            return SKIP, "database unreachable", str(e)
+    if _at(real, target) < 1 or _at(counter, target) < 1:
         return SKIP, "no whole denomination to seed", (
-            "needs free 1.000 tokens present in BOTH token_denom and tokens; "
-            "counter={} real={}".format(_at(counter, target), _at(real, target)))
+            "needs free 1.000 tokens present in BOTH token_denom and tokens, even "
+            "after a 2 RBT faucet top-up; counter={} real={}".format(
+                _at(counter, target), _at(real, target)))
 
     problems, observed = [], None
     try:
@@ -834,9 +849,12 @@ def ft_x_01(ctx, ci):
         problems.append("counter drifted by the end: " + db.describe_drift(drift))
 
     burnt = d["burnt_for_ft"]
-    consumed = -d["free"]
+    # Free + pledged: a DID that was a quorum keeps getting old pledges back
+    # into Free during the case (21.8 RBT on 2026-10-01), which made free alone
+    # look like value had gone missing.
+    consumed = -(d["free"] + d["pledged"])
     if done and abs(burnt - consumed) > max(0.05, consumed * 0.01):
-        problems.append("free fell {:.3f} but only {:.3f} was recorded as burnt "
+        problems.append("free + pledged fell {:.3f} but {:.3f} was recorded as burnt "
                         "across {} mint(s) - {:.3f} unaccounted for".format(
                             consumed, burnt, done, abs(consumed - burnt)))
 

@@ -44,6 +44,20 @@ def rand_value(lo, hi):
     return max(v, 0.001)
 
 
+def node_reason(msg, limit=300):
+    """The node's own reason from a refusal. A quorum refusal arrives wrapped -
+    'peer request failed: status=400 body={"referenceId":"",...,"message":"<reason>"}'
+    - and cutting that at a fixed length leaves only the wrapper."""
+    text = str(msg or "")
+    start = text.find('"message":"')
+    if start >= 0:
+        text = text[start + len('"message":"'):]
+        end = text.find('","status"')
+        if end >= 0:
+            text = text[:end]
+    return text.strip()[:limit]
+
+
 def _sc_new_contract(ctx, entry):
     """Generate a contract and return (sc_id, error). Does NOT deploy it.
 
