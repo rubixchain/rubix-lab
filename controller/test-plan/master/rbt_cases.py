@@ -838,9 +838,11 @@ def rbt_q_13(ctx, ci):
         quorum ever refused a transfer because it was still busy.
 
     WHY IT MATTERS
-        A quorum's pledge is released by the unpledge path after the
-        transaction settles (core/callback.go). If release lags behind arrival,
-        a well-funded quorum can still stall under a steady stream.
+        A quorum's pledge for a transaction is released only when a LATER
+        transaction spends a token it moved (core/callback.go:14-19) - not when
+        it settles. Back-to-back sends to a receiver that never passes the
+        tokens on keep every pledge held, so a well-funded quorum can still run
+        dry under a steady stream.
 
     PARTICIPANTS
         1 sender, 1 receiver, 1 quorum.

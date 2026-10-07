@@ -5,10 +5,10 @@ pledge has been released?
 
 THE QUESTION
     A quorum pledges its own Free tokens as collateral for a transaction it
-    signs. When the transaction settles the pledge is released: the tokens are
-    Free again and their latest token-chain entry is "unpledge". They are the
-    quorum's own tokens, and core's own comments say the quorum that pledged
-    them may spend them (core/consensus/checks.go:304-307).
+    signs. When the pledge is released the tokens are Free again and their
+    latest token-chain entry is "unpledge". They are the quorum's own tokens,
+    and core's own comments say the quorum that pledged them may spend them
+    (core/consensus/checks.go:304-307).
 
     On the lab every such spend is refused with
         failed to get quorum DID for token X: tokenID "X" not found in quorum tokens
@@ -16,45 +16,58 @@ THE QUESTION
     (txnInfo.Quorums, checks.go:308) instead of the pledge transaction it has
     just loaded (pledgedTxnInfo).
 
-    This script builds that state from scratch on one node, so the finding does
-    not rest on wallets left over from earlier runs.
+HOW THE SCRIPT MAKES EACH SPEND HIT AN UNPLEDGED TOKEN
+    A node, not the caller, picks the tokens a transfer spends. It takes whole
+    tokens first (largest denomination first) and, within a denomination, the
+    lowest token_id first (core/wallet/token_lock.go:411-560). So if every
+    whole token Q holds is one it pledged, a whole-RBT send from Q MUST use an
+    unpledged token. Each cycle gives Q exactly N whole tokens (10, 50, 100 by
+    default) and has Q pledge all N for an N-RBT transfer - small amounts,
+    no bulk.
 
-THE STEPS                                                   correct product
-    UPS-01  Q sends 1 RBT while its wallet is clean              accepted
-    UPS-02  Q signs A -> B for Q's ENTIRE free balance, so Q
-            pledges every Free token it holds                    accepted
-    UPS-03  the pledge is released: those tokens are Free
-            again, last chain role "unpledge"                    released
-    UPS-04  Q sends 1 RBT - it now holds only unpledged tokens   accepted
-            (bug: refused). For each refused token the database
-            shows the correct lookup would accept it: Free on Q,
-            last role unpledge, and the pledge transaction lists
-            Q itself as the quorum that pledged it
-    UPS-05  after a wait, Q sends 0.5, 1 and everything          accepted
-            (bug: refused every time - the value is frozen)
-    UPS-06  Q pledges again, for A -> B 1 RBT                    accepted
-            (the frozen tokens still serve as collateral, and
-            are unpledged - still unspendable - afterwards)
-    UPS-07  Q gets 3 fresh RBT from the faucet, then sends
-            1 RBT three times                                    all accepted
-            (bug: a send is refused exactly when it picks an
-            unpledged token - what gives RBT-Q-05/Q-07/B-03/N-15
-            their ~70% pass rates)
+WHEN A PLEDGE IS RELEASED
+    Not when the transaction settles: the quorum releases its pledge for
+    transaction T when it sees a LATER transaction spend a token T moved
+    (core/callback.go:14-19, core/wallet/pledge.go:486-528). So B, who received
+    T, passes on just enough whole tokens to include one of T's, using the
+    same lowest-token_id order to work out how many.
 
-    FAIL in UPS-04, -05 or -07 means the bug is present in the build under test.
+THE CASES (each cycle, N = 10, 50, 100)               correct product
+    UPS-CTRL    Q sends whole RBT while its wallet is clean       accepted
+    UPS-N-1     Q pledges its N whole tokens for A -> B N RBT;
+                B passes one on; the pledge is released           released
+    UPS-N-2     Q sends 1 RBT - one unpledged whole token         accepted
+    UPS-N-3     Q sends every unpledged whole token at once       accepted
+    UPS-N-4     Q sends 0.5 - splits an unpledged whole token     accepted
+                (a split spends a freshly minted part, so this
+                shows whether the bug covers that path too)
+    after the cycles:
+    UPS-WAIT    after a wait, Q sends 1 RBT again                 accepted
+    UPS-REPLEDGE  Q pledges an unpledged token again              accepted
+                (still usable as collateral; comes back unpledged)
+    UPS-LOWEST  Q gets 3 fresh RBT; the script predicts from the
+                database which whole token Q will spend (its
+                lowest token_id) and whether that send is refused accepted
+                - one unpledged token with a low id blocks every
+                whole-RBT send, however much fresh RBT Q holds
+
+    A refusal naming an unpledged token is the bug; for each one the
+    databases show the token is Free, owned by Q, last role "unpledge", and
+    that its pledge transaction names Q as the quorum that pledged it - so
+    the check the code intends (initiator == that quorum) would accept.
 
 WHAT IT CHANGES ON THE LAB - read before running
-    Q's whole wallet ends up as unpledged tokens. While the bug is in the build
-    Q cannot spend them, so Q stays a "former quorum" from then on (the runner
-    keeps such DIDs out of the sender seat). By default Q is the clean DID
-    holding the least RBT, so the least is frozen; choose it with --quorum.
-    Every RBT used comes from the faucet, by transfer, as for every case.
-    The databases are only read, never written.
+    Q ends with the largest N (100 by default) in unpledged whole tokens, which
+    it cannot spend while the bug is in the build. By default Q is the clean
+    DID with the fewest whole tokens; choose it with --quorum. Q, A (sends
+    through Q) and B (passes tokens on) must be clean DIDs; C signs Q's and
+    B's sends. All RBT comes from the faucet, by transfer. Databases are only
+    read. Do not run it during a catalogue run - it rewires 4 nodes' quorums.
 
 RUN (on the controller)
     cd ~/Desktop/rubix/rubix-lab/controller/test-plan/custom
-    python3 unpledged_spend.py                     # shows the plan, asks first
-    python3 unpledged_spend.py --quorum 192.168.1.141 --yes
+    python3 unpledged_spend.py                       # shows the plan, asks first
+    python3 unpledged_spend.py --sizes 10,50 --quorum 192.168.1.141 --yes
 """
 
 import argparse
@@ -91,9 +104,9 @@ def record(cid, title, expected, status, actual, note="", bug=False):
     summary does not blame the bug for a refusal with another cause."""
     RESULTS.append({"id": cid, "case": title, "expected": expected, "status": status,
                     "actual": actual, "note": note, "bug": bug})
-    print("  [{:<4}] {:<7} {}".format(status, cid, actual))
+    print("  [{:<4}] {:<12} {}".format(status, cid, actual))
     if note:
-        print("                 {}".format(note))
+        print("                      {}".format(note))
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +135,17 @@ def free_tokens(e):
     return dict((t, {"value": float(v), "role": role, "prev": prev}) for t, v, role, prev in rows)
 
 
+def whole_sorted(e):
+    """e's Free whole (1.0) tokens in the order the node locks them: the lock
+    query is ORDER BY token_value DESC, token_id ASC (token_lock.go), and this
+    asks the node's own database, so the collation is the same."""
+    return [t for (t,) in db.query(
+        e["host"],
+        "SELECT token_id FROM tokens WHERE did = %s AND token_type = %s AND token_status = %s "
+        "AND token_value = 1 ORDER BY token_id ASC",
+        (e["did"], db.TYPE_RBT, db.FREE))]
+
+
 def statuses(host, token_ids):
     """{token_id: status} for these tokens on `host`."""
     if not token_ids:
@@ -131,9 +155,13 @@ def statuses(host, token_ids):
     return dict((t, int(s)) for t, s in rows)
 
 
+def still_pledged(host, token_ids):
+    return [t for t, s in statuses(host, token_ids).items()
+            if s in (db.PLEDGED, db.QUORUM_PLEDGED)]
+
+
 def tx_info(entries, txid, attempts=10):
-    """The stored TransactionInfo of `txid` from the first participant that has
-    it (the quorum keeps a copy - the unpledge path reads it back)."""
+    """The stored TransactionInfo of `txid` from the first participant that has it."""
     for _ in range(attempts):
         for e in entries:
             try:
@@ -158,9 +186,10 @@ def pledged_by(info, did):
     return out
 
 
-def still_pledged(host, token_ids):
-    return [t for t, s in statuses(host, token_ids).items()
-            if s in (db.PLEDGED, db.QUORUM_PLEDGED)]
+def moved_tokens(info):
+    """Token ids the transaction moved (its RBT transaction tokens)."""
+    return [t["tokenId"] for t in ((info or {}).get("tokens") or {}).get("rbt") or []
+            if t and t.get("tokenId")]
 
 
 def wait_until(check, timeout, every=5):
@@ -182,21 +211,21 @@ def prove(q, token, others):
         "SELECT t.token_status, t.did, " + ROLE + ", lc.previous_transaction_id "
         "FROM tokens t " + LATEST + "WHERE t.token_id = %s", (token,))
     if not rows:
-        return False, "{}: not found on the sender's node".format(token), {}
+        return False, "{}: not found on Q's node".format(token), {}
     status, did, role, prev = rows[0]
     info = tx_info([q] + others, prev, attempts=1) if prev else None
     pledger = None
     for qi in (info or {}).get("quorums") or []:
         if any(t and t.get("tokenId") == token for t in qi.get("tokens") or []):
             pledger = qi.get("did")
-    facts = {"token": token, "status": int(status), "owner_is_sender": did == q["did"],
+    facts = {"token": token, "status": int(status), "owner_is_q": did == q["did"],
              "latest_role": role, "pledge_tx": prev, "pledged_by": pledger}
     if int(status) == db.FREE and did == q["did"] and role == "unpledge" and pledger == q["did"]:
-        return True, ("{}: Free on the sender, last chain role 'unpledge', pledged in tx {}... "
-                      "by the sender itself - the intended check (initiator == the quorum that "
-                      "pledged it) would ACCEPT").format(token, (prev or "?")[:12]), facts
-    return False, ("{}: status {}, owned by the sender {}, last role '{}', pledged by {} - does "
-                   "not match the bug's pattern, look at this token by hand").format(
+        return True, ("{}: Free on Q, last chain role 'unpledge', pledged in tx {}... by Q "
+                      "itself - the intended check (initiator == the quorum that pledged it) "
+                      "would ACCEPT").format(token, (prev or "?")[:12]), facts
+    return False, ("{}: status {}, owned by Q {}, last role '{}', pledged by {} - does not "
+                   "match the bug's pattern, look at this token by hand").format(
                        token, db.STATUS_NAME.get(int(status), status), did == q["did"], role,
                        pledger), facts
 
@@ -220,18 +249,47 @@ def fund_to(e, target):
     return rc.fund_did(e["host"], e["did"], int(math.ceil(target - have)), PORT)
 
 
+def fund_whole(e, count):
+    """Give `e` at least `count` free whole tokens (the faucet sends whole ones)."""
+    have = len(whole_sorted(e))
+    if have >= count:
+        return True, ""
+    ok, msg = rc.fund_did(e["host"], e["did"], count - have, PORT)
+    if ok:
+        time.sleep(SETTLE)
+    return ok, msg
+
+
+def pass_on(b, a, c, moved, memo):
+    """B sends A just enough whole tokens to include one that `moved` brought
+    it. Spending any token a pledged transaction moved makes the quorum
+    release that pledge (callback.go:14-19, pledge.go:520-526). Returns
+    (ok, how many RBT, message)."""
+    order = whole_sorted(b)
+    moved = set(moved)
+    first = next((i for i, t in enumerate(order) if t in moved), None)
+    if first is None:
+        return False, 0, "B holds none of the tokens the pledged transfer moved"
+    k = first + 1
+    ok, msg = fund_to(c, k + 10)          # C signs B's send and must pledge it
+    if not ok:
+        return False, k, "could not fund C: " + msg
+    ok, msg, _txid = send(b, a, k, memo)
+    return ok, k, msg
+
+
 def choose(pool, quorum_host):
-    """Q (the DID under test), A (sends through Q), B (receives), C (signs Q's
-    own sends). Q and A must be clean - no unpledged tokens, nothing pledged -
-    so the starting state is known. B and C are taken from former quorums
-    where possible, so the probe does not use up clean DIDs it does not need."""
+    """Q (under test), A (sends through Q), B (passes tokens on) - all clean, so
+    the starting state is known - and C (signs Q's and B's sends), taken from
+    former quorums where possible so clean DIDs are not used up needlessly."""
     entries = [{"host": n["host"], "did": n["dids"][0]} for n in pool]
     info = {}
     for e in entries:
         try:
             info[e["host"]] = {"dirty": db.ex_pledged_free_value(e["host"], e["did"]),
                                "free": db.value_in_status(e["host"], e["did"], db.FREE),
-                               "pledged": db.pledged_value(e["host"], e["did"])}
+                               "pledged": db.pledged_value(e["host"], e["did"]),
+                               "whole": len(whole_sorted(e))}
         except db.DBUnavailable:
             pass
     readable = [e for e in entries if e["host"] in info]
@@ -246,27 +304,77 @@ def choose(pool, quorum_host):
         if not clean:
             sys.exit("ERROR: no clean DID left (every node holds unpledged tokens) - pass "
                      "--quorum to run on a former quorum, without the clean control")
-        q = min(clean, key=lambda e: info[e["host"]]["free"])
+        q = min(clean, key=lambda e: info[e["host"]]["whole"])
     rest = [e for e in readable if e is not q]
-    clean_rest = sorted((e for e in rest if e in clean), key=lambda e: -info[e["host"]]["free"])
-    if not clean_rest:
-        sys.exit("ERROR: needs a second clean DID to send through Q (A); none is left")
-    a = clean_rest[0]
-    others = sorted((e for e in rest if e is not a),
+    clean_rest = [e for e in rest if e in clean]
+    if len(clean_rest) < 2:
+        sys.exit("ERROR: needs two more clean DIDs besides Q (A sends through Q, B passes "
+                 "tokens on); only {} left".format(len(clean_rest)))
+    a = max(clean_rest, key=lambda e: info[e["host"]]["whole"])
+    b = min((e for e in clean_rest if e is not a), key=lambda e: info[e["host"]]["whole"])
+    others = sorted((e for e in rest if e is not a and e is not b),
                     key=lambda e: (info[e["host"]]["dirty"] == 0, -info[e["host"]]["free"]))
-    if len(others) < 2:
+    if not others:
         sys.exit("ERROR: needs at least 4 reachable nodes")
-    c, b = others[0], others[1]
-    return q, a, b, c, info
+    return q, a, b, others[0], info
 
 
 # ---------------------------------------------------------------------------
-# The steps
+# One spend from Q, judged
+# ---------------------------------------------------------------------------
+
+def q_spend(cid, title, q, b, c, others, amount, unpledged, proven):
+    """Q sends `amount` to B; PASS if accepted, FAIL if refused. A refusal that
+    names an unpledged token is the bug - proved from the databases the first
+    time each cycle (`proven` collects the tokens already shown)."""
+    # C signs this and must pledge it. Its earlier pledges stay held until the
+    # receivers pass those tokens on, so top it up before every send it signs.
+    ok, msg = fund_to(c, amount + 10)
+    if not ok:
+        sys.exit("ERROR: could not fund C: {}".format(msg))
+    before = set(free_tokens(q))
+    ok, msg, txid = send(q, b, amount, cid)
+    time.sleep(SETTLE)
+    locked = db.count_in_status(q["host"], q["did"], db.LOCKED)
+    used = sorted(before - set(free_tokens(q))) if ok else []
+    step = {"amount": amount, "ok": ok, "txid": txid, "used": used,
+            "message": "" if ok else msg, "locked_after": locked}
+    EVIDENCE["steps"][cid] = step
+    if ok:
+        hit = [t for t in used if t in unpledged]
+        record(cid, title, "accepted", "PASS",
+               "accepted - spent {} token(s){}".format(
+                   len(used), ", {} of them unpledged".format(len(hit)) if hit else ""),
+               "an unpledged token was spent: this path does not hit the bug" if hit else "")
+        return
+    m = BUG.search(msg)
+    if not m:
+        record(cid, title, "accepted", "FAIL",
+               "refused for a DIFFERENT reason: " + node_reason(msg, 200))
+        return
+    token = m.group(1)
+    note = ""
+    if not proven:
+        _matches, note, step["proof"] = prove(q, token, others)
+        proven.append(token)
+    if locked:
+        note += ("; " if note else "") + "{} token(s) left LOCKED on Q after the refusal".format(locked)
+    record(cid, title, "accepted", "FAIL",
+           "refused on unpledged token {} ({})".format(
+               token, "one of the N Q pledged" if token in unpledged else "NOT one tracked here"),
+           note, bug=True)
+
+
+# ---------------------------------------------------------------------------
+# The run
 # ---------------------------------------------------------------------------
 
 def run(args):
     if not db.available():
         sys.exit("ERROR: psycopg2 is not installed.\n       sudo apt install -y python3-psycopg2")
+    sizes = sorted(set(int(s) for s in args.sizes.split(",") if s.strip()))
+    if not sizes or sizes[0] < 2:
+        sys.exit("ERROR: --sizes needs whole numbers of 2 or more, e.g. 10,50,100")
 
     all_hosts = rc.load_hosts(args.hosts)
     if "RUBIX_FAUCET_HOST" not in os.environ:
@@ -285,245 +393,219 @@ def run(args):
     q_dirty = info[q["host"]]["dirty"] > 0 or info[q["host"]]["pledged"] > 0
     others = [a, b, c]
     EVIDENCE["participants"] = {"Q": q, "A": a, "B": b, "C": c}
+    EVIDENCE["sizes"] = sizes
 
     print()
-    print("Q (under test)        {}  free {:.3f}, unpledged {:.3f}{}".format(
-        q["host"], info[q["host"]]["free"], info[q["host"]]["dirty"],
-        "  - ALREADY a former quorum: UPS-01 cannot be a clean control" if q_dirty else ""))
-    print("A (sends through Q)   {}".format(a["host"]))
-    print("B (receives)          {}".format(b["host"]))
-    print("C (signs Q's sends)   {}".format(c["host"]))
+    print("Q (under test)          {}  {} whole token(s), {:.3f} free{}".format(
+        q["host"], info[q["host"]]["whole"], info[q["host"]]["free"],
+        "  - ALREADY a former quorum: no clean control" if q_dirty else ""))
+    print("A (sends through Q)     {}".format(a["host"]))
+    print("B (passes tokens on)    {}".format(b["host"]))
+    print("C (signs Q's/B's sends) {}".format(c["host"]))
+    print("Cycles: N = {} RBT".format(", ".join(str(n) for n in sizes)))
     print()
-    print("Q's whole wallet will end up as unpledged tokens. While the bug is in the")
-    print("build, Q cannot spend them afterwards. Nothing is written to any database.")
+    print("Q ends with {} RBT in unpledged whole tokens. While the bug is in the build Q".format(
+        sizes[-1]))
+    print("cannot spend them. Nothing is written to any database.")
     if not args.yes:
         if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
             sys.exit("Stopped - nothing was changed.")
     print()
 
-    # Quorum wiring: A's transfers are signed by Q, Q's own sends by C.
+    # Quorum wiring: A's transfers are signed by Q; Q's and B's by C.
     for e in (q, c):
         ok, msg = rc.quorum_setup(e["host"], e["did"], PORT)
         if not ok:
             sys.exit("ERROR: quorum setup on {} failed: {}".format(e["host"], msg))
-    for node, quorum in ((a, q), (q, c)):
+    for node, quorum in ((a, q), (q, c), (b, c)):
         ok, msg = rc.quorum_reset(node["host"], [quorum["did"]], PORT)
         if not ok:
             sys.exit("ERROR: could not point {} at quorum {}: {}".format(
                 node["host"], quorum["host"], msg))
-    # 5 RBT: 1 for UPS-01, and enough left that UPS-04 (1) and UPS-05 (0.5, 1,
-    # the rest) can all be paid for if the build turns out NOT to have the bug.
-    ok, msg = fund_to(q, 5)
+    ok, msg = fund_to(c, sizes[-1] + 20)
     if not ok:
-        sys.exit("ERROR: could not fund Q: {}".format(msg))
-    time.sleep(SETTLE)
+        sys.exit("ERROR: could not fund C: {}".format(msg))
 
-    # UPS-01 ----------------------------------------------------------------
-    title01 = "Q sends 1 RBT while its wallet is clean"
+    # UPS-CTRL: a clean Q sends whole RBT, which also trims its whole tokens
+    # down to the first cycle's N.
+    first = sizes[0]
+    title = "Q sends whole RBT while its wallet is clean"
     if q_dirty:
-        record("UPS-01", title01, "accepted", "SKIP",
-               "Q already holds unpledged tokens - no clean control on this node")
+        record("UPS-CTRL", title, "accepted", "SKIP",
+               "Q already holds unpledged or pledged tokens - no clean control on this node")
     else:
-        ok, msg, txid = send(q, b, 1, "UPS-01")
-        EVIDENCE["steps"]["UPS-01"] = {"ok": ok, "txid": txid, "message": msg}
+        ok, msg = fund_whole(q, first + 1)
         if not ok:
-            record("UPS-01", title01, "accepted", "FAIL", "refused: " + node_reason(msg, 200),
+            sys.exit("ERROR: could not fund Q: {}".format(msg))
+        extra = len(whole_sorted(q)) - first
+        ok, msg, txid = send(q, b, extra, "UPS-CTRL")
+        EVIDENCE["steps"]["UPS-CTRL"] = {"amount": extra, "ok": ok, "txid": txid, "message": msg}
+        if not ok:
+            record("UPS-CTRL", title, "accepted", "FAIL", "refused: " + node_reason(msg, 200),
                    "Q cannot make a normal send, so the rest would not isolate the bug - stopped")
             return finish(q)
-        record("UPS-01", title01, "accepted", "PASS", "accepted (tx {}...)".format(txid[:12]))
-    time.sleep(SETTLE)
+        record("UPS-CTRL", title, "accepted", "PASS",
+               "{} RBT accepted (tx {}...)".format(extra, txid[:12]))
+        time.sleep(SETTLE)
 
-    # Anything Q has pledged earlier must be back before its balance is read.
-    wait_until(lambda: db.pledged_value(q["host"], q["did"]) < 0.0005, args.release_timeout)
-    before = free_tokens(q)
-    whole = round(sum(t["value"] for t in before.values()), 3)
-    EVIDENCE["Q_free_before_pledge"] = before
-    if whole < 0.001:
-        record("UPS-02", "Q pledges its whole free balance", "accepted", "SKIP",
-               "Q holds nothing free to pledge")
-        return finish(q)
+    unpledged = set()
+    for n in sizes:
+        print("  -- cycle N = {} --".format(n))
+        if not cycle(n, q, a, b, c, others, unpledged, args):
+            return finish(q)
 
-    # UPS-02 ----------------------------------------------------------------
-    for e, target in ((a, whole + 5), (c, whole + 10)):
-        ok, msg = fund_to(e, target)
-        if not ok:
-            sys.exit("ERROR: could not fund {}: {}".format(e["host"], msg))
-    time.sleep(SETTLE)
-    title02 = "Q signs A -> B for Q's whole free balance, pledging every free token"
-    ok, msg, txid = send(a, b, whole, "UPS-02")
+    after_cycles(q, a, b, c, others, unpledged, args)
+    return finish(q)
+
+
+def cycle(n, q, a, b, c, others, unpledged, args):
+    """One N: Q pledges exactly its N whole tokens, the pledge is released,
+    then Q tries to spend them three ways. Returns False to stop the run."""
+    # Exactly N whole tokens on Q: top up (the faucet sends whole tokens).
+    have = len(whole_sorted(q))
+    if have > n:
+        record("UPS-{}-1".format(n), "Q pledges its N whole tokens", "released", "SKIP",
+               "Q holds {} whole tokens, more than {} - sizes must grow".format(have, n))
+        return False
+    ok, msg = fund_whole(q, n)
     if not ok:
-        EVIDENCE["steps"]["UPS-02"] = {"ok": ok, "message": msg}
-        record("UPS-02", title02, "accepted", "FAIL", "refused: " + node_reason(msg, 200),
-               "without Q's pledge there is nothing to test - stopped")
-        return finish(q)
-    pledged = pledged_by(tx_info([q, a, b], txid), q["did"])
-    EVIDENCE["steps"]["UPS-02"] = {"ok": ok, "txid": txid, "pledged": pledged}
-    if not pledged:
-        record("UPS-02", title02, "accepted", "FAIL",
-               "accepted, but the stored transaction lists no token pledged by Q",
-               "tx {} - the pledge cannot be followed - stopped".format(txid))
-        return finish(q)
-    record("UPS-02", title02, "accepted", "PASS",
-           "{:.3f} RBT sent; Q pledged {} token(s) worth {:.3f}".format(
-               whole, len(pledged), sum(pledged.values())))
+        sys.exit("ERROR: could not fund Q: {}".format(msg))
+    q_whole = whole_sorted(q)
+    ok, msg = fund_whole(a, n)
+    if not ok:
+        sys.exit("ERROR: could not fund A: {}".format(msg))
 
-    # UPS-03 ----------------------------------------------------------------
-    title03 = "the pledge is released: tokens Free again, last chain role 'unpledge'"
+    # UPS-N-1: pledge, pass on, release
+    cid = "UPS-{}-1".format(n)
+    title = "Q pledges its {} whole tokens for A -> B {} RBT; B passes one on".format(n, n)
+    ok, msg, txid = send(a, b, n, cid)
+    if not ok:
+        EVIDENCE["steps"][cid] = {"ok": ok, "message": msg}
+        record(cid, title, "released", "FAIL", "A's transfer refused: " + node_reason(msg, 200),
+               "without Q's pledge there is nothing to test - stopped")
+        return False
+    info = tx_info([q, a, b], txid)
+    pledged = pledged_by(info, q["did"])
+    moved = moved_tokens(info)
+    time.sleep(SETTLE)
+    ok_pass, k, msg_pass = pass_on(b, a, c, moved, cid + " pass-on")
+    if not ok_pass:
+        EVIDENCE["steps"][cid] = {"txid": txid, "pledged": pledged, "pass_on": msg_pass}
+        record(cid, title, "released", "SKIP",
+               "Q pledged {} token(s), but the release could not be triggered: {}".format(
+                   len(pledged), node_reason(msg_pass, 160)))
+        return False
     _, secs = wait_until(lambda: not still_pledged(q["host"], pledged), args.release_timeout)
     still = still_pledged(q["host"], pledged)
-    now = free_tokens(q)
-    unpledged = dict((t, v) for t, v in now.items() if v["role"] == "unpledge")
-    clean_left = dict((t, v) for t, v in now.items() if v["role"] != "unpledge")
-    back = [t for t in pledged if t in unpledged]
-    EVIDENCE["steps"]["UPS-03"] = {"seconds": secs, "still_pledged": still,
-                                   "unpledged": unpledged, "clean_left": clean_left}
+    roles = free_tokens(q)
+    back = set(t for t in pledged if roles.get(t, {}).get("role") == "unpledge")
+    all_whole = set(q_whole) <= set(pledged)
+    unpledged |= back
+    EVIDENCE["steps"][cid] = {"txid": txid, "pledged": pledged, "moved": moved,
+                              "passed_on": k, "release_seconds": secs, "still_pledged": still}
     if still:
-        record("UPS-03", title03, "released", "FAIL",
-               "{} of {} pledged token(s) still pledged after {}s".format(
+        record(cid, title, "released", "FAIL",
+               "{} of {} pledged token(s) still pledged {}s after B passed one on".format(
                    len(still), len(pledged), args.release_timeout),
-               "the pledge was never released - a different problem - stopped")
-        return finish(q)
-    record("UPS-03", title03, "released", "PASS" if len(back) == len(pledged) else "FAIL",
-           "released after ~{}s; {} of {} pledged token(s) are Free with role 'unpledge'".format(
-               secs, len(back), len(pledged)),
-           "Q now holds {:.3f} RBT in unpledged tokens{}".format(
-               sum(v["value"] for v in unpledged.values()),
-               "" if not clean_left else " and {:.3f} in {} other free token(s), so the next "
-               "send may avoid them".format(sum(v["value"] for v in clean_left.values()),
-                                           len(clean_left))))
+               "B spent a token the transfer moved, so the pledge should have been released - "
+               "a separate finding; stopped")
+        return False
+    record(cid, title, "released", "PASS" if len(back) == len(pledged) else "FAIL",
+           "Q pledged {} token(s) ({}all of its whole tokens); B passed on {} RBT; released "
+           "after ~{}s, {} now Free with role 'unpledge'".format(
+               len(pledged), "" if all_whole else "NOT ", k, secs, len(back)))
 
-    # UPS-04 ----------------------------------------------------------------
-    title04 = "Q spends 1 RBT now that it holds only unpledged tokens"
-    ok, msg, txid = send(q, b, 1, "UPS-04")
-    time.sleep(SETTLE)
-    locked = db.count_in_status(q["host"], q["did"], db.LOCKED)
-    EVIDENCE["steps"]["UPS-04"] = {"ok": ok, "txid": txid, "message": msg, "locked_after": locked}
-    if ok:
-        record("UPS-04", title04, "accepted", "PASS",
-               "accepted (tx {}...) - an unpledged token was spent; the bug is not in this "
-               "build".format(txid[:12]))
+    proven = []
+    q_spend("UPS-{}-2".format(n), "Q sends 1 RBT - one unpledged whole token",
+            q, b, c, others, 1, unpledged, proven)
+    left = sum(1 for t in whole_sorted(q) if t in unpledged)
+    if left:
+        q_spend("UPS-{}-3".format(n), "Q sends every unpledged whole token at once",
+                q, b, c, others, left, unpledged, proven)
     else:
-        m = BUG.search(msg)
-        if not m:
-            record("UPS-04", title04, "accepted", "FAIL",
-                   "refused for a DIFFERENT reason: " + node_reason(msg, 200))
-        else:
-            _matches, text, facts = prove(q, m.group(1), others)
-            EVIDENCE["steps"]["UPS-04"]["proof"] = facts
-            record("UPS-04", title04, "accepted", "FAIL",
-                   "refused: failed to get quorum DID for token {} (checks.go:308)".format(
-                       m.group(1)),
-                   text + ("; nothing left Locked" if not locked else
-                           "; {} token(s) left LOCKED on Q after the refusal".format(locked)),
-                   bug=True)
-
-    # UPS-05 ----------------------------------------------------------------
-    title05 = "after a wait, Q spends 0.5, 1 and everything"
-    print("  ...      waiting {}s before UPS-05".format(args.wait))
-    time.sleep(args.wait)
-    outcomes = []
-    for amount in (0.5, 1, None):
-        if amount is None:
-            # "everything" is read now, after the first two, so it is what Q
-            # really holds whether or not they went through.
-            amount = round(sum(v["value"] for v in free_tokens(q).values()), 3)
-            if amount < 0.001:
-                continue
-        ok, msg, _txid = send(q, b, amount, "UPS-05")
-        m = BUG.search(msg or "")
-        outcomes.append({"amount": amount, "ok": ok, "token": m.group(1) if m else None,
-                         "reason": "" if ok else node_reason(msg, 160)})
-        time.sleep(SETTLE)
-    EVIDENCE["steps"]["UPS-05"] = outcomes
-    bug_refusals = sum(1 for o in outcomes if not o["ok"] and o["token"])
-    other_refusals = sum(1 for o in outcomes if not o["ok"] and not o["token"])
-    notes = []
-    if bug_refusals:
-        notes.append("{} refusal(s) name an unpledged token {}s after the release - the value "
-                     "stays frozen".format(bug_refusals, args.wait))
-    if other_refusals:
-        notes.append("{} refusal(s) for another reason - not this bug".format(other_refusals))
-    record("UPS-05", title05, "accepted", "PASS" if all(o["ok"] for o in outcomes) else "FAIL",
-           ", ".join("{}: {}".format(o["amount"], "accepted" if o["ok"] else
-                                     ("refused on {}".format(o["token"]) if o["token"]
-                                      else "refused - " + o["reason"][:60]))
-                     for o in outcomes),
-           "; ".join(notes), bug=bool(bug_refusals))
-
-    # UPS-06 ----------------------------------------------------------------
-    title06 = "Q pledges its unpledged tokens again (signs A -> B 1 RBT)"
-    frozen_now = dict((t, v) for t, v in free_tokens(q).items() if v["role"] == "unpledge")
-    if sum(v["value"] for v in frozen_now.values()) < 1:
-        # Only reachable when UPS-04/05 could spend them - i.e. without the bug.
-        record("UPS-06", title06, "accepted", "SKIP",
-               "Q holds less than 1 RBT in unpledged tokens - they were spent in UPS-04/05, "
-               "so there is nothing to re-pledge")
+        record("UPS-{}-3".format(n), "Q sends every unpledged whole token at once", "accepted",
+               "SKIP", "no unpledged whole token left - they were spent")
+    if any(t in unpledged for t in whole_sorted(q)):
+        q_spend("UPS-{}-4".format(n), "Q sends 0.5 - splits an unpledged whole token",
+                q, b, c, others, 0.5, unpledged, proven)
     else:
-        ok, msg, txid = send(a, b, 1, "UPS-06")
+        record("UPS-{}-4".format(n), "Q sends 0.5 - splits an unpledged whole token", "accepted",
+               "SKIP", "no unpledged whole token left to split")
+    return True
+
+
+def after_cycles(q, a, b, c, others, unpledged, args):
+    # UPS-WAIT
+    title = "after a wait, Q sends 1 RBT again"
+    if any(t in unpledged for t in whole_sorted(q)):
+        print("  ...          waiting {}s".format(args.wait))
+        time.sleep(args.wait)
+        q_spend("UPS-WAIT", title, q, b, c, others, 1, unpledged, ["(already shown)"])
+    else:
+        record("UPS-WAIT", title, "accepted", "SKIP", "no unpledged whole token left")
+
+    # UPS-REPLEDGE: Q's lowest whole token is unpledged, so pledging 1 RBT uses it.
+    title = "Q pledges an unpledged token again (A -> B 1 RBT), B passes it on"
+    lowest = (whole_sorted(q) or [None])[0]
+    if lowest not in unpledged:
+        record("UPS-REPLEDGE", title, "accepted", "SKIP",
+               "Q's lowest whole token is not an unpledged one, so the pledge would not use one")
+    else:
+        ok, msg = fund_whole(a, 1)
+        ok, msg, txid = send(a, b, 1, "UPS-REPLEDGE")
         if not ok:
-            EVIDENCE["steps"]["UPS-06"] = {"ok": ok, "message": msg}
-            record("UPS-06", title06, "accepted", "FAIL", "refused: " + node_reason(msg, 200))
+            record("UPS-REPLEDGE", title, "accepted", "FAIL", "refused: " + node_reason(msg, 200))
         else:
-            repledged = pledged_by(tx_info([q, a, b], txid), q["did"])
-            wait_until(lambda: not still_pledged(q["host"], repledged), args.release_timeout)
+            info = tx_info([q, a, b], txid)
+            pledged = pledged_by(info, q["did"])
+            time.sleep(SETTLE)
+            ok_pass, k, msg_pass = pass_on(b, a, c, moved_tokens(info), "UPS-REPLEDGE pass-on")
+            if ok_pass:
+                wait_until(lambda: not still_pledged(q["host"], pledged), args.release_timeout)
             roles = free_tokens(q)
-            reused = [t for t in repledged if t in frozen_now]
-            again = [t for t in repledged if roles.get(t, {}).get("role") == "unpledge"]
-            EVIDENCE["steps"]["UPS-06"] = {"ok": ok, "txid": txid, "pledged": repledged,
-                                           "were_unpledged": reused, "unpledged_again": again}
-            record("UPS-06", title06, "accepted", "PASS",
-                   "accepted: Q pledged {} token(s), {} of them already unpledged; {} are "
-                   "'unpledge' again after release".format(len(repledged), len(reused), len(again)),
+            reused = [t for t in pledged if t in unpledged]
+            again = [t for t in pledged if roles.get(t, {}).get("role") == "unpledge"]
+            EVIDENCE["steps"]["UPS-REPLEDGE"] = {"txid": txid, "pledged": pledged,
+                                                 "were_unpledged": reused, "unpledged_again": again}
+            record("UPS-REPLEDGE", title, "accepted", "PASS",
+                   "accepted: Q pledged {} token(s), {} already unpledged; {} 'unpledge' again "
+                   "after release".format(len(pledged), len(reused), len(again)),
                    "unpledged tokens still work as collateral, and come back just as "
                    "unspendable" if reused else
                    "Q pledged other tokens, so this did not exercise the unpledged ones")
 
-    # UPS-07 ----------------------------------------------------------------
-    title07 = "Q receives 3 fresh RBT, then sends 1 RBT three times"
-    frozen = set(t for t, v in free_tokens(q).items() if v["role"] == "unpledge")
+    # UPS-LOWEST: predict the token from the lock order, then check.
+    title = "Q gets 3 fresh RBT, then sends 1 RBT - its lowest whole token decides"
     ok, msg = rc.fund_did(q["host"], q["did"], 3, PORT)
     if not ok:
-        record("UPS-07", title07, "all accepted", "SKIP", "faucet top-up failed: " + msg)
-        return finish(q)
+        record("UPS-LOWEST", title, "accepted", "SKIP", "faucet top-up failed: " + msg)
+        return
     time.sleep(SETTLE)
-    fresh = set(t for t, v in free_tokens(q).items() if v["role"] != "unpledge")
-    rounds = []
-    for _ in range(3):
-        held_before = set(free_tokens(q))
-        ok, msg, _txid = send(q, b, 1, "UPS-07")
-        time.sleep(SETTLE)
-        gone = held_before - set(free_tokens(q))
-        m = BUG.search(msg or "")
-        rounds.append({"ok": ok, "used_fresh": sorted(gone & fresh),
-                       "used_unpledged": sorted(gone & frozen),
-                       "refused_on": m.group(1) if m else None,
-                       "reason": "" if ok else node_reason(msg, 160)})
-    EVIDENCE["steps"]["UPS-07"] = {"fresh": sorted(fresh), "rounds": rounds}
-    words = []
-    for i, r in enumerate(rounds, 1):
-        if r["ok"]:
-            words.append("#{} accepted using {}".format(
-                i, "an UNPLEDGED token" if r["used_unpledged"] else
-                "fresh token(s)" if r["used_fresh"] else "token(s) not identified"))
-        else:
-            words.append("#{} refused on {}".format(
-                i, "unpledged token " + r["refused_on"] if r["refused_on"] in frozen else
-                (r["refused_on"] or r["reason"][:60])))
-    spent_frozen = any(r["ok"] and r["used_unpledged"] for r in rounds)
-    bug_hits = sum(1 for r in rounds if not r["ok"] and r["refused_on"] in frozen)
-    accepted = sum(1 for r in rounds if r["ok"])
-    if spent_frozen and bug_hits:
-        note = ("an unpledged token was spent in one send and refused in another - the bug "
-                "does not cover every path")
-    elif bug_hits and accepted:
-        note = "sends go through only when they happen to pick fresh tokens"
-    elif bug_hits:
-        note = "every send picked an unpledged token, even with fresh tokens in the wallet"
-    else:
-        note = ""
-    record("UPS-07", title07, "all accepted", "PASS" if all(r["ok"] for r in rounds) else "FAIL",
-           "; ".join(words), note, bug=bool(bug_hits))
-    return finish(q)
+    ok, msg = fund_to(c, 11)
+    if not ok:
+        sys.exit("ERROR: could not fund C: {}".format(msg))
+    order = whole_sorted(q)
+    fresh = [t for t in order if t not in unpledged]
+    lowest = order[0] if order else None
+    before = set(free_tokens(q))
+    ok, msg, txid = send(q, b, 1, "UPS-LOWEST")
+    time.sleep(SETTLE)
+    m = BUG.search(msg or "")
+    # The prediction is WHICH token Q spends - its lowest whole token - and it
+    # holds whether the send is accepted (that token left) or refused (named).
+    used = sorted(before - set(free_tokens(q))) if ok else []
+    held = (lowest in used) if ok else bool(m and m.group(1) == lowest)
+    EVIDENCE["steps"]["UPS-LOWEST"] = {"order_first": order[:5], "fresh": fresh, "lowest": lowest,
+                                       "ok": ok, "used": used, "message": msg}
+    record("UPS-LOWEST", title, "accepted", "PASS" if ok else "FAIL",
+           "{} with {} fresh whole token(s) in the wallet; predicted it would spend its lowest "
+           "whole token {} ({}) - prediction {}".format(
+               "accepted" if ok else "refused on " + (m.group(1) if m else node_reason(msg, 60)),
+               len(fresh), lowest, "unpledged" if lowest in unpledged else "fresh",
+               "held" if held else "DID NOT hold"),
+           "one unpledged token with a low id blocks every whole-RBT send, whatever else the "
+           "wallet holds" if not ok and lowest in unpledged else "",
+           bug=bool(not ok and m))
 
 
 def finish(q):
@@ -538,9 +620,9 @@ def finish(q):
         passed, failed, len(RESULTS) - passed - failed))
     bug = [r["id"] for r in RESULTS if r["bug"]]
     if bug:
-        print("The unpledged-token spend bug is present ({} refused an unpledged "
-              "token).".format(", ".join(bug)))
-    elif any(r["id"] == "UPS-04" and r["status"] == "PASS" for r in RESULTS):
+        print("The unpledged-token spend bug is present: {} refused an unpledged token.".format(
+            ", ".join(bug)))
+    elif any(r["id"].endswith("-2") and r["status"] == "PASS" for r in RESULTS):
         print("No unpledged-token refusal: this build lets a former quorum spend them.")
     if frozen is not None:
         print("Q {} now holds {:.3f} RBT in unpledged tokens.".format(q["host"], frozen))
@@ -557,11 +639,14 @@ def main():
         description="Can a DID spend tokens it pledged as a quorum, once the pledge is released?")
     p.add_argument("--hosts", default=tr.DEFAULT_HOSTS)
     p.add_argument("--quorum", default="",
-                   help="host to put under test (default: the clean DID holding the least RBT)")
-    p.add_argument("--release-timeout", type=int, default=900,
-                   help="seconds to wait for a pledge to be released (default 900)")
+                   help="host to put under test (default: the clean DID with the fewest whole tokens)")
+    p.add_argument("--sizes", default="10,50,100",
+                   help="pledge sizes in RBT, one cycle each, ascending (default 10,50,100)")
+    p.add_argument("--release-timeout", type=int, default=300,
+                   help="seconds to wait for a pledge to be released after B passes a token "
+                        "on (default 300)")
     p.add_argument("--wait", type=int, default=60,
-                   help="seconds between UPS-04 and UPS-05 (default 60)")
+                   help="seconds before UPS-WAIT (default 60)")
     p.add_argument("--yes", action="store_true", help="do not ask before starting")
     run(p.parse_args())
 
