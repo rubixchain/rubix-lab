@@ -260,6 +260,10 @@ def resolve_ci(tid, master, case_info):
 # Per-case database evidence (case_evidence.finish), written next to the report.
 CASE_EVIDENCE = []
 
+# Time-boxed cases (the case module's NO_DELAY_RERUN) run once, without delay:
+# a delayed rerun spends its fixed window waiting on the fullnode.
+NO_DELAY_RERUN = set()
+
 UNIT_DEFAULTS = {"senders": 1, "receivers": 1, "quorums": 1, "fund": 0,
                  "quorum_fund": None, "quorum_pick": "richest",
                  "same_node": False, "exclusive": False, "last": False}
@@ -585,7 +589,12 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
             # if it made transfers, WITH delay - and the fullnode's verdict on
             # each transfer is compared between the two (case_evidence.combine).
             result, evidence, elapsed = _run_once(unit, tid, ci, paced=False)
-            if case_evidence.FULLNODE_HOST and case_evidence.made_transfers(evidence):
+            if tid in NO_DELAY_RERUN:
+                passed, actual, note = result
+                result = (passed, actual, ((note or "") + " | " if note else "") +
+                          "run once, without delay: time-boxed, so a delayed rerun "
+                          "would spend its window waiting for the fullnode")
+            elif case_evidence.FULLNODE_HOST and case_evidence.made_transfers(evidence):
                 r2, e2, t2 = _run_once(unit, tid, ci, paced=True)
                 result, evidence = case_evidence.combine(tid, result, evidence, r2, e2)
                 elapsed = round(elapsed + t2, 2)
@@ -1019,6 +1028,7 @@ def main():
           "output is interleaved, the report is in catalogue order.")
     started = time.time()
     started_at = datetime.datetime.now()
+    NO_DELAY_RERUN.update(getattr(module, "NO_DELAY_RERUN", None) or ())
     run_units(units, pool_nodes, fleet, module.CASES, master, case_info, args)
     duration = time.time() - started
 
@@ -1130,11 +1140,11 @@ def main():
     if known:
         print()
         print("Known product bugs behind refusals this run (not new findings - do not baseline):")
-        for why, cases in known.items():
-            print("  {} refusal(s) in {}".format(
-                sum(cases.values()),
+        for label, cases in sorted(known.items(), key=lambda kv: -sum(kv[1].values())):
+            print("  {}: {} refusal(s) in {}".format(
+                label, sum(cases.values()),
                 ", ".join("{} ({})".format(c, n) for c, n in sorted(cases.items()))))
-            print("    {}".format(why))
+            print("    {}".format(case_evidence.KNOWN_BUG_EXPLANATION.get(label, "")))
 
     timing_ids = set(getattr(module, "TIMING_CASES", set()))
     print()

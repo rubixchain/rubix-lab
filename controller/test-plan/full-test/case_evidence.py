@@ -149,25 +149,48 @@ def plain(text, labels):
 
 # Refusals with a known cause in the product, recognised by their text so a
 # case's note says what they are instead of each run rediscovering them.
+# (marker in the node's message, short label for the Note column, full
+# explanation for the end-of-run summary). Markers are the start of a phrase,
+# so a message cut short still counts.
 KNOWN_PRODUCT_BUGS = (
-    # Matched on the start of the phrase so a message cut short still counts.
     ("failed to get quorum DID for t",
-     "the sender was a quorum earlier and is spending a token it pledged then; core "
-     "looks that token up in the CURRENT transaction's pledges instead of the pledge "
-     "transaction (core/consensus/checks.go:308, FindDIDByTokenID(txnInfo.Quorums ...)), "
-     "so it always refuses. A product bug, not a capacity limit"),
+     "ex-quorum cannot spend tokens it pledged (checks.go:308)",
+     "the sender was a quorum earlier and is spending a token it pledged then, now "
+     "unpledged and Free; core looks that token up in the CURRENT transaction's "
+     "pledges instead of the pledge transaction (core/consensus/checks.go:308, "
+     "FindDIDByTokenID(txnInfo.Quorums ...)), so it always refuses"),
+    ("ValidateMinterAllowlist: whole-token genesis fetch failed",
+     "minter allowlist on second-hand part tokens (fix not in lab build)",
+     "the quorum asks the sender for the whole token's genesis, which a second-hand "
+     "holder of a part token does not have; fixed by f890aa01, 257a9e9d and 4601dd04, "
+     "none of which is in the build the lab runs"),
+    ("invalid epoch",
+     "zero clock tolerance (checks.go:61)",
+     "the quorum rejects a transaction stamped even a second ahead of its own clock "
+     "(core/consensus/checks.go:61, Epoch > time.Now()), so any clock difference "
+     "between sender and quorum refuses transfers"),
+    ("deadlock detected (SQLSTATE 40P01)",
+     "token_denom deadlock on concurrent deploys",
+     "concurrent contract deploys from one wallet deadlock in Postgres while updating "
+     "the denomination counter (PersistPreConsensus / post-consensus token_denom upsert)"),
+    ("transaction amount exceeds 3 decimal places",
+     "float sum of contract values (parts.go:55)",
+     "a multi-contract request is checked on the float sum of its values "
+     "(core/parts/parts.go:55-58): 0.1 + 0.2 = 0.30000000000000004 fails the 3dp check"),
 )
+KNOWN_BUG_EXPLANATION = dict((label, words) for _m, label, words in KNOWN_PRODUCT_BUGS)
 
 
 def known_bug_refusals(ops):
-    """{explanation: count} for refused operations whose message is a known bug."""
+    """{short label: count} for refused operations whose message is a known bug."""
     out = {}
     for o in ops:
         if o.get("kind") != "tx" or o.get("status"):
             continue
-        for marker, words in KNOWN_PRODUCT_BUGS:
+        for marker, label, _words in KNOWN_PRODUCT_BUGS:
             if marker in (o.get("message") or ""):
-                out[words] = out.get(words, 0) + 1
+                out[label] = out.get(label, 0) + 1
+                break
     return out
 
 
@@ -577,14 +600,16 @@ def short_fullnode(evidence):
 
 def short_known_bugs(evidence):
     """One line for refusals with a known product cause, or ""."""
-    n = 0
-    for _label, run in _runs(evidence):
-        n += sum((run.get("known_bug_refusals") or {}).values())
-    if not n:
+    counts = {}
+    for _mode, run in _runs(evidence):
+        for label, n in (run.get("known_bug_refusals") or {}).items():
+            counts[label] = counts.get(label, 0) + n
+    if not counts:
         return ""
-    return ("KNOWN PRODUCT BUG behind {} refusal(s): the sender had been a quorum and "
-            "core cannot spend tokens it pledged (checks.go:308) - not a lab error, "
-            "not a capacity limit.".format(n))
+    return "KNOWN PRODUCT BUG behind {} refusal(s): {} - not a lab error, not a capacity limit.".format(
+        sum(counts.values()),
+        "; ".join("{}x {}".format(n, label) for label, n in
+                  sorted(counts.items(), key=lambda kv: -kv[1])))
 
 
 def _status(result):

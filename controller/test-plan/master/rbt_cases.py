@@ -25,6 +25,8 @@ import wallet_shapes as ws
 from case_helpers import (
     SKIP,
     TOL,
+    node_reason,
+    refusal_summary,
 )
 
 
@@ -604,7 +606,10 @@ def _concurrent_transfers(ctx, n_senders, amount=1, memo="RBT-conc"):
     results = _parallel(fns)
     elapsed = round(time.time() - t0, 2)
     ok = sum(1 for status, _m in results if status)
-    detail = "; ".join((m or "")[:60] for status, m in results if not status)[:200]
+    # The node's reasons, grouped. Cutting each message at 60 characters left
+    # only the 'peer request failed: status=400 body={...' wrapper, so a 0/4
+    # in RBT-N-13 on 2026-10-06 could not say why.
+    detail = refusal_summary(m for status, m in results if not status)
     return usable, ok, elapsed, detail
 
 
@@ -862,8 +867,12 @@ def rbt_q_13(ctx, ci):
         status, msg = _transfer(ctx, s, r, 1, "RBT-Q-13")
         timings.append(round(time.time() - t0, 2))
         if not status:
-            return len(timings) > 1, "quorum refused a back-to-back transfer after {} successes".format(
-                len(timings) - 1), "timings {}s; msg: {}".format(timings, (msg or "")[:100])
+            # Name the reason in the result itself. On 2026-10-06 this read
+            # "quorum refused ... after 19 successes" when the refusal was a
+            # clock difference (invalid epoch), not a busy quorum.
+            return len(timings) > 1, "transfer {} refused after {} successes: {}".format(
+                len(timings), len(timings) - 1, node_reason(msg, 120)), \
+                "timings {}s".format(timings)
     return True, "{} back-to-back transfers all accepted; per-transfer {}s".format(n, timings), \
         "no interval found at which the quorum refused"
 
@@ -1780,6 +1789,9 @@ NEEDS = {
     "RBT-B-07": {},
     "RBT-B-08": {},
 }
+
+# Time-boxed: run once, without delay (see NO_DELAY_RERUN in sc_cases.py).
+NO_DELAY_RERUN = {"RBT-B-06"}    # the 4-hour soak, once it is written
 
 TIMING_CASES = {
     "RBT-V-11",  # value ladder - largest value that works

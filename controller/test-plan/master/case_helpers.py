@@ -49,13 +49,35 @@ def node_reason(msg, limit=300):
     'peer request failed: status=400 body={"referenceId":"",...,"message":"<reason>"}'
     - and cutting that at a fixed length leaves only the wrapper."""
     text = str(msg or "")
+    # 400s and 500s carry different JSON bodies ({"referenceId",...,"message",
+    # "status"} vs {"status","message","result"}) - parse it when it is whole.
+    at = text.find("body=")
+    if at >= 0:
+        try:
+            body = json.loads(text[at + len("body="):].strip())
+            if isinstance(body, dict) and body.get("message"):
+                return str(body["message"]).strip()[:limit]
+        except ValueError:
+            pass
     start = text.find('"message":"')
     if start >= 0:
         text = text[start + len('"message":"'):]
-        end = text.find('","status"')
-        if end >= 0:
-            text = text[:end]
+        ends = [i for i in (text.find('","status"'), text.find('","result"')) if i >= 0]
+        if ends:
+            text = text[:min(ends)]
     return text.strip()[:limit]
+
+
+def refusal_summary(messages, top=3, limit=160):
+    """'3x <reason>; 1x <reason>' - refusals grouped by the node's own reason,
+    most common first. What a note should say instead of the first N
+    characters of each message, which are all the same wrapper."""
+    counts = {}
+    for m in messages:
+        r = node_reason(m, limit) or "(no reason given)"
+        counts[r] = counts.get(r, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: -kv[1])
+    return "; ".join("{}x {}".format(n, r) for r, n in ranked[:top])
 
 
 def _sc_new_contract(ctx, entry):

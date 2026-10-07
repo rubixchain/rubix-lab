@@ -29,6 +29,7 @@ from case_helpers import (
     _sc_new_contract,
     node_reason as _node_reason,
     rand_value,
+    refusal_summary as _refusal_summary,
 )
 
 
@@ -126,12 +127,16 @@ def _held_drop(before, after):
     return round(held(before) - held(after), 3)
 
 
-def _sc_prepare(ctx, entry, need):
+def _sc_prepare(ctx, entry, need, fund_quorum=True):
     """Give `entry` a registered quorum and enough free RBT. Returns (ok, why).
 
     A case must build the conditions it needs. Without this, a case fails
     because the harness left the node unable to transact - which says nothing
     about the product.
+
+    fund_quorum=False leaves the quorum as it is - for SC-C-27, which needs a
+    quorum that CANNOT pledge the deploy. Topping it up to `need` + 100 here
+    is what kept that case from ever reaching its test.
     """
     host = entry["host"]
     q = ctx.quorum_for(entry) or (ctx.quorum_hosts[0] if ctx.quorum_hosts else None)
@@ -152,7 +157,7 @@ def _sc_prepare(ctx, entry, need):
 
     # The quorum pledges at least the transaction value
     # (core/consensus/checks.go:539), so it needs headroom too.
-    qd = _sc_bal(ctx, q)
+    qd = _sc_bal(ctx, q) if fund_quorum else None
     if qd and qd["balance"] < need:
         rc.fund_did(q["host"], q["did"], int(need) + 100, ctx.port)
         rc.wait_for_balance(q["host"], q["did"], need, ctx.port)
@@ -2125,18 +2130,25 @@ def sc_x_04(ctx, ci):
     except db.DBUnavailable as e:
         return SKIP, "database unreachable", str(e)
 
+    refusals = []
+
     def worker(e):
         ok_n, bad_n = 0, 0
         for i in range(per_host):
             sc_id, err = _sc_new_contract(ctx, e)
             if err:
                 bad_n += 1
+                refusals.append("generation: {}".format(err))
                 continue
-            ok, _m, _ = rc.sc_transaction(e["host"], e["did"], sc_id,
-                                          value=rand_value(0.010, 0.080),
-                                          data="fleet scale {}".format(i),
-                                          port=ctx.port)
-            ok_n, bad_n = (ok_n + 1, bad_n) if ok else (ok_n, bad_n + 1)
+            ok, msg, _ = rc.sc_transaction(e["host"], e["did"], sc_id,
+                                           value=rand_value(0.010, 0.080),
+                                           data="fleet scale {}".format(i),
+                                           port=ctx.port)
+            if ok:
+                ok_n += 1
+            else:
+                bad_n += 1
+                refusals.append(msg)
         return e["host"], ok_n, bad_n
 
     with ThreadPoolExecutor(max_workers=len(hosts)) as pool:
@@ -2166,10 +2178,11 @@ def sc_x_04(ctx, ci):
 
     note = "; ".join(problems)
     if bad_total and not problems:
-        note = ("{} of {} deploys rejected ({:.0f}%) at {} concurrent wallets - "
-                "a capacity result, not a correctness one".format(
-                    bad_total, attempted, 100.0 * bad_total / max(1, attempted),
-                    len(hosts)))
+        # Say why rather than assume "capacity": on 2026-10-06 all 15 of these
+        # were the minter-allowlist refusal.
+        note = "{} of {} deploys refused ({:.0f}%) at {} concurrent wallets: {}".format(
+            bad_total, attempted, 100.0 * bad_total / max(1, attempted), len(hosts),
+            _refusal_summary(refusals))
 
     return (not problems), "{} wallet(s) x {} deploys: {} ok, {} rejected".format(
         len(hosts), per_host, ok_total, bad_total), note
@@ -2403,7 +2416,8 @@ def sc_c_27(ctx, ci):
             "quorum {} could pledge up to {:.0f} (free + pledged); out-pledging it "
             "needs more than the 5,000 RBT a case may use".format(q["host"], ceiling))
     need = value + 10
-    ready, why = _sc_prepare(ctx, s, need)
+    # Fund the deployer only: the quorum must stay unable to pledge `value`.
+    ready, why = _sc_prepare(ctx, s, need, fund_quorum=False)
     if not ready:
         return SKIP, "could not fund above the quorum", (
             "needs {:.0f} RBT to out-pledge quorum {} ({:.0f} free + pledged): {}".format(
@@ -2479,9 +2493,13 @@ def sc_c_27(ctx, ci):
         problems.append("counter drifted after a failed deploy: "
                         + db.describe_drift(drift))
 
+    # The reason matters: the pledge shortage this case sets up is the
+    # intended one; another refusal (e.g. the minter allowlist) still tests the
+    # rollback, but the report must say which it was.
     return (not problems), "rejected at {:.3f} (quorum free {:.0f}), locked {}->{} | {}".format(
         value, q_free, locked_before, locked_after,
-        db.format_evidence(snap_before, snap_after)), "; ".join(problems)
+        db.format_evidence(snap_before, snap_after)), "; ".join(
+            ["refused: " + _node_reason(msg, 160)] + problems)
 
 
 # ---------------------------------------------------------------------------
@@ -3316,6 +3334,11 @@ ORDER = [
 ]
 
 TIMING_CASES = set()
+
+# Time-boxed cases run once, without delay. A delayed rerun spends its fixed
+# window waiting on the fullnode: on 2026-10-06 SC-X-05's 3-minute delayed run
+# managed 3 operations against 121 without delay, and measured nothing.
+NO_DELAY_RERUN = {"SC-X-05"}
 
 # What each unit of cases needs - see NEEDS in full-test/test_runner.py.
 # receivers 0 = the sender receives too. last = runs after everything else.

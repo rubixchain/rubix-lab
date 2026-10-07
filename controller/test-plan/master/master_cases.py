@@ -93,7 +93,7 @@ def _merge_registries(modules):
     module. A Test ID or unit name defined twice would silently shadow the
     other, so either is an import-time error rather than a quiet overwrite.
     """
-    cases, order, needs, timing, info = {}, [], {}, set(), {}
+    cases, order, needs, timing, info, no_rerun = {}, [], {}, set(), {}, set()
     for mod in modules:
         for tid in mod.ORDER:
             if tid in cases:
@@ -115,8 +115,10 @@ def _merge_registries(modules):
             raise RuntimeError("{}: no NEEDS entry for {}".format(
                 mod.__name__, ", ".join(undeclared)))
         timing |= set(getattr(mod, "TIMING_CASES", None) or ())
+        # Time-boxed cases: run once, without delay (see test_runner).
+        no_rerun |= set(getattr(mod, "NO_DELAY_RERUN", None) or ())
         info.update(getattr(mod, "CASE_INFO", None) or {})
-    return cases, order, needs, timing, info
+    return cases, order, needs, timing, info, no_rerun
 
 
-CASES, ORDER, NEEDS, TIMING_CASES, CASE_INFO = _merge_registries(ASSET_MODULES)
+CASES, ORDER, NEEDS, TIMING_CASES, CASE_INFO, NO_DELAY_RERUN = _merge_registries(ASSET_MODULES)
