@@ -93,6 +93,7 @@ PORT = rc.DEFAULT_PORT
 
 RESULTS = []
 EVIDENCE = {"steps": {}}
+STARTED = time.time()
 
 
 # ---------------------------------------------------------------------------
@@ -628,10 +629,29 @@ def finish(q):
         print("Q {} now holds {:.3f} RBT in unpledged tokens.".format(q["host"], frozen))
     EVIDENCE["results"] = RESULTS
     EVIDENCE["Q_unpledged_at_end"] = frozen
-    path = rc.new_report_paths("unpledged-spend", ("json",))["json"]
-    with open(path, "w", encoding="utf-8") as fh:
+    paths = rc.new_report_paths("unpledged-spend", ("json", "pdf"))
+    with open(paths["json"], "w", encoding="utf-8") as fh:
         json.dump(EVIDENCE, fh, indent=2, default=str)
-    print("Evidence: {}".format(path))
+    print("Evidence: {}".format(paths["json"]))
+
+    # The same PDF layout as the catalogue runs (report_builder).
+    import report_builder
+    parts = EVIDENCE.get("participants") or {}
+    meta = {"duration_seconds": time.time() - STARTED, "conditions": [
+        ("Run started", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(STARTED))),
+        ("Question", "Can a DID spend tokens it pledged as a quorum, once the pledge is released?"),
+        ("Participants", "; ".join("{} {}".format(k, v["host"]) for k, v in parts.items())),
+        ("Cycles (RBT)", ", ".join(str(n) for n in EVIDENCE.get("sizes") or [])),
+        ("Q at the end", "{:.3f} RBT in unpledged tokens".format(frozen) if frozen is not None else "unknown"),
+        ("Bug present", ", ".join(bug) if bug else "no unpledged-token refusal"),
+    ]}
+    rows = [{"test_id": r["id"], "case": r["case"], "expected": r["expected"],
+             "status": r["status"], "actual": r["actual"], "note": r["note"],
+             "db": "-", "fullnode": "-", "seconds": ""} for r in RESULTS]
+    if report_builder.build_pdf(paths["pdf"], "Rubix Lab - Unpledged Token Spend", meta, rows, set()):
+        print("PDF     : {}".format(paths["pdf"]))
+    else:
+        print("PDF     : not written (reportlab missing: sudo apt install -y python3-reportlab)")
 
 
 def main():
