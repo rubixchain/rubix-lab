@@ -347,9 +347,12 @@ def q_spend(cid, title, q, b, c, others, amount, unpledged, proven):
     if not ok:
         sys.exit("ERROR: could not fund C: {}".format(msg))
     before = set(free_tokens(q))
+    # Count only NEW locks: a DID can already hold stuck Locked tokens from
+    # earlier runs (.107 had 3 on 2026-10-08), which this send did not cause.
+    locked_before = db.count_in_status(q["host"], q["did"], db.LOCKED)
     ok, msg, txid = send(q, b, amount, cid)
     time.sleep(SETTLE)
-    locked = db.count_in_status(q["host"], q["did"], db.LOCKED)
+    locked = max(0, db.count_in_status(q["host"], q["did"], db.LOCKED) - locked_before)
     used = sorted(before - set(free_tokens(q))) if ok else []
     step = {"amount": amount, "ok": ok, "txid": txid, "used": used,
             "message": "" if ok else msg, "locked_after": locked}
