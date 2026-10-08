@@ -51,6 +51,19 @@ THE CASES (each cycle, N = 10, 50, 100)               correct product
                 - one unpledged token with a low id blocks every
                 whole-RBT send, however much fresh RBT Q holds
 
+    the split path (UPS-N-4 showed a split of an unpledged token goes through):
+    SPL-0.999 / 0.5 / 0.1 / 0.001  each fraction below 1 splits Q's lowest
+                (unpledged) whole token - accepted? and B credited?   accepted
+    SPL-1.5     above 1: one unpledged whole token moves UNSPLIT,
+                a second is split - is the unsplit one refused?   accepted
+    SPL-DRAIN   repeated 0.999 sends: how much stuck value moves
+                out this way, and what change is left behind      accepted
+    WHY: the ownership check (checks.go:213) examines only the transferred
+    tokens' previous transaction. In a split the transferred token is a new
+    part whose previous transaction is the split; the unpledged parent is
+    listed only in committedTokens, which the check never reads. So whole
+    unpledged tokens are refused, while splits of them are never checked.
+
     A refusal naming an unpledged token is the bug; for each one the
     databases show the token is Free, owned by Q, last role "unpledge", and
     that its pledge transaction names Q as the quorum that pledged it - so
@@ -456,7 +469,78 @@ def run(args):
             return finish(q)
 
     after_cycles(q, a, b, c, others, unpledged, args)
+    print("  -- split path --")
+    split_path(q, b, c, others, unpledged, args)
     return finish(q)
+
+
+def split_path(q, b, c, others, unpledged, args):
+    """Where the split path ends. The ownership check (checks.go:213) examines
+    only the TRANSFERRED tokens' previous transaction. A send below 1 RBT
+    splits Q's lowest whole token: the transferred token is a new part whose
+    previous transaction is the split, and the unpledged parent is listed only
+    in committedTokens, which the check never looks at - so the unpledge rule
+    is never applied. These cases measure what that means in practice."""
+    def lowest_is_unpledged():
+        order = whole_sorted(q)
+        return bool(order) and order[0] in unpledged
+
+    def credited_send(cid, title, amount):
+        if not lowest_is_unpledged():
+            record(cid, title, "accepted", "SKIP",
+                   "Q's lowest whole token is not an unpledged one, so this send would not use one")
+            return None
+        b_before = db.value_in_status(b["host"], b["did"], db.FREE)
+        q_spend(cid, title, q, b, c, others, amount, unpledged, ["(already shown)"])
+        step = EVIDENCE["steps"].get(cid, {})
+        if step.get("ok"):
+            gained = round(db.value_in_status(b["host"], b["did"], db.FREE) - b_before, 3)
+            step["b_gained"] = gained
+            RESULTS[-1]["note"] = ("B credited {:+.3f}; ".format(gained) +
+                                   "the split consumed an unpledged whole token, so its value "
+                                   "is no longer stuck").strip()
+            print("                      B credited {:+.3f}".format(gained))
+        return step.get("ok")
+
+    # SPL-<x>: every fraction below 1 splits one unpledged whole token.
+    for amount in (0.999, 0.5, 0.1, 0.001):
+        credited_send("SPL-{}".format(amount),
+                      "Q sends {} - below 1, splits its lowest (unpledged) whole token".format(amount),
+                      amount)
+
+    # SPL-1.5: above 1, one unpledged whole token moves without being split.
+    credited_send("SPL-1.5", "Q sends 1.5 - one unpledged whole token moves unsplit, "
+                             "a second is split", 1.5)
+
+    # SPL-DRAIN: how much stuck value fractions can move, and what is left.
+    title = "Q moves stuck value out with repeated 0.999 sends"
+    stuck_before = sum(1 for t in whole_sorted(q) if t in unpledged)
+    moved, refused = 0, 0
+    for i in range(args.drain):
+        if not lowest_is_unpledged():
+            break
+        ok, msg = fund_to(c, 11)
+        if not ok:
+            sys.exit("ERROR: could not fund C: {}".format(msg))
+        ok, msg, _txid = send(q, b, 0.999, "SPL-DRAIN")
+        time.sleep(SETTLE)
+        if ok:
+            moved += 1
+        else:
+            refused += 1
+    stuck_after = sum(1 for t in whole_sorted(q) if t in unpledged)
+    EVIDENCE["steps"]["SPL-DRAIN"] = {"sends": args.drain, "accepted": moved, "refused": refused,
+                                      "stuck_before": stuck_before, "stuck_after": stuck_after}
+    if not moved and not refused:
+        record("SPL-DRAIN", title, "accepted", "SKIP", "no unpledged whole token left to drain")
+        return
+    record("SPL-DRAIN", title, "accepted", "PASS" if not refused else "FAIL",
+           "{} of {} sends accepted; unpledged whole tokens {} -> {}; {:.3f} RBT moved".format(
+               moved, moved + refused, stuck_before, stuck_after, 0.999 * moved),
+           "each send frees 0.999 and leaves 0.001 change on Q; draining all of Q's stuck "
+           "value this way takes one send per unpledged whole token. The change parts can "
+           "only be spent once Q holds no whole tokens (larger denominations are always "
+           "taken first)")
 
 
 def cycle(n, q, a, b, c, others, unpledged, args):
@@ -667,6 +751,8 @@ def main():
                         "on (default 300)")
     p.add_argument("--wait", type=int, default=60,
                    help="seconds before UPS-WAIT (default 60)")
+    p.add_argument("--drain", type=int, default=5,
+                   help="0.999 sends in SPL-DRAIN (default 5)")
     p.add_argument("--yes", action="store_true", help="do not ask before starting")
     run(p.parse_args())
 
