@@ -1,0 +1,22 @@
+[Unit]
+Description=Rubix node %i (office lab fleet)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User={{USER}}
+# One instance per node: rubixgoplatform@<slot> runs ~/rubix-lab/nodes/node<slot>.
+# That folder is the working directory AND the -p profile. The product runs
+# ./ipfs from the working directory and, when it restarts IPFS on its own,
+# points IPFS_PATH at ./.ipfs (core/ipfs_recovery.go:247 - NodeConfigDir is
+# never set), so a node started from any other directory would restart onto
+# the wrong IPFS repo.
+WorkingDirectory={{NODES_DIR}}/node%i
+ExecStart={{NODES_DIR}}/node%i/rubixgoplatform run -p {{NODES_DIR}}/node%i{{EXTRA_ARGS}}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

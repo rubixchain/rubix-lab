@@ -61,14 +61,14 @@ from case_helpers import (
 # BEFORE RUNNING ANYTHING BY HAND
 #     Set these once in your shell. Every MANUAL block below uses them.
 #
-#         SENDER=192.168.1.104          # any pool host with a DID
-#         DID=$(curl -s http://$SENDER:20000/rubix/v1/dids | python3 -c \
+#         SENDER=192.168.1.107:20300    # any pool node with a DID, ip:port
+#         DID=$(curl -s http://$SENDER/rubix/v1/dids | python3 -c \
 #               'import sys,json; print(json.load(sys.stdin)["result"][0])')
 #
 #     Every state-changing call is a TWO-STEP password challenge. The first POST
 #     returns {"result":{"id":"<reqID>"}}, and nothing happens until you sign it:
 #
-#         curl -s -X POST http://$SENDER:20000/rubix/v1/signature \
+#         curl -s -X POST http://$SENDER/rubix/v1/signature \
 #              -H 'Content-Type: application/json' \
 #              -d '{"id":"<reqID>","password":"mypassword","signature":""}'
 #
@@ -237,10 +237,10 @@ def sc_s_01(ctx, ci):
     MANUAL STEPS
         1. Generate a contract but DO NOT deploy it. Note the id.
         2. From a second node:
-             curl -s "http://$OTHER:20000/rubix/v1/smart_contracts/subscribe?smartContractToken=<SC>"
+             curl -s "http://$OTHER/rubix/v1/smart_contracts/subscribe?smartContractToken=<SC>"
         3. Now deploy from the first node.
         4. After ~10s, read the chain on the subscriber:
-             curl -s http://$OTHER:20000/rubix/v1/smart_contracts/<SC>/chain
+             curl -s http://$OTHER/rubix/v1/smart_contracts/<SC>/chain
 
     PASS / FAIL
         Records the behaviour. The finding is whether the early subscriber ends
@@ -342,8 +342,8 @@ def sc_s_03(ctx, ci):
         1. Execute the contract once from the owner.
         2. Subscribe from a THIRD node.
         3. Compare chains:
-             curl -s http://$OWNER:20000/rubix/v1/smart_contracts/<SC>/chain
-             curl -s http://$THIRD:20000/rubix/v1/smart_contracts/<SC>/chain
+             curl -s http://$OWNER/rubix/v1/smart_contracts/<SC>/chain
+             curl -s http://$THIRD/rubix/v1/smart_contracts/<SC>/chain
 
     PASS / FAIL
         PASS  late subscriber's chain matches the owner's
@@ -458,7 +458,7 @@ def sc_s_05(ctx, ci):
 
     MANUAL STEPS
         For each node that subscribed, and for the owner:
-             curl -s http://$NODE:20000/rubix/v1/smart_contracts/<SC>/chain
+             curl -s http://$NODE/rubix/v1/smart_contracts/<SC>/chain
         Line up the lengths against when each node subscribed.
 
     PASS / FAIL
@@ -590,7 +590,7 @@ def sc_c_13(ctx, ci):
 
     MANUAL STEPS
         For each value in the ladder, on a wallet with at least 30 RBT:
-          1. curl -s http://$SENDER:20000/rubix/v1/dids/$DID/balances/rbt
+          1. curl -s http://$SENDER/rubix/v1/dids/$DID/balances/rbt
           2. Generate a contract, deploy it with that value (see SC-C-01)
           3. Wait ~6s, read the balance again
           4. The drop must equal that value before moving on
@@ -1034,7 +1034,7 @@ def sc_s_06(ctx, ci):
     MANUAL STEPS
         Deploy 3 contracts. Between executes, subscribe a different node to
         each. Then for every (node, contract) pair:
-          curl -s http://$NODE:20000/rubix/v1/smart_contracts/<SC>/chain
+          curl -s http://$NODE/rubix/v1/smart_contracts/<SC>/chain
         and compare lengths against the deployer's.
 
     PASS / FAIL
@@ -1146,7 +1146,7 @@ def sc_s_07(ctx, ci):
 
     MANUAL STEPS
         On the owner and each subscriber:
-          psql -h $NODE -p 5433 -U rubix -d rubix -c \\
+          psql -h ${NODE%:*} -p $(( ${NODE#*:} - 14567 )) -U rubix -d rubix -c \\
             "SELECT token_id, token_value, token_status, latest_position
                FROM tokens WHERE token_id='<SC_ID>';"
         Every node should return identical values.
@@ -1909,7 +1909,7 @@ def sc_x_02(ctx, ci):
 
     MANUAL STEPS
         Deploy once, then execute in a loop, and every 25 iterations:
-          curl -s http://$SENDER:20000/rubix/v1/smart_contracts/<SC>/chain
+          curl -s http://$SENDER/rubix/v1/smart_contracts/<SC>/chain
         The entry count should equal successful executes + 1.
 
     PASS / FAIL
@@ -2369,7 +2369,7 @@ def sc_c_27(ctx, ci):
 
     MANUAL STEPS
         1. Read the quorum's free balance:
-             psql -h $QUORUM -p 5433 -U rubix -d rubix -c \\
+             psql -h ${QUORUM%:*} -p $(( ${QUORUM#*:} - 14567 )) -U rubix -d rubix -c \\
                "SELECT COALESCE(SUM(token_value),0) FROM tokens
                  WHERE did='<QDID>' AND token_type=1 AND token_status=0;"
         2. Fund the deployer ABOVE that figure.

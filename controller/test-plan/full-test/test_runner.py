@@ -9,14 +9,15 @@ the case, checking the wallets afterwards, and writing the report.
 Flow:
     1. Load the cases (master/master_cases.py) and what each one NEEDS:
        how many senders, receivers and quorums, and how much RBT they hold.
-    2. Find every reachable node and every DID on it. DIDs are fixed - none
-       is ever created here.
+    2. Find every reachable node and every DID on it. A pool machine runs
+       several nodes (systems/node-layout.txt), so a node is "ip:api_port"
+       (controller/fleet.py). DIDs are fixed - none is ever created here.
     3. Check the faucet: its node must have exactly one quorum, the faucet
        quorum. All RBT comes from the faucet.
     4. For each case (or group of cases that must share DIDs), in order:
          a. wait until enough nodes are free
          b. pick DIDs: quorums, then senders holding the most RBT, then
-            receivers holding the least
+            receivers holding the least - on different machines where it can
          c. set up the quorums; set every participant node's quorum list to
             that quorum (so the signer is certain); faucet any shortfall
          d. run the case; check the wallets' database rows before and after
@@ -47,14 +48,17 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+# controller/ - fleet.py, the one reader of hosts.txt and node-layout.txt
+sys.path.insert(0, os.path.join(HERE, "..", ".."))
 
 import rubix_client as rc
 import db_client as db
 import case_evidence
+import fleet as fleet_inventory
 import report_builder
 
-FIXED_ROLES = {"fullnode", "explorer", "controller"}
-DEFAULT_HOSTS = os.path.join(HERE, "..", "..", "hosts.txt")
+FIXED_ROLES = fleet_inventory.FIXED_ROLES
+DEFAULT_HOSTS = fleet_inventory.HOSTS_PATH
 ANNOUNCE_SETTLE_SECONDS = 3     # after the DID announce pass
 
 # The master catalogue is the source of truth for case wording.
@@ -360,7 +364,7 @@ def _free_balances(entries, port):
 
     if not entries:
         return {}
-    with ThreadPoolExecutor(max_workers=min(20, len(entries))) as ex:
+    with ThreadPoolExecutor(max_workers=min(40, len(entries))) as ex:
         return dict(ex.map(one, entries))
 
 
@@ -378,8 +382,28 @@ def _ex_pledged(entries):
 
     if not entries:
         return {}
-    with ThreadPoolExecutor(max_workers=min(20, len(entries))) as ex:
+    with ThreadPoolExecutor(max_workers=min(40, len(entries))) as ex:
         return dict(ex.map(one, entries))
+
+
+def _spread(candidates, k, used):
+    """The first k of `candidates` (already in preference order), at most one
+    per machine while unused machines are left, then whatever is left. `used`
+    holds the machines this unit already occupies and is updated.
+
+    Nine nodes share a machine, so without this a unit's sender, receiver and
+    quorum would often sit on one desktop: their traffic would never leave it,
+    and they would compete for its CPU in the very cases that time them."""
+    picked = []
+    for e in candidates:
+        if len(picked) < k and e["machine"] not in used:
+            picked.append(e)
+            used.add(e["machine"])
+    for e in candidates:
+        if len(picked) < k and e not in picked:
+            picked.append(e)
+            used.add(e["machine"])
+    return picked
 
 
 def fits(unit, free_nodes, pool_nodes):
@@ -419,10 +443,14 @@ def allocate(unit, free_nodes, port):
     s = unit.spec
     if not unit.needs_nodes:
         return
+    # Every entry carries its node's whole DID list, so a case that needs a
+    # second DID on the same node (wallet_shapes.second_did) uses one that
+    # exists instead of creating it.
     if s["same_node"]:
         k = s["senders"] + s["receivers"] + s["quorums"]
         node = next(n for n in free_nodes if len(n["dids"]) >= k)
-        entries = [{"host": node["host"], "did": d} for d in node["dids"]]
+        entries = [{"host": node["host"], "machine": node["machine"], "did": d,
+                    "dids": list(node["dids"])} for d in node["dids"]]
         bal = _free_balances(entries, port)
         entries.sort(key=lambda e: -bal[e["did"]])
         q = s["quorums"]
@@ -431,7 +459,8 @@ def allocate(unit, free_nodes, port):
         unit.receivers = entries[q + s["senders"]:k]
     else:
         # One DID per node - the one holding most, if the node has several.
-        entries = [{"host": n["host"], "did": d} for n in free_nodes for d in n["dids"]]
+        entries = [{"host": n["host"], "machine": n["machine"], "did": d, "dids": list(n["dids"])}
+                   for n in free_nodes for d in n["dids"]]
         bal = _free_balances(entries, port)
         best = {}
         for e in entries:
@@ -439,23 +468,25 @@ def allocate(unit, free_nodes, port):
                 best[e["host"]] = e
         taint = _ex_pledged(list(best.values()))
         dirty = lambda e: taint.get(e["did"], 0.0) > 0
+        used = set()
         if s["quorum_pick"] == "poorest":
-            unit.quorums = sorted(best.values(),
-                                  key=lambda e: (not dirty(e), bal[e["did"]]))[:s["quorums"]]
+            unit.quorums = _spread(sorted(best.values(), key=lambda e: (not dirty(e), bal[e["did"]])),
+                                   s["quorums"], used)
         else:
-            unit.quorums = sorted(best.values(),
-                                  key=lambda e: (not dirty(e), -bal[e["did"]]))[:s["quorums"]]
+            unit.quorums = _spread(sorted(best.values(), key=lambda e: (not dirty(e), -bal[e["did"]])),
+                                   s["quorums"], used)
         rest = sorted((e for e in best.values() if e not in unit.quorums),
                       key=lambda e: (dirty(e), -bal[e["did"]]))
-        n_send = len(rest) - s["receivers"] if unit.wants_all else s["senders"]
         if unit.wants_all:
             # every node sends; receivers are the poorest of the clean ones
-            unit.receivers = sorted(rest, key=lambda e: (dirty(e), bal[e["did"]]))[:s["receivers"]]
+            unit.receivers = _spread(sorted(rest, key=lambda e: (dirty(e), bal[e["did"]])),
+                                     s["receivers"], used)
             unit.senders = [e for e in rest if e not in unit.receivers]
         else:
-            unit.senders = rest[:n_send]
-            unit.receivers = sorted(rest[n_send:],
-                                    key=lambda e: (dirty(e), bal[e["did"]]))[:s["receivers"]]
+            unit.senders = _spread(rest, s["senders"], used)
+            unit.receivers = _spread(sorted((e for e in rest if e not in unit.senders),
+                                            key=lambda e: (dirty(e), bal[e["did"]])),
+                                     s["receivers"], used)
         # Said in the run output: a refusal naming "failed to get quorum DID"
         # from these is the known bug, not the case.
         unit.dirty_spenders = ["{} ({:.3f} RBT)".format(e["host"].split(".")[-1], taint[e["did"]])
@@ -594,7 +625,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                 result = (passed, actual, ((note or "") + " | " if note else "") +
                           "run once, without delay: time-boxed, so a delayed rerun "
                           "would spend its window waiting for the fullnode")
-            elif case_evidence.FULLNODE_HOST and case_evidence.made_transfers(evidence):
+            elif case_evidence.FULLNODE_HOSTS and case_evidence.made_transfers(evidence):
                 r2, e2, t2 = _run_once(unit, tid, ci, paced=True)
                 result, evidence = case_evidence.combine(tid, result, evidence, r2, e2)
                 elapsed = round(elapsed + t2, 2)
@@ -688,25 +719,34 @@ def fleet_ledger(fleet, label):
     totals = dict((n, 0.0) for n in status_name.values())
     counted, unreachable = 0, []
     fleet = list(fleet)
-    # The two faucet nodes share the controller machine (ports 20000/20010),
-    # each with its own database, so they are read over their APIs. They only
-    # ever send, so they hold nothing in the sink statuses.
-    for did, port in ((rc.FAUCET_DID, rc.FAUCET_PORT),
-                      (rc.FAUCET_QUORUM_DID, rc.FAUCET_QUORUM_PORT)):
+    # The faucet DID and the faucet quorum, each on its own machine, are read
+    # over their APIs. They only ever send, so they hold nothing in the sink
+    # statuses.
+    for did, host, port in ((rc.FAUCET_DID, rc.FAUCET_HOST, rc.FAUCET_PORT),
+                            (rc.FAUCET_QUORUM_DID, rc.FAUCET_QUORUM_HOST, rc.FAUCET_QUORUM_PORT)):
         if did and all(e["did"] != did for e in fleet):
-            fleet.append({"host": rc.FAUCET_HOST, "did": did, "api_port": port})
-    for e in fleet:
+            fleet.append({"host": host, "did": did, "api_port": port})
+
+    def read(e):
+        """(per-status totals, None) or (None, why it could not be read)."""
         try:
             if e.get("api_port"):
                 ok, d, note = rc.get_rbt_balance_detail(e["host"], e["did"], e["api_port"])
                 if not ok or not d:
                     raise RuntimeError(note)
-                per_status = {db.FREE: (d["balance"], 0), db.LOCKED: (d["locked"], 0),
-                              db.PLEDGED: (d["pledged"], 0)}
-            else:
-                per_status = db.wallet_totals(e["host"], e["did"])
+                return {db.FREE: (d["balance"], 0), db.LOCKED: (d["locked"], 0),
+                        db.PLEDGED: (d["pledged"], 0)}, None
+            return db.wallet_totals(e["host"], e["did"]), None
         except Exception as exc:
-            unreachable.append("{} ({})".format(e["host"], type(exc).__name__))
+            return None, "{} ({})".format(e["host"], type(exc).__name__)
+
+    # ~1,000 DIDs: read in parallel, one database connection each.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(40, max(1, len(fleet)))) as ex:
+        readings = list(ex.map(read, fleet))
+    for per_status, why in readings:
+        if per_status is None:
+            unreachable.append(why)
             continue
         counted += 1
         for status, (value, _rows) in per_status.items():
@@ -858,41 +898,67 @@ class CatalogueReport:
                   "above. Install with: sudo apt install -y python3-reportlab")
 
 
-def discover_pool(hosts, port, timeout):
-    """Every reachable pool node and ALL of its DIDs.
+def load_fleet(hosts_path=DEFAULT_HOSTS):
+    """hosts.txt -> (hosts, pool node specs from fleet.py), with the faucet and
+    the fullnodes pointed at the machines the roles name. The setup every
+    runner shares (test_runner, smoke_test, custom/unpledged_spend)."""
+    hosts = fleet_inventory.load_hosts(hosts_path)
+    rc.use_fleet_roles(hosts)
+    case_evidence.FULLNODE_HOSTS = list(rc.FULLNODE_HOSTS)
+    return hosts, fleet_inventory.fleet(hosts)
+
+
+def discover_pool(specs, timeout):
+    """Every reachable pool node and ALL of its DIDs. `specs` are fleet.py
+    nodes; each node returned is {"host": "ip:port", "machine", "slot",
+    "did_target", "dids": [...]}.
 
     DIDs are fixed: this never creates one. A node with no DID is left out and
-    named, because creating one here would give a machine an identity nobody
-    set up (CreateDID has no idempotency, core/did.go). A node with several
-    DIDs is fine - every DID on it can take part.
+    named, because creating one here would give a node an identity nobody
+    set up (CreateDID has no idempotency, core/did.go). A node holding a
+    different number than the layout says still takes part, and is named.
+
+    Then every DID is announced (register + signature), so a node that missed
+    an announcement learns it now - in parallel across nodes, one DID at a
+    time within a node: one after another, ~1,000 of them took tens of minutes.
     """
     from concurrent.futures import ThreadPoolExecutor
 
     faucet_dids = {rc.FAUCET_DID, rc.FAUCET_QUORUM_DID} - {""}
 
-    def check(entry):
-        reachable, dids, note = rc.get_dids(entry["host"], port, timeout)
-        return entry["host"], reachable, list(dids or []), note
+    def check(spec):
+        reachable, dids, note = rc.get_dids(spec["host"], timeout=timeout)
+        return spec, reachable, list(dids or []), note
 
-    with ThreadPoolExecutor(max_workers=min(40, max(1, len(hosts)))) as ex:
-        results = list(ex.map(check, hosts))
+    with ThreadPoolExecutor(max_workers=min(40, max(1, len(specs)))) as ex:
+        results = list(ex.map(check, specs))
 
-    nodes, excluded = [], []
-    for host, reachable, dids, note in results:
+    nodes, excluded, off_target = [], [], []
+    for spec, reachable, dids, note in results:
+        host = spec["host"]
         if not reachable:
             excluded.append("{} - unreachable ({})".format(host, note))
         elif not dids:
-            excluded.append("{} - no DID (DIDs are created by hand, never by the "
-                            "runner)".format(host))
+            excluded.append("{} - no DID (DIDs are created by dids-to-excel.py, never by "
+                            "the runner)".format(host))
         elif faucet_dids & set(dids):
             excluded.append("{} - holds the faucet or faucet quorum DID".format(host))
         else:
-            nodes.append({"host": host, "dids": dids})
+            if len(dids) != spec["did_target"]:
+                off_target.append("{} ({} of {})".format(host, len(dids), spec["did_target"]))
+            nodes.append({"host": host, "machine": spec["machine"], "slot": spec["slot"],
+                          "did_target": spec["did_target"], "dids": dids})
+    if off_target:
+        print("  note: {} node(s) hold a different number of DIDs than node-layout.txt "
+              "says - used as they are: {}".format(len(off_target), ", ".join(off_target[:10])))
 
-    for n in nodes:
+    def announce(n):
         for did in n["dids"]:
-            rc.announce_did(n["host"], did, port)
+            rc.announce_did(n["host"], did)
+
     if nodes:
+        with ThreadPoolExecutor(max_workers=min(40, len(nodes))) as ex:
+            list(ex.map(announce, nodes))
         time.sleep(ANNOUNCE_SETTLE_SECONDS)
     return nodes, excluded
 
@@ -912,7 +978,9 @@ def main():
     p.add_argument("--report-name", default="",
                    help="label for the report file (default: the --cases value)")
     p.add_argument("--hosts", default=DEFAULT_HOSTS)
-    p.add_argument("--port", type=int, default=rc.DEFAULT_PORT)
+    # Nodes are addressed "ip:port" (fleet.py), which carries each node's own
+    # port; this is only the default for a bare-IP call.
+    p.add_argument("--port", type=int, default=rc.DEFAULT_PORT, help=argparse.SUPPRESS)
     p.add_argument("--quorum-floor", type=int, default=100,
                    help="RBT a quorum is topped up to before its unit starts, unless "
                         "the unit says otherwise. Cases top the signing quorum up "
@@ -942,10 +1010,8 @@ def main():
     p.add_argument("--version-label", default="",
                    help="manual fleet build label. Only used without --collect-versions.")
     p.add_argument("--collect-versions", action="store_true",
-                   help="SSH each pool node and record its build")
+                   help="SSH each pool machine and record every node's build")
     p.add_argument("--ssh-user", default="rubix", help="SSH user for --collect-versions")
-    p.add_argument("--remote-dir", default="~/Desktop/rubix",
-                   help="directory holding the rubixgoplatform binary on each host")
     args = p.parse_args()
 
     if args.suite:
@@ -990,34 +1056,26 @@ def main():
         sys.exit("ERROR: psycopg2 is not installed - every case is checked against the "
                  "nodes' databases.\n       sudo apt install -y python3-psycopg2")
 
-    all_hosts = rc.load_hosts(args.hosts)
-    # The faucet runs on the controller machine (ports 20000 and 20010).
-    if "RUBIX_FAUCET_HOST" not in os.environ:
-        controller = [h["host"] for h in all_hosts if h["role"] == "controller"]
-        if controller:
-            rc.FAUCET_HOST = controller[0]
+    # hosts.txt roles decide where the faucet, its quorum and the fullnodes are.
+    _all_hosts, specs = load_fleet(args.hosts)
     # Every RBT a case spends comes from the faucet, so a misconfigured faucet
     # would fail every case on funding. Stop here instead.
     faucet_ok, faucet_note = rc.faucet_ready()
     if not faucet_ok:
         sys.exit("ERROR: faucet not ready - {}".format(faucet_note))
-    print("Faucet: {}... on {}:{}, quorum {}... on :{} - {}".format(
+    print("Faucet: {}... on {}:{}, quorum {}... on {}:{} - {}".format(
         rc.FAUCET_DID[:16], rc.FAUCET_HOST, rc.FAUCET_PORT, rc.FAUCET_QUORUM_DID[:16],
-        rc.FAUCET_QUORUM_PORT, faucet_note))
-
-    fullnode = [h["host"] for h in all_hosts if h["role"] == "fullnode"]
-    case_evidence.FULLNODE_HOST = fullnode[0] if fullnode else ""
-    rc.FULLNODE_HOST = case_evidence.FULLNODE_HOST     # pacing, see rubix_client
-    print("Fullnode: {}".format(case_evidence.FULLNODE_HOST or
-                                "none in hosts.txt - fullnode acceptance not checked"))
+        rc.FAUCET_QUORUM_HOST, rc.FAUCET_QUORUM_PORT, faucet_note))
+    print("Fullnodes: {}".format(", ".join(case_evidence.FULLNODE_HOSTS) or
+                                 "none in hosts.txt - fullnode acceptance not checked"))
 
     print()
     print("== Fleet: reachability + DIDs ==")
-    hosts = [h for h in all_hosts if h["role"] not in FIXED_ROLES]
-    pool_nodes, excluded = discover_pool(hosts, args.port, rc.DEFAULT_TIMEOUT)
+    pool_nodes, excluded = discover_pool(specs, rc.DEFAULT_TIMEOUT)
     fleet = [{"host": n["host"], "did": d} for n in pool_nodes for d in n["dids"]]
-    print("{} node(s) in hosts.txt, {} usable with {} DID(s), {} excluded".format(
-        len(hosts), len(pool_nodes), len(fleet), len(excluded)))
+    print("{} node(s) on {} pool machine(s) in hosts.txt, {} usable with {} DID(s), "
+          "{} excluded".format(len(specs), len(set(s["machine"] for s in specs)),
+                               len(pool_nodes), len(fleet), len(excluded)))
     for line in excluded:
         print("  excluded: {}".format(line))
     if not pool_nodes:
@@ -1050,9 +1108,8 @@ def main():
 
     version_rows = []
     if args.collect_versions:
-        print("\nCollecting per-host versions over SSH...")
-        versions = rc.collect_versions([n["host"] for n in pool_nodes],
-                                       args.ssh_user, args.remote_dir)
+        print("\nCollecting per-node versions over SSH...")
+        versions = rc.collect_versions(pool_nodes, args.ssh_user)
         distinct = sorted(set(versions.values()))
         version_rows.append(("Version", "uniform: {}".format(distinct[0]) if len(distinct) == 1
                              else "MIXED: " + ", ".join("{}={}".format(h, v)
@@ -1072,28 +1129,32 @@ def main():
             ("Cases run", "{} of {} in the catalogue".format(len(order), len(module.ORDER))),
         ] + version_rows + [
             ("Hosts file", args.hosts),
-            ("Pool", "{} node(s), {} DID(s); excluded: {}".format(
-                len(pool_nodes), len(fleet), "; ".join(excluded) or "none")),
-            ("Participants", "per unit (last octet of 192.168.1.x; s=senders r=receivers "
-                             "q=quorums) - " + (participants or "none")),
-            ("Funding", "faucet {}... on {}:{}, signed by faucet quorum {}... on :{}; "
+            ("Pool", "{} node(s) on {} machine(s), {} DID(s); excluded: {}".format(
+                len(pool_nodes), len(set(n["machine"] for n in pool_nodes)), len(fleet),
+                "; ".join(excluded) or "none")),
+            ("Participants", "per unit (node = last octet of 192.168.1.x : API port; "
+                             "s=senders r=receivers q=quorums) - " + (participants or "none")),
+            ("Funding", "faucet {}... on {}:{}, signed by faucet quorum {}... on {}:{}; "
                         "no RBT minted; shortfall only".format(
                             rc.FAUCET_DID[:16], rc.FAUCET_HOST, rc.FAUCET_PORT,
-                            rc.FAUCET_QUORUM_DID[:16], rc.FAUCET_QUORUM_PORT)),
+                            rc.FAUCET_QUORUM_DID[:16], rc.FAUCET_QUORUM_HOST,
+                            rc.FAUCET_QUORUM_PORT)),
             ("Quorum floor", "{} RBT before a unit starts, topped up further per "
                              "transfer".format(args.quorum_floor)),
-            ("Fullnode pacing", "each DID waits for the fullnode to process its last "
-                                "transaction before starting the next{}".format(
+            ("Fullnode pacing", "each DID waits for every fullnode to process its last "
+                                "transaction before starting the next{}{}".format(
                                     "" if not rc._PACE["off"] else
-                                    " - SWITCHED OFF during the run (see output)")),
-            ("Fullnode", case_evidence.FULLNODE_HOST or "not checked"),
+                                    " - SWITCHED OFF during the run (see output)",
+                                    "" if not rc._UNREADABLE else
+                                    " - not waited on (database unreadable): " +
+                                    ", ".join(sorted(rc._UNREADABLE)))),
+            ("Fullnodes", ", ".join(case_evidence.FULLNODE_HOSTS) or "not checked"),
             ("Scale knobs", "repeat {} | value ceiling {} | wallet ceiling {} | "
                             "tiny tokens {} | chain hops {} | burst {} "
                             "(default = catalogue size)".format(
                                 *[getattr(args, k) or "default" for k in (
                                     "repeat_count", "value_ceiling", "wallet_ceiling",
                                     "tiny_tokens", "chain_hops", "burst_count")])),
-            ("API port", str(args.port)),
         ],
     }
     if args.only:
@@ -1110,23 +1171,33 @@ def main():
                    "case_readings": db.EVIDENCE}, fh, indent=2, default=str)
     print("DB evidence for {} case(s) -> {}".format(len(by_case), ev_path))
 
-    # Fullnode: every rejection this run, grouped by reason, so a pattern
-    # (e.g. previous-transaction mismatches) is visible without opening files.
-    reasons = {}
+    # Fullnodes: every rejection this run, grouped by reason, with the
+    # fullnodes that gave it, so a pattern (e.g. previous-transaction
+    # mismatches on one fullnode only) is visible without opening files.
+    reasons, disagreed = {}, set()
     for e in CASE_EVIDENCE:
         for c in e.get("checks", []):
-            for _tid, r in (c.get("rejected") or {}).items():
-                # IDs differ per transaction; mask them so the same failure groups.
-                # Contract/NFT IDs are base58 "Qm..." hashes.
-                key = re.sub(r"bafy\w+|Qm[1-9A-HJ-NP-Za-km-z]{44}|[0-9a-f]{16,}|\b\d+_\d+(_\d+)?\b",
-                             "<id>",
-                             (r or "").replace("failed to validate transaction:", "")).strip()[:160]
-                reasons.setdefault(key, set()).add(e["case"])
+            if c.get("disagree"):
+                disagreed.add(e["case"])
+            for fn, p in (c.get("per_fullnode") or {}).items():
+                for _tid, r in (p.get("rejected") or {}).items():
+                    # IDs differ per transaction; mask them so the same failure
+                    # groups. Contract/NFT IDs are base58 "Qm..." hashes.
+                    key = re.sub(r"bafy\w+|Qm[1-9A-HJ-NP-Za-km-z]{44}|[0-9a-f]{16,}|\b\d+_\d+(_\d+)?\b",
+                                 "<id>",
+                                 (r or "").replace("failed to validate transaction:", "")).strip()[:160]
+                    entry = reasons.setdefault(key, (set(), set()))
+                    entry[0].add(e["case"])
+                    entry[1].add(case_evidence.short_name(fn))
     if reasons:
         print()
         print("Fullnode rejections this run:")
-        for r, cases in sorted(reasons.items(), key=lambda kv: -len(kv[1])):
-            print("  {} case(s): {}  <- {}".format(len(cases), r, ", ".join(sorted(cases))))
+        for r, (cases, by) in sorted(reasons.items(), key=lambda kv: -len(kv[1][0])):
+            print("  {} case(s), by {}: {}  <- {}".format(
+                len(cases), ", ".join(sorted(by)), r, ", ".join(sorted(cases))))
+    if disagreed:
+        print("Fullnodes reached DIFFERENT verdicts on the same transaction in: {}".format(
+            ", ".join(sorted(disagreed))))
 
     # Refusals with a known product cause (case_evidence.KNOWN_PRODUCT_BUGS):
     # the cases they touched, so a ladder "limit" or a FAIL they caused is not

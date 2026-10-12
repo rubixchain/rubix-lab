@@ -28,17 +28,20 @@ A case that passed its own assertion but fails any of these is a FAIL. The
 readings behind every check go into the run's evidence file.
 
 One more check is REPORTED but does not decide the verdict, because the
-fullnode is an observer, not part of a transfer:
+fullnodes are observers, not part of a transfer:
 
       fullnode     each successful transaction is in fullnode_transactions
                    (accepted) or fullnode_invalid_transactions (rejected, with
-                   the reason) on the fullnode. The fullnode validates with
-                   several workers in parallel and gives up after 3 attempts
-                   ~6s apart (core/fullnode_txn_processor.go), so two
-                   transactions on the same token close together can be
-                   checked out of order and rejected with a previous-
-                   transaction mismatch. That is a fullnode finding, and this
-                   shows which case, which transaction and why.
+                   the reason) on EVERY fullnode. Each one subscribes to all
+                   published transactions (core/core.go, -fullnode) and
+                   validates them on its own, with several workers in parallel
+                   and up to 3 attempts ~6s apart, so two transactions on the
+                   same token close together can be checked out of order and
+                   rejected with a previous-transaction mismatch. That is a
+                   fullnode finding, and this shows which case, which
+                   transaction, which fullnode and why. Fullnodes reaching
+                   different verdicts on the same transaction is reported as
+                   a disagreement - a finding in itself.
 """
 
 import re
@@ -48,8 +51,8 @@ import db_client as db
 import rubix_client as rc
 
 SETTLE_SECONDS = 30          # how long to wait for a transaction row to land
-FULLNODE_HOST = ""           # set by test_runner from hosts.txt (role fullnode)
-FULLNODE_WAIT = 30           # the fullnode retries ~6s, then may be queued
+FULLNODE_HOSTS = []          # set by test_runner from hosts.txt (role fullnode)
+FULLNODE_WAIT = 30           # a fullnode retries ~6s, then may be queued
 VERDICT_CHECKS = ("persisted", "conserved", "no_locks", "rows_valid")
 _HELD = ("free", "locked", "pledged", "committed", "burnt_for_ft")
 
@@ -373,54 +376,99 @@ def finish(tid, unit, state, result):
     return done()
 
 
+def short_name(fullnode):
+    """".101" for 192.168.1.101 (or 192.168.1.101:20000) - how notes name a fullnode."""
+    return "." + str(fullnode).split(":")[0].split(".")[-1]
+
+
 def fullnode_outcome(txids, wait=None):
-    """What the fullnode did with these transactions: (accepted set,
-    {txid: reason} rejected, [txid] not seen yet). Waits up to `wait` seconds
-    (default FULLNODE_WAIT) for every one to be accepted or rejected.
-    Raises when the fullnode database cannot be read."""
+    """What each fullnode did with these transactions:
+    {fullnode: (accepted set, {txid: reason} rejected, [txid] not seen, error)}.
+    Waits up to `wait` seconds (default FULLNODE_WAIT) for every fullnode to
+    accept or reject every one. A fullnode whose database cannot be read has
+    the reason as `error` (otherwise None) and no verdicts."""
     ids = [t for t in txids if t]
-    accepted, rejected = set(), {}
+    state = dict((fn, {"accepted": set(), "rejected": {}, "error": None}) for fn in FULLNODE_HOSTS)
     deadline = time.time() + (FULLNODE_WAIT if wait is None else wait)
     while True:
-        todo = [t for t in ids if t not in accepted and t not in rejected]
-        if todo:
-            for (tid,) in db.query(FULLNODE_HOST,
-                                   "SELECT id FROM fullnode_transactions WHERE id = ANY(%s)",
-                                   (todo,)):
-                accepted.add(tid)
-            for tid, reason in db.query(
-                    FULLNODE_HOST,
-                    "SELECT transaction->>'ID', reason FROM fullnode_invalid_transactions "
-                    "WHERE transaction->>'ID' = ANY(%s)", (todo,)):
-                rejected[tid] = reason
-        if len(accepted) + len(rejected) >= len(ids) or time.time() > deadline:
+        for fn, st in state.items():
+            todo = [t for t in ids if t not in st["accepted"] and t not in st["rejected"]]
+            if st["error"] or not todo:
+                continue
+            try:
+                for (tid,) in db.query(fn, "SELECT id FROM fullnode_transactions WHERE id = ANY(%s)",
+                                       (todo,)):
+                    st["accepted"].add(tid)
+                for tid, reason in db.query(
+                        fn,
+                        "SELECT transaction->>'ID', reason FROM fullnode_invalid_transactions "
+                        "WHERE transaction->>'ID' = ANY(%s)", (todo,)):
+                    st["rejected"][tid] = reason
+            except Exception as e:
+                st["error"] = "{}: {}".format(type(e).__name__, e)
+        waiting = any(not st["error"] and len(st["accepted"]) + len(st["rejected"]) < len(ids)
+                      for st in state.values())
+        if not waiting or time.time() > deadline:
             break
         time.sleep(3)
-    return accepted, rejected, [t for t in ids if t not in accepted and t not in rejected]
+    return dict((fn, (st["accepted"], st["rejected"],
+                      [t for t in ids if t not in st["accepted"] and t not in st["rejected"]],
+                      st["error"])) for fn, st in state.items())
 
 
 def _fullnode_check(tx_ok):
-    """Where each successful transaction ended up on the fullnode."""
+    """Where each successful transaction ended up on every fullnode."""
     ids = [o["txid"] for o in tx_ok if o["txid"]]
-    if not ids or not FULLNODE_HOST:
+    if not ids or not FULLNODE_HOSTS:
         return None
-    try:
-        accepted, rejected, unseen_ids = fullnode_outcome(ids)
-    except Exception as e:
+    outcome = fullnode_outcome(ids)
+    readable = dict((fn, o) for fn, o in outcome.items() if not o[3])
+    unreadable = sorted(fn for fn, o in outcome.items() if o[3])
+    if not readable:
         return {"check": "fullnode", "ok": None,
-                "detail": "fullnode database not readable: {}: {}".format(type(e).__name__, e)}
-    unseen = len(unseen_ids)
-    detail = "fullnode accepted {} of {}".format(len(accepted), len(ids))
-    if rejected:
-        kinds = sorted(set(explain_fullnode_reason(r) for r in rejected.values()))
-        detail += ", REJECTED {} ({})".format(len(rejected), "; ".join(kinds))
-    if unseen:
-        detail += ", {} not yet seen by it after {}s".format(unseen, FULLNODE_WAIT)
-    status = dict((t, "accepted") for t in accepted)
-    status.update((t, "rejected") for t in rejected)
-    status.update((t, "not seen") for t in unseen_ids)
-    return {"check": "fullnode", "ok": (not rejected) if not unseen else (False if rejected else None),
-            "detail": detail, "rejected": rejected, "status": status}
+                "detail": "no fullnode database readable: " + "; ".join(
+                    "{} ({})".format(short_name(fn), outcome[fn][3]) for fn in unreadable)}
+
+    # Per transaction, over every readable fullnode: accepted only if all
+    # accepted, rejected if any rejected, else not seen (yet).
+    status, rejected, disagree = {}, {}, []
+    for t in ids:
+        verdicts = set()
+        for fn, (acc, rej, _unseen, _err) in readable.items():
+            verdicts.add("accepted" if t in acc else "rejected" if t in rej else "not seen")
+            if t in rej:
+                rejected.setdefault(t, rej[t])
+        status[t] = ("rejected" if "rejected" in verdicts else
+                     "not seen" if "not seen" in verdicts else "accepted")
+        if "accepted" in verdicts and "rejected" in verdicts:
+            disagree.append(t)
+    per = dict((fn, {"accepted": len(acc), "rejected": rej, "not_seen": unseen})
+               for fn, (acc, rej, unseen, _err) in readable.items())
+
+    if all(not p["rejected"] and not p["not_seen"] for p in per.values()):
+        detail = "all {} fullnode(s) accepted {} of {}".format(len(per), len(ids), len(ids))
+    else:
+        bits = []
+        for fn in sorted(per):
+            p = per[fn]
+            bit = "{} accepted {}/{}".format(short_name(fn), p["accepted"], len(ids))
+            if p["rejected"]:
+                bit += ", REJECTED {} ({})".format(len(p["rejected"]), "; ".join(sorted(set(
+                    explain_fullnode_reason(r) for r in p["rejected"].values()))))
+            if p["not_seen"]:
+                bit += ", {} not seen after {}s".format(len(p["not_seen"]), FULLNODE_WAIT)
+            bits.append(bit)
+        detail = "fullnodes: " + "; ".join(bits)
+    if disagree:
+        detail = "fullnodes DISAGREE on {} transaction(s) - {}".format(len(disagree), detail)
+    if unreadable:
+        detail += "; not readable: {}".format(", ".join(short_name(fn) for fn in unreadable))
+
+    any_unseen = any(v == "not seen" for v in status.values())
+    return {"check": "fullnode",
+            "ok": (not rejected) if not any_unseen else (False if rejected else None),
+            "detail": detail, "rejected": rejected, "status": status,
+            "per_fullnode": per, "disagree": disagree, "unreadable": unreadable}
 
 
 # ---------------------------------------------------------------------------
@@ -566,12 +614,20 @@ def short_fullnode(evidence):
         acc = sum(1 for v in st.values() if v == "accepted")
         rej = c.get("rejected") or {}
         unseen = sum(1 for v in st.values() if v == "not seen")
-        bits = ["{}/{} accepted".format(acc, len(st))]
+        per = c.get("per_fullnode") or {}
+        bits = ["{}/{} accepted{}".format(acc, len(st),
+                                          " by all {}".format(len(per)) if len(per) > 1 else "")]
         if rej:
-            bits.append("{} rejected ({})".format(
-                len(rej), "; ".join(sorted(set(explain_fullnode_reason(r) for r in rej.values())))))
+            by = sorted(short_name(f) for f, p in per.items() if p.get("rejected"))
+            bits.append("{} rejected ({}){}".format(
+                len(rej), "; ".join(sorted(set(explain_fullnode_reason(r) for r in rej.values()))),
+                " by " + ", ".join(by) if by and len(per) > 1 else ""))
+        if c.get("disagree"):
+            bits.append("fullnodes DISAGREE on {}".format(len(c["disagree"])))
         if unseen:
             bits.append("{} not seen in {}s".format(unseen, FULLNODE_WAIT))
+        if c.get("unreadable"):
+            bits.append("not readable: {}".format(", ".join(short_name(f) for f in c["unreadable"])))
         out.append((label, ", ".join(bits)))
     if not out:
         return "-"

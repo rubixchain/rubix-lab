@@ -1,10 +1,18 @@
+# Written once by systems/install/setup.sh, never overwritten after that.
+#
+# testnet mode + the lab's own swarm key = a custom testnet: the node sees a
+# swarm key Rubix does not operate (core/network_identity.go) and checks
+# minters against CustomNetAllowedMinters. node_index sets every port this
+# node uses (core/config/config.go:141-152) - see systems/node-layout.txt.
+
 [core]
-node_index = 0
-network_mode = "localnet"
+node_index = ${NODE_INDEX}
+network_mode = "testnet"
+enable_trusted_network = false
 
 [db]
 host = "localhost"
-port = 5433
+port = ${DB_PORT}
 username = "rubix"
 password = "rubixpass"
 db_name = "rubix"
@@ -18,5 +26,5 @@ statement_timeout_seconds = 20
 
 [ipfs]
 mainnet_bootstrap_nodes = []
-testnet_bootstrap_nodes = []
-localnet_bootstrap_nodes = ${LOCALNET_BOOTSTRAP_NODES}
+testnet_bootstrap_nodes = ${BOOTSTRAP_NODES}
+localnet_bootstrap_nodes = []

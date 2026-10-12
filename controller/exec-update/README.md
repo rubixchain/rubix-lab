@@ -1,83 +1,75 @@
 # Rubix lab fleet — branch-to-exec deploy tool
 
-Give it a branch name and one or more target desktops; it builds
-`rubixgoplatform` from that branch and swaps it into place on each target,
-restarting the node. Runs from the **controller desktop** (one of the 40,
-per your setup — reachable via TeamViewer/remote access for you, and with
-SSH access out to the other desktops for this tool).
+Give it a branch name and the machines to deploy to; it builds
+`rubixgoplatform` from that branch once and swaps it into every node on those
+machines, restarting them. Runs from the **controller**.
 
 ## Why this is SSH-based, not the Rubix API
 
-`rubixgoplatform.service` (installed by [../../systems/install/setup.sh](../../systems/install/setup.sh))
-has `Restart=always`. Calling the node's own graceful-shutdown API endpoint
-would make the process exit — and systemd would immediately relaunch the
-*old* binary underneath you, since from the supervisor's point of view
-nothing asked it to stop. Actually stopping it needs `systemctl stop`,
-which is an SSH operation. So the whole flow — stop, copy, swap, start — is
-SSH end to end, not something the HTTP-based controller/operations tooling
-can do.
+Every node runs as a systemd unit, `rubixgoplatform@<slot>` (installed by
+[../../systems/install/setup.sh](../../systems/install/setup.sh)), with
+`Restart=always`. Calling a node's own graceful-shutdown API would make the
+process exit — and systemd would immediately relaunch the *old* binary, since
+from the supervisor's point of view nothing asked it to stop. Actually
+stopping it needs `systemctl stop`, which is an SSH operation. So the whole
+flow — stop, copy, swap, start — is SSH end to end.
 
 ## One-time setup (on the controller)
 
-Two different repos are involved here, don't mix them up: the **product
-repo** (`rubixgoplatform`, cloned for *building* a branch) and **this
-`rubix-lab` repo** (cloned on every target desktop, containing each node's
-actual `nodes/<name>/` folder — see [../../systems/install/README.md](../../systems/install/README.md)).
+Two different repos are involved, don't mix them up: the **product repo**
+(`rubixgoplatform`, cloned on the controller for *building*) and **this
+`rubix-lab` repo** (on every lab machine at `~/rubix-lab`, holding each node's
+folder `nodes/node<slot>/` — see [../../systems/install/README.md](../../systems/install/README.md)).
 
-1. Clone `rubixgoplatform` somewhere on the controller (default
-   `~/Desktop/rubixgoplatform`, override with `REPO_DIR=/path ./update-exec.sh ...`)
-   — this is the *build* source, unrelated to where `rubix-lab` lives. Don't put
-   it inside `~/Desktop/rubix`: a file named `rubixgoplatform` (the running
-   binary) already lives there and a clone of the same name would collide.
+1. Clone `rubixgoplatform` on the controller (default
+   `~/Desktop/rubixgoplatform`; set `REPO_DIR` in `exec-update.env` for
+   anywhere else).
 2. Install `Go 1.22` + `build-essential` on the controller (needed for
    `make compile-linux`).
-3. Generate an SSH key on the controller if it doesn't have one
-   (`ssh-keygen`), and copy it to every target desktop:
-   `ssh-copy-id <user>@<target-ip>` — one time per desktop.
-4. On **each target desktop**, install the scoped sudo grant from
-   [rubix-exec-update-sudoers.example](rubix-exec-update-sudoers.example) —
-   it only allows starting/stopping this one service, nothing broader.
-5. Copy [hosts.txt.example](hosts.txt.example) to `hosts.txt` in this folder
-   and fill in your fleet's real IPs, if you want to use `--all`.
-6. Make sure every target cloned **`rubix-lab`** to the same path relative
-   to its own `$HOME` (default assumption: `~/rubix-lab` — override with
-   `REMOTE_REPO_REL=path ./update-exec.sh ...` if you used something else).
-   The script resolves each target's real `$HOME` over SSH at deploy time,
-   then deploys into `<that clone>/nodes/<NODE_NAME>` (`NODE_NAME` defaults
-   to `testnode`, same default as `install/setup.sh` — override both
-   consistently if you ever rename it).
+3. Passwordless SSH from the controller to every machine:
+   `../setup-ssh.sh` (asks each machine's password once).
+4. Nothing to install on the machines for sudo: `setup.sh` grants the SSH
+   user passwordless `systemctl start|stop|restart rubixgoplatform@<slot>`
+   for exactly that machine's nodes (`/etc/sudoers.d/rubix-lab-nodes`).
+5. Optional: `cp exec-update.env.example exec-update.env` to keep settings.
 
 ## Usage
 
 ```
-./update-exec.sh <branch> <target-ip> [target-ip...]
-./update-exec.sh <branch> --all
+./update-exec.sh <branch> <machine-ip> [machine-ip...]   # every node on those machines
+./update-exec.sh <branch> --all                          # every pool machine
+./update-exec.sh <branch> --all --include-fixed          # plus the fullnode and faucet machines
 ```
 
-Example — test `fix/pledge-split` on two desktops:
+Which nodes a machine has comes from `../hosts.txt` and
+`../../systems/node-layout.txt`, through `../fleet.py`.
+
+Example — try `fix/pledge-split` on one machine, then everywhere:
 ```
-./update-exec.sh fix/pledge-split 10.0.0.14 10.0.0.22
+./update-exec.sh fix/pledge-split 192.168.1.107
+./update-exec.sh fix/pledge-split --all --include-fixed
+cd .. && python3 node-versions.py --include-fixed
 ```
+
+A build that changes validation — such as a new minter allowlist — has to
+reach **every** node, fullnodes and faucet nodes included, so use
+`--all --include-fixed` for those.
 
 ## What it does, in order
 
 1. **Builds first, deploys only if the build succeeds** — `git fetch` +
    `checkout` + `pull --ff-only` + `make compile-linux` on the controller.
-   A bad branch name or a compile error stops here; no target is ever
-   touched because of a build failure.
-2. Per target, sequentially: `systemctl stop` → copy the new binary to a
-   temp name and rename it into place (atomic swap, never a half-written
-   binary at the real path) → `systemctl start` → poll `/rubix/v1/dids`
-   for up to 30s to confirm it actually came back up.
-3. Prints a summary line per target: which branch/commit it's now running,
-   or exactly what to check if it didn't come back cleanly.
+   A bad branch name or a compile error stops here; no node is touched.
+2. Per machine, all machines in parallel: check every node folder has a
+   binary (an uninstalled machine is refused, not half-deployed) → stop every
+   node's unit → copy the binary over once → put it in each node folder under
+   a temp name and rename it into place (atomic, never a half-written binary)
+   → start the units → poll each node's `/rubix/v1/dids` for up to 60s.
+3. Prints a summary line per machine: which branch/commit its nodes now run,
+   or exactly what to check if they didn't come back cleanly.
 
 ## What it deliberately does NOT do
 
-Doesn't touch DIDs, quorum wiring, or peering — those survive a binary
-swap untouched (they live in the node's data directory, not the binary).
-Doesn't shut down or start nodes *before* you decide to — you still choose
-which desktops to target and when; this tool doesn't discover or select
-targets on its own. Doesn't run in parallel across targets in v1 — simple
-sequential loop, easy to parallelize later with `&`/`wait` if 40 restarts
-one at a time ever feels slow in practice.
+Doesn't touch DIDs, quorum wiring, or peering — those survive a binary swap
+untouched (they live in each node's folder and database, not the binary).
+Doesn't decide targets on its own — you choose the machines and when.

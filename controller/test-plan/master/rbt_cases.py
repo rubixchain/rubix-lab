@@ -80,25 +80,27 @@ from case_helpers import (
 #     fullnode's accept/reject of each transaction is reported alongside.
 #
 # BY HAND - the commands the MANUAL STEPS refer to
-#     S / R are the sender and receiver node IPs, SD / RD their DIDs:
-#         SD=$(curl -s http://$S:20000/rubix/v1/dids | python3 -c \
+#     S / R are the sender and receiver nodes as the report prints them
+#     (ip:port, e.g. 192.168.1.107:20300), SD / RD their DIDs:
+#         SD=$(curl -s http://$S/rubix/v1/dids | python3 -c \
 #              'import sys,json; print(json.load(sys.stdin)["result"][0])')
 #
-#     BALANCE      curl -s http://$S:20000/rubix/v1/dids/$SD/balances/rbt
+#     BALANCE      curl -s http://$S/rubix/v1/dids/$SD/balances/rbt
 #                  -> {"balance": free, "locked": ..., "pledged": ...}
-#     QUORUM       curl -s http://$S:20000/rubix/v1/quorums
+#     QUORUM       curl -s http://$S/rubix/v1/quorums
 #                  (the FIRST entry signs every transfer from this node)
 #     SEND <X>     two steps - the first POST does nothing on its own:
-#                  curl -s -X POST http://$S:20000/rubix/v1/tx \
+#                  curl -s -X POST http://$S/rubix/v1/tx \
 #                    -H 'Content-Type: application/json' \
 #                    -d '{"initiator":"'$SD'","owner":"'$RD'","memo":"manual",
 #                         "tokens":{"rbt":<X>,"transferNftOwnership":false}}'
 #                  -> {"result":{"id":"<reqID>"}}, then sign it:
-#                  curl -s -X POST http://$S:20000/rubix/v1/signature \
+#                  curl -s -X POST http://$S/rubix/v1/signature \
 #                    -H 'Content-Type: application/json' \
 #                    -d '{"id":"<reqID>","password":"mypassword"}'
 #                  -> {"status":true,"result":{"transactionID":"<TX>"}}
-#     DB           psql -h $S -p 5433 -U rubix -d rubix     (password rubixpass)
+#     DB           psql -h ${S%:*} -p $(( ${S#*:} - 14567 )) -U rubix -d rubix     (password rubixpass)
+#                  (a node's Postgres is 5433 + node_index = its API port - 14567)
 #                  SELECT id FROM transactions WHERE id='<TX>';
 #                  SELECT token_status, SUM(token_value), COUNT(*) FROM tokens
 #                    WHERE did='<DID>' AND token_type=1 GROUP BY token_status;

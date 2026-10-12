@@ -67,19 +67,19 @@ from case_helpers import (
 #     specification - they are what a human can verify independently.
 #
 # BEFORE RUNNING ANYTHING BY HAND
-#         SENDER=192.168.1.104
-#         DID=$(curl -s http://$SENDER:20000/rubix/v1/dids | python3 -c \
+#         SENDER=192.168.1.107:20300   # a node, ip:port as the report prints it
+#         DID=$(curl -s http://$SENDER/rubix/v1/dids | python3 -c \
 #               'import sys,json; print(json.load(sys.stdin)["result"][0])')
 #
 #     Every state-changing call is a TWO-STEP password challenge. The first POST
 #     returns {"result":{"id":"<reqID>"}} and NOTHING has happened yet:
 #
-#         curl -s -X POST http://$SENDER:20000/rubix/v1/signature \
+#         curl -s -X POST http://$SENDER/rubix/v1/signature \
 #              -H 'Content-Type: application/json' \
 #              -d '{"id":"<reqID>","password":"mypassword","signature":""}'
 #
 #     Some checks read Postgres. From the controller:
-#         psql -h $SENDER -p 5433 -U rubix -d rubix       # password: rubixpass
+#         psql -h ${SENDER%:*} -p $(( ${SENDER#*:} - 14567 )) -U rubix -d rubix       # password: rubixpass
 #
 # WHY THE PARTS CASES EXIST
 #     Minting an FT burns RBT. Every other FT-M-* case mints from a wallet

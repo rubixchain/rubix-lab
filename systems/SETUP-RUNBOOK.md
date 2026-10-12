@@ -1,69 +1,102 @@
 # Rubix Lab — Environment Setup Runbook
 
 Follow this in order. Each phase ends with a check — do not move on until it
-passes. The goal of this runbook is to get from bare desktops to **"the
-controller can reach every node"**, which is the foundation everything else
-sits on.
+passes. The goal: from machines running the old single-node install (or bare
+machines) to **every node reachable, every DID created, the faucet funded and
+the smoke test passing**.
 
-Work with however many systems are available. The process is the same for 5
-or 40; more can be added later by repeating Phase B and C for the new machines.
+Commands run on the **controller** unless a step says otherwise. Every
+controller tool reads `controller/hosts.txt` through `controller/fleet.py`,
+and machines are added later by repeating Phase E for them.
 
 ---
 
-## Phase A — Plan roles and record addresses
+## Phase A — Roles and layout
 
-Before touching any machine.
+### A1. Roles (`controller/hosts.txt`)
 
-### A1. Assign roles
-
-| Role | How many | Notes |
+| Role | Machines | Runs |
 |---|---|---|
-| Controller | 1 | Runs the test scripts. Can also run a node. Needs to reach all others. |
-| Quorum | 3–5 | Sign transactions. Must stay funded at all times. |
-| Participant | the rest | Ordinary sender/receiver nodes |
-| Fullnode | 1 | Dedicated fullnode for this environment |
-| Explorer | 1 | Can share a machine with the fullnode |
+| `fullnode` | .101 .102 .103 .104 (one keyboard/mouse set) | one node, `-fullnode`, no DID. .101 is the bootstrap seed |
+| `faucet` | .105 | one node, the faucet DID |
+| `faucet-quorum` | .106 | one node, the faucet quorum DID |
+| `controller` | .120 | no node — drives everything |
+| `explorer` | .123 | no node |
+| pool (no role) | every other machine | the 9 nodes of `systems/node-layout.txt` |
 
-Quorum count can start at 3. It is easy to promote more participants to quorum
-later; the tests that vary quorum count need at least 3 to be meaningful.
+Quorum, sender and receiver are not roles: the test runner picks them per case
+from the pool nodes. Down machines stay commented out with a reason and date.
 
-Quorum and participant are *planning* concepts here, not something written
-into `hosts.txt` — that file only records the durable, fixed-role machines
-(fullnode/explorer/controller) plus down/excluded ones. Which pool machines
-act as quorum vs sender vs receiver is decided per test case at execution
-time, since it can (and does) change between test cycles.
+### A2. Nodes on a pool machine (`systems/node-layout.txt`)
 
-### A2. Fix the addresses
+| Slot | node_index | API | Swarm | Postgres | DIDs |
+|---|---|---|---|---|---|
+| 0 | 0 | 20000 | 4002 | 5433 | 1 |
+| 1 | 100 | 20100 | 4102 | 5533 | 1 |
+| 2 | 200 | 20200 | 4202 | 5633 | 1 |
+| 3–7 | 300–700 | 20300–20700 | 4302–4702 | 5733–6133 | 5 each |
+| 8 | 800 | 20800 | 4802 | 6233 | 10 |
 
-Give every machine a static IP or a DHCP reservation. Addresses must not change
-between test cycles — the whole inventory is keyed on them.
-
-Record in a spreadsheet: machine name, IP, assigned role, physical location.
+38 DIDs per machine. With today's 26 pool machines: 234 nodes, 988 DIDs. The
+fullnode, faucet and faucet-quorum nodes are slot 0: port 20000.
 
 ### A3. Standardise access
 
-- Same OS user on every machine: `Rubix`
+- Same OS user on every machine: `rubix`
 - Same wallet password on every node (the controller needs it for every call)
-- SSH key from the controller to every other machine
+- Static IP or DHCP reservation for every machine — everything is keyed on it
 
-**Check:** you have a written list of every machine, its IP, and its role.
+**Check:** `python3 controller/fleet.py hosts --include-fixed` lists every
+machine with the right role.
 
 ---
 
-## Phase B — Install the node (per machine)
+## Phase B — The controller (.120)
 
-Repeat on each desktop. See `systems/install/README.md` for detail.
+The controller runs no node, so it needs no Docker.
 
-### B1. Install Docker
+### B1. Packages
+
+```
+sudo apt update
+sudo apt install -y git python3 python3-psycopg2 python3-reportlab python3-openpyxl \
+                    curl rsync build-essential
+```
+plus **Go 1.22 or newer** for building branches (`exec-update`). Ubuntu 24.04's
+`golang-go` is 1.22; on 22.04 use `sudo snap install go --classic`.
+Check with `go version`.
+
+### B2. This repo and the product repo
+
+```
+git clone <rubix-lab repo> ~/rubix-lab
+chmod +x ~/rubix-lab/controller/*.sh ~/rubix-lab/controller/exec-update/*.sh
+git clone https://github.com/rubixchain/rubixgoplatform ~/Desktop/rubixgoplatform
+```
+`controller/hosts.txt` is gitignored (real lab IPs), so a fresh clone does
+not have it: copy it from the old controller, or write it from
+`hosts.txt.example` with the roles in A1.
+
+### B3. Passwordless SSH to every machine
+
+```
+cd ~/rubix-lab/controller
+./setup-ssh.sh
+```
+Asks each machine's login password once. See `controller/VERSION-CHECK.txt`.
+
+**Check:** `setup-ssh.sh` ends with every machine `OK`.
+
+---
+
+## Phase C — Docker Engine on every machine that runs a node
+
+Fullnodes, the faucet pair and every pool machine. (Already done on machines
+from the old fleet — Phase E's checks show any that are not.)
 
 **Use Docker Engine from the command line. Do not use Docker Desktop for Linux.**
-
 Docker Desktop runs containers inside a VM and needs a logged-in desktop
-session. These nodes must survive reboots with nobody logged in — with Docker
-Desktop the database container would not come back until someone signed in.
-Docker Engine runs as a system service and starts at boot.
-
-**The whole install is four commands. Nothing else is needed.**
+session; these nodes must survive reboots with nobody logged in.
 
 ```
 sudo apt update
@@ -72,23 +105,15 @@ sudo systemctl enable --now docker     # start now AND at every boot
 sudo usermod -aG docker $USER          # use docker without sudo
 ```
 
-Log out and back in so the group change takes effect.
+Log out and back in so the group change takes effect. Ubuntu's own `docker.io`
+is enough: `setup.sh` uses plain `docker run`, no Compose.
 
-Ubuntu's own `docker.io` package is enough. `setup.sh` uses plain `docker run`
-— no Docker Compose — so the extra work of adding Docker's official apt
-repository buys nothing here.
-
-**`enable` is the important one.** The database container is created with
+**`enable` is the important one.** The database containers are created with
 `--restart always`, but that only helps if the Docker service itself starts at
-boot. Skip it and every reboot leaves the node with no database.
+boot. Skip it and every reboot leaves the nodes with no database.
 
-**Check:**
-```
-docker run --rm hello-world     # works without sudo
-systemctl is-enabled docker     # prints: enabled
-```
-If `hello-world` needs sudo, the group change has not applied yet — log out and
-back in.
+**Check (on the machine):** `docker run --rm hello-world` works without sudo,
+and `systemctl is-enabled docker` prints `enabled`.
 
 > **Do not purge and reinstall Docker to "start clean".** Stopping
 > `docker.socket` breaks the daemon: Docker runs as `dockerd -H fd://`, which
@@ -97,7 +122,7 @@ back in.
 > `failed to load listeners: no sockets found via socket activation`, retries,
 > and then systemd rate-limits it with `Start request repeated too quickly`.
 >
-> If you hit that state, recover with:
+> Recover with:
 > ```
 > sudo systemctl reset-failed docker.service docker.socket
 > sudo systemctl start docker.socket
@@ -105,229 +130,216 @@ back in.
 > ```
 > `reset-failed` must come first, or systemd refuses to start the unit at all.
 >
-> Also harmless and safe to ignore: `Deleting nftables IPv4/IPv6 rules
-> error="exit status 1"` at startup. Docker logs it at info level and starts
-> normally afterwards.
+> Also harmless: `Deleting nftables IPv4/IPv6 rules error="exit status 1"` at
+> startup — info level, Docker starts normally afterwards.
 
-See [LAB-QUICKREF.txt](LAB-QUICKREF.txt) for the copy-pasteable Docker install
-and node commands in one place.
+---
 
-### B2. Get the repo onto the machine
+## Phase D — Flush the old single-node install (once)
 
-```
-git clone <rubix-lab repo> ~/rubix-lab
-```
-
-Use the **same path on every machine** (`~/rubix-lab`) — `exec-update` depends
-on that being consistent.
-
-`systems/prerequisite/` must hold the node binary, the IPFS binary and the swarm key.
-The key is already committed. For the two binaries, either commit them once or
-let `setup.sh` fetch them on first run — see `systems/prerequisite/README.md`.
-
-### B3. Bring up the fullnode first
-
-The bootstrap list needs a peer ID to point at, which only exists after that
-node has started once. The fullnode is the seed: a single stable, always-on
-machine makes a better permanent bootstrap point than juggling several
-quorum peer IDs. Bring it up with an empty list:
+Decided 2026-10-09: the old tokens are flushed, so the old DIDs go too, and
+the faucet gets new DIDs and a new mint (Phase F). This deletes every old
+node's DIDs, wallet and IPFS repo — there is no undo. It is the only wipe:
+the fresh fleet then runs on without being wiped again.
 
 ```
-cd ~/rubix-lab/systems/install
-LOCALNET_BOOTSTRAP_NODES='[]' ./setup.sh
+cd ~/rubix-lab/controller
+./wipe-node-db.sh --legacy --include-fixed          # dry run: what it would do, per machine
+./wipe-node-db.sh --legacy --include-fixed --yes    # type 'wipe' to confirm
 ```
 
-Then collect its peer ID:
+It stops `rubixgoplatform.service`, deletes the `node` (or `rubix-node-db`)
+container and volume, the old node's profile (config, DIDs, IPFS repo) and its
+binaries. `~/Desktop/rubix` itself goes only when nothing else is in it — on
+.103 the old controller's `rubix-lab` clone lives there and is kept (copy its
+`controller/hosts.txt` and anything else you want from it to .120).
+
+- **.103 ran a second node** (the old faucet quorum, port 20010). The wipe
+  refuses on a machine where a Rubix node is still running and prints it —
+  stop that one by hand, then re-run with `--host 192.168.1.103 --yes`.
+- **.102 runs the explorer today; it moves to .123.** Stop it on .102 — the
+  fullnode installed there in Phase E needs ports 20000, 4002 and 5433.
+- **.120 and .123 will run no node.** Their old unit file would retry at
+  every boot; remove it there:
+  `sudo systemctl disable rubixgoplatform && sudo rm /etc/systemd/system/rubixgoplatform.service`
+  (On every other machine `setup.sh` removes it in Phase E.)
+
+**Check:** every machine reports `done — old install gone`.
+
+---
+
+## Phase E — Install the nodes
+
+`install-nodes.sh` copies `systems/` to each machine and runs `setup.sh` there
+over SSH — no git clone needed on the machines. One machine at a time; each
+asks for its sudo password once. See `systems/install/README.md`.
+
+### E1. The fullnodes — the first one alone
 
 ```
-curl -s http://localhost:20000/rubix/v1/node/peer_id
+./install-nodes.sh --host 192.168.1.101 --first     # empty bootstrap list: the seed
+./install-nodes.sh --role fullnode                  # .102-.104 join through .101
 ```
 
-### B4. Bring up everything else
-
-On every remaining machine — quorum-designated or not, it makes no
-difference to bootstrap order now — point at the fullnode:
+### E2. The faucet pair
 
 ```
-LOCALNET_BOOTSTRAP_NODES='["/ip4/<fullnode-ip>/tcp/4002/p2p/<fullnode-peer-id>"]' ./setup.sh
+./install-nodes.sh --role faucet --role faucet-quorum
 ```
 
-See [LAB-QUICKREF.txt](LAB-QUICKREF.txt) for the exact copy-pasteable
-sequence, including firewall ports and peering verification.
+Every machine after the first fullnode gets a bootstrap list of every
+fullnode that answers, built from their own peer IDs.
 
-**Check on each machine, locally:**
+### E3. One pool machine first — the pilot
+
 ```
-curl -s http://localhost:20000/rubix/v1/node/ping
-journalctl -u rubixgoplatform -f
+./install-nodes.sh --host 192.168.1.107
+```
+
+Then check, before installing the rest:
+
+1. **Capacity.** On .107: `free -h`, `uptime`, and
+   `systemctl status 'rubixgoplatform@*' --no-pager | grep -E '●|Memory'`
+   (each line's memory includes that node's IPFS daemon) and
+   `docker stats --no-stream`. Look again during a burst (Phase H's smoke
+   test). Nine nodes must leave the machine memory to spare.
+2. **One node's shutdown must not take the others' IPFS down.** The product's
+   last-resort IPFS kill is `pkill -f "ipfs daemon"` / `killall -9 ipfs`
+   (`core/shutdown_manager.go:280`), reached when the node's saved IPFS PID
+   is stale — and an IPFS auto-restart never updates it. On .107:
+   ```
+   pgrep -fc "[i]pfs daemon"                     # 9 (the [i] keeps pgrep from counting this shell)
+   for p in $(pgrep -f "[i]pfs daemon"); do echo "$p $(readlink /proc/$p/cwd)"; done
+   kill <the PID whose folder is .../nodes/node3>   # node 3's IPFS dies; the node restarts it
+   pgrep -fc "[i]pfs daemon"                     # back to 9 once it has (node3/log.txt says when)
+   ```
+   then, on the controller:
+   ```
+   ./restart-nodes.sh --host 192.168.1.107 --slot 3 --force
+   ssh rubix@192.168.1.107 'pgrep -fc "[i]pfs daemon"'   # still 9?
+   ./preflight-check.sh --host 192.168.1.107             # API 9/9?
+   ```
+   Fewer than 9 means stopping one node killed its neighbours' IPFS - a
+   product finding to report to core, and a reason to restart nodes one
+   machine at a time until it is fixed.
+3. **Reboot.** Reboot .107; after ~2 minutes `./preflight-check.sh --host 192.168.1.107`
+   shows `9/9` everywhere.
+
+### E4. The rest of the pool
+
+```
+./install-nodes.sh --role pool
+```
+Machines whose nodes already all answer are skipped (`--force` to re-run).
+
+**Check:**
+```
+./preflight-check.sh --include-fixed      # every machine "fully ready"
+python3 check-nodes.py --include-fixed    # every node reachable (no DIDs yet)
 ```
 
 ---
 
-## Phase C — Prove the controller can reach every node
+## Phase F — Faucet DIDs, the allowlist build, faucet tokens
 
-This is the phase that matters most, and the most common place to get stuck.
-A node working locally does **not** mean the controller can reach it.
-
-### C1. Open the firewall on each node
-
-The node API and the swarm port must accept connections from the rest of the
-lab network:
+### F1. Create the two faucet DIDs
 
 ```
-sudo ufw allow 20000/tcp
-sudo ufw allow 4002/tcp
-sudo ufw status
+python3 dids-to-excel.py --host 192.168.1.105
+python3 dids-to-excel.py --host 192.168.1.106
 ```
+Each prints the DID it created.
 
-If `ufw` is inactive, nothing is blocked and there is nothing to do.
+### F2. Put them in the minter allowlist
 
-### C2. Check network reachability between machines
+Every node checks who minted each token against `CustomNetAllowedMinters` in
+the build it runs (`core/minterallowlist/mint_access_control.go`). The list
+names the OLD faucet DIDs, so until this step every node would reject tokens
+minted by the new ones.
 
-Office networks sometimes isolate clients from each other, which silently
-blocks machine-to-machine traffic even though everything looks connected.
-Test one node from the controller before assuming the whole fleet is fine:
+In `~/Desktop/rubixgoplatform`, branch `vaishnav/temp-custom-testnet`, replace
+the two DIDs in `CustomNetAllowedMinters` — keep `Level: 60001` and the ranges:
+the faucet DID `1`–`2150000`, the faucet quorum `2150001`–`4300000`. Commit and
+push the branch.
 
-```
-curl -s http://<node-ip>:20000/rubix/v1/node/ping
-```
-
-If that fails but the same command works on the node itself, the problem is
-network isolation or firewall, not Rubix.
-
-### C3. Run the reachability check
-
-On the controller:
+### F3. Deploy that build to every node — fullnodes and faucet included
 
 ```
-cd controller
-cp hosts.txt.example hosts.txt      # then fill in your real IPs
-python3 check-nodes.py
+cd exec-update
+./update-exec.sh vaishnav/temp-custom-testnet --all --include-fixed
+cd .. && python3 node-versions.py --include-fixed      # "Uniform" on the new commit
 ```
+On any node, `grep "Minter allowlist" ~/rubix-lab/nodes/node0/log.txt` shows
+`custom testnet` with `minters=2`.
 
-`hosts.txt` only records two fixed, durable facts per host — an
-infrastructure role (`fullnode` / `explorer` / `controller`) or "down"
-(commented out with a reason). Everything else is left untagged: the
-generic pool. Quorum/sender/receiver are never written here — those are
-assigned per test case at execution time, not a fixed property of a host.
-See `controller/hosts.txt.example` for the format.
+### F4. Mint and wire the faucet
 
-Output looks like:
+By hand, as on 2026-09-28: mint the faucet DID's tokens within its range and
+the faucet quorum's within its range (level 60001); add the faucet quorum DID
+as the **only** quorum on the faucet node, and run quorum setup for it on the
+faucet-quorum node. The lab never mints anything else (CLAUDE.md "Funding rule").
 
-```
-HOST         ROLE          STATUS     DIDs       RBT  NOTES
-10.0.0.11    fullnode      OK            0     -
-10.0.0.12    pool          OK            1     1000
-10.0.0.20    pool          NO DID        0        -  reachable but no DID yet - needs bootstrap
-10.0.0.21    pool          DOWN          0        -  unreachable (timed out)
-
-Reachable : 3/4
-Ready     : 2/4   (reachable and has a DID)
-Down      : 10.0.0.21
-No DID    : 10.0.0.20
-```
-
-It needs no extra packages — standard library only. It also writes
-`inventory.json`, which later scripts will read.
-
-**Check:** every machine shows `Reachable`. `NO DID` is expected at this stage
-and is fixed in Phase D. Anything showing `DOWN` must be resolved before
-continuing — the node is not running, the firewall is closed, or the network
-blocks it.
+**Check:** Phase H's smoke test starts with the faucet line
+`Faucet: ... faucet holds N RBT free` — anything else is printed as the reason.
 
 ---
 
-## Phase D — Identity, quorum and peering
+## Phase G — The pool's DIDs
 
-### D1. Create a DID on each node
+```
+python3 dids-to-excel.py
+```
+Creates up to 988 DIDs: one at a time per node, nodes in parallel, re-reading
+the node's DID list before and after every create (creating a DID cannot be
+safely repeated - `core/did.go`). A node where anything looks off is stopped
+and named, never retried; look at it by hand and run the tool again. It writes
+`dids.xlsx` (sheet `DIDs`: one row per DID).
 
-One per node, once ever. A node that already has a DID must be left alone —
-creating a second one gives that machine two identities and no error is raised.
-
-Use the same wallet password everywhere.
-
-### D2. Set up the quorum nodes
-
-On each of the 3–5 designated machines, run the quorum setup so they can sign.
-
-### D3. Register quorums on every participant
-
-Every participant must know which DIDs are allowed to sign.
-
-**Important:** a node always uses the **first** quorum it registered. To spread
-load, different groups of participants should register a different quorum first.
-
-**Verify this actually held** — the underlying query has no fixed sort order, so
-the "first" quorum is not guaranteed stable. Check which quorum really signs a
-transfer rather than assuming it followed registration order. If it drifts, the
-grouping strategy needs revisiting (see `controller/test-plan/README.md`).
-
-### D4. Fund the quorums
-
-Mint local RBT so every quorum sits **well above 1000 RBT**.
-
-This is not optional. A quorum has to pledge at least the value of every
-transfer it signs. An underfunded quorum fails transfers for lack of collateral
-and hides the behaviour being tested. Minting is free on localnet — there is no
-reason to run close to the line.
-
-### D5. Announce DIDs so nodes learn about each other
-
-With all nodes online together, run the DID registration announcement on each
-node so every node learns the others' DID-to-peer mapping.
-
-This only reaches nodes that are online at that moment. If a machine was down,
-re-run this after it comes back, or it will not be reachable for transfers.
-
-**Check:** re-run `python3 check-nodes.py`. Every node should now show `OK` with
-at least 1 DID, and quorum nodes should show a healthy RBT balance.
+**Check:** `python3 check-nodes.py` ends with `DIDs : 988 held, 988 in the layout`.
 
 ---
 
-## Phase E — Smoke test
+## Phase H — Smoke test
 
-Before trusting the environment for real test cycles.
+```
+cd test-plan/full-test
+python3 smoke_test.py          # 3 quorums, 14 sender/receiver pairs, spread over machines
+```
 
-1. Mint some RBT on two participant nodes
-2. Send 1 RBT from one to the other
-3. Confirm both balances changed correctly
-4. Confirm the transaction appears on both nodes
-5. Confirm the fullnode and explorer show it
+Then confirm every fullnode recorded the transactions — on each of .101-.104:
+```
+psql -h 192.168.1.101 -p 5433 -U rubix -d rubix -c "SELECT count(*) FROM fullnode_transactions"
+```
+(password `rubixpass`). Then bring up the explorer on .123 (moved from .102)
+and confirm it shows them too.
 
-If this works, the environment is ready. If it fails, the problem is in setup,
-not in the release being tested — fix it here rather than starting a test cycle.
-
-**Check:** one transfer completes end to end and is visible everywhere it should be.
+**Check:** the smoke test passes, all four fullnodes have rows, and the
+explorer shows the transactions.
 
 ---
 
-## Phase F — Record the baseline
+## Phase I — Record the baseline
 
-Once the smoke test passes, write down:
-
-- Which nodes exist, their roles, and their DIDs (`inventory.json` has this)
-- Which version each node is running
-- Quorum funding levels
-- Time taken for that first single transfer, with nothing else running
-
-That last one becomes the baseline every later performance number is compared
-against.
+The first full run on a known-good build sets the baselines every later run
+is compared against:
+```
+python3 test_runner.py --collect-versions
+```
+Limits recorded on the old 31-node fleet do not carry over — e.g.
+`senders: "all"` cases now run ~230 senders through one quorum.
 
 ---
 
 ## Routine checks
 
-Run before every test cycle:
-
+Before every test cycle, and after any reboot or power cut:
 ```
-python3 check-nodes.py
+./preflight-check.sh --include-fixed
+python3 check-nodes.py --include-fixed
 ```
-
-- Any node `DOWN` → excluded from that cycle; investigate before the next one
-- Any node `NO DID` → needs Phase D before it can take part
-- Any quorum low on RBT → top up before starting
-
-Run after any desktop reboot or power cut, since that is the most common cause
-of a node dropping out.
+- A node down → `./restart-nodes.sh` (restarts only nodes that are down)
+- DIDs below target → `python3 dids-to-excel.py`
+- CLOCK `FAIL` → `sudo timedatectl set-ntp true` on that machine
 
 ---
 
@@ -335,12 +347,15 @@ of a node dropping out.
 
 | Symptom | Likely cause |
 |---|---|
-| `failed to load listeners: no sockets found via socket activation` | `docker.socket` was stopped. See the box in B1 — `reset-failed`, then start the socket, then the service. |
-| `Start request repeated too quickly` | systemd rate-limited the unit after repeated failures. `sudo systemctl reset-failed docker.service` first, then fix the underlying cause. |
-| `Deleting nftables IPv4 rules error="exit status 1"` | Harmless. Info-level, Docker starts fine after it. |
-| Works locally, not from controller | Firewall on the node, or network client isolation |
-| Node not starting after reboot | Service not enabled at boot, or Docker not started |
-| Transfers fail with pledge errors | Quorum out of funds — top up, the run is invalid |
-| Node cannot find peers | Wrong or missing swarm key, or bootstrap list not set |
-| Transfers fail after adding a new node | DID announcement not re-run while all nodes were online |
-| Everything slow through one node | All senders sharing the same primary quorum |
+| `failed to load listeners: no sockets found via socket activation` | `docker.socket` was stopped. See the box in Phase C. |
+| `Start request repeated too quickly` | systemd rate-limited the unit. `sudo systemctl reset-failed <unit>` first, then fix the cause. |
+| `setup.sh` refuses: old container `node` | The old single-node install is still there — Phase D. |
+| A node will not start after a restart: its swarm, IPFS or Postgres port is "already in use" | Another node's peer-port pool holds it — the cost of the 100 spacing, see `systems/node-layout.txt`. `ss -ltnp | grep <port>` names the holder; restart the node that is down. |
+| Several nodes on one machine lose IPFS when one node is stopped | The product's last-resort `pkill -f "ipfs daemon"` (Phase E3 check 2). `./restart-nodes.sh --host <ip>`; report it. |
+| Transfers refused with `invalid epoch` | Clocks differ — the product allows no difference (`core/consensus/checks.go:61`). Preflight's CLOCK column. |
+| Every faucet transfer refused naming the minter allowlist | That node runs a build without the new faucet DIDs — `node-versions.py --include-fixed`, then Phase F3. |
+| Works on the machine, not from the controller | Firewall on the machine, or network client isolation. `setup.sh` opens the ports only when `ufw` is active. |
+| Nodes not starting after reboot | Docker not enabled at boot (Phase C), or a unit not enabled — preflight shows which. |
+| Transfers fail with pledge errors | Quorum out of funds — top up; the run is invalid. |
+| Node cannot find peers | Wrong swarm key or bootstrap list — compare `config.toml` with another machine's. |
+| Transfers fail on a machine that was down | DID announcements made while it was offline never reached it. The test runner announces every DID at the start of each run; for a hand test, register the DIDs involved again (`POST /rubix/v1/dids/<did>/register`, then sign). |

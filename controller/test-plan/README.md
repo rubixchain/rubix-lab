@@ -34,17 +34,20 @@ write it in its asset module, add it to that module's `CASES`, `ORDER` and
 1. **Load the cases** and each one's `NEEDS`: senders, receivers, quorums, and
    the RBT they should hold. Cases that must share DIDs (SC-S-01..05 all watch
    one contract) are one *unit*.
-2. **Find the fleet**: every reachable node in `hosts.txt` and every DID on it.
-   DIDs are fixed - a node with none is left out, never given one. A node with
-   several DIDs is fine.
-3. **Check the faucet**, which runs on the controller: port 20000 is the faucet
-   DID, port 20010 the faucet quorum. Both DIDs are read from the nodes; the
-   faucet node must have exactly one quorum, the faucet quorum.
+2. **Find the fleet**: every node of every pool machine (`controller/fleet.py`
+   reads `hosts.txt` and `systems/node-layout.txt` - nine nodes per machine,
+   each addressed `ip:port`) and every DID on it. DIDs are fixed - a node with
+   none is left out, never given one. Nodes hold 1, 5 or 10 DIDs.
+3. **Check the faucet**: the faucet DID's node (`faucet` machine) and the
+   faucet quorum's node (`faucet-quorum` machine), both on port 20000. Both
+   DIDs are read from the nodes; the faucet node must have exactly one quorum,
+   the faucet quorum.
 4. **Run units as nodes free up.** For each unit, in catalogue order:
    - wait until enough nodes are free (nodes, not DIDs, are what is busy: the
      quorum a transfer uses is set per node);
    - pick DIDs: quorums, then senders holding the most RBT, then receivers
-     holding the least;
+     holding the least - each on a different machine while free machines are
+     left, so a unit's traffic crosses the network;
    - set up the quorums, reset each participant node's quorum list to just
      its quorum (so which quorum signs is certain), and faucet any shortfall;
    - run its cases, checking the wallets' database rows before and after each.
@@ -58,7 +61,7 @@ write it in its asset module, add it to that module's `CASES`, `ORDER` and
    the fleet ledger (fleet + faucet, compared with the last run).
 
 A case that asks for more nodes than the pool has is skipped with the reason
-(`RBT-Q-06` needs 46).
+(`RBT-Q-06` needs 46 - only a partly installed fleet is that small now).
 
 ## Columns
 
@@ -132,21 +135,24 @@ wallet rows of all its participants, quorums included; after it:
 | `no_locks` | no RBT left Locked that was not Locked before |
 | `rows_valid` | every new token has a chain row and a legal value; `token_denom` moved with the free rows |
 
-Also reported for every case, **without deciding the verdict** (the fullnode
-observes, it is not part of a transfer): `fullnode` - how many of the case's
-transactions the fullnode accepted (`fullnode_transactions`) and rejected
-(`fullnode_invalid_transactions`, with the reason). The end of the run lists
-every rejection grouped by reason.
+Also reported for every case, **without deciding the verdict** (fullnodes
+observe, they are not part of a transfer): `fullnode` - how many of the case's
+transactions EACH fullnode accepted (`fullnode_transactions`) and rejected
+(`fullnode_invalid_transactions`, with the reason). Every fullnode receives
+every published transaction and validates it on its own, so they can reach
+different verdicts on the same transaction - reported as a disagreement. The
+end of the run lists every rejection grouped by reason, with the fullnodes
+that gave it.
 
-The fullnode validates with several workers in parallel and gives a
-transaction 3 attempts ~6s apart (`core/fullnode_txn_processor.go`). Two
-transactions on the same token close together can be checked out of order and
-rejected with a previous-transaction mismatch - that is a fullnode finding.
-**Every case that makes transfers runs twice - without delay, then with
-delay** - and the fullnode's verdict on each transfer is compared:
+A fullnode validates with several workers in parallel and gives a transaction
+3 attempts ~6s apart. Two transactions on the same token close together can be
+checked out of order and rejected with a previous-transaction mismatch - that
+is a fullnode finding. **Every case that makes transfers runs twice - without
+delay, then with delay** - and the fullnodes' verdict on each transfer is
+compared:
 
 - *Without delay*: the case runs as written, the product's raw behaviour.
-- *With delay*: before any DID starts a transaction it waits until the
+- *With delay*: before any DID starts a transaction it waits until every
   fullnode has processed that DID's last one (`rubix_client._pace`). Parallel
   bursts stay parallel; chains on one token are paced step by step.
 

@@ -1,71 +1,65 @@
 #!/usr/bin/env bash
-# Build rubixgoplatform from a branch and deploy it to one or more lab
-# desktops. Run this FROM the controller desktop.
+# Build rubixgoplatform from a branch and deploy it to the nodes of one or
+# more lab machines. Run this FROM the controller.
 #
 # Prerequisites (see README.md): a git checkout of rubixgoplatform on the
 # controller, Go 1.22 + build-essential installed there, and SSH key access
-# (plus a narrow passwordless-sudo grant for systemctl) already set up from
-# the controller to every target desktop.
+# from the controller to every machine. The passwordless sudo for stopping
+# and starting the nodes comes with systems/install/setup.sh.
 #
-# Assumes every target desktop cloned rubix-lab to the same path relative
-# to ITS OWN $HOME (default "rubix-lab", i.e. ~/rubix-lab — override with
-# REMOTE_REPO_REL=path/to/clone). Resolves each target's actual $HOME over
-# SSH at deploy time rather than assuming it, then deploys into
-# <that clone>/nodes/<NODE_NAME> — the same folder install/setup.sh created.
+# Every node has its own copy of the binary, in ~/rubix-lab/nodes/node<slot>/
+# on its machine (setup.sh's layout; controller/fleet.py lists the slots), and
+# runs as systemd unit rubixgoplatform@<slot>. Per machine this stops every
+# node, copies the binary over once, swaps it into each node folder, starts
+# the nodes again and waits until each answers on its own port.
 #
-# Why this is all SSH, not the Rubix API: rubixgoplatform.service has
-# Restart=always, so gracefully shutting the process down via its own API
-# would just have systemd relaunch the OLD binary underneath you. Swapping
-# the binary needs systemctl stop (tells the supervisor to stop, not just
-# the process to exit) — that's SSH-only, no way around it.
+# Why this is all SSH, not the Rubix API: the units have Restart=always, so
+# gracefully shutting a node down via its own API would just have systemd
+# relaunch the OLD binary underneath you. Swapping the binary needs systemctl
+# stop (tells the supervisor to stop, not just the process to exit).
 #
-# The fleet NODES never need a source checkout or Go. The branch is built ONCE
-# here and the compiled 27MB binary is copied to each node over scp. Only this
-# controller needs the checkout, and it must be Linux: the Makefile sets
-# CGO_ENABLED=1, so the build cannot be cross-compiled without a C toolchain.
+# The fleet machines never need a source checkout or Go. The branch is built
+# ONCE here and the compiled binary is copied over with scp. This controller
+# must be Linux: the Makefile sets CGO_ENABLED=1, so the build cannot be
+# cross-compiled without a C toolchain.
 #
 # Usage:
-#   ./update-exec.sh <branch> <target-ip> [target-ip...]
-#   ./update-exec.sh <branch> --all         # every pool host in controller/hosts.txt
+#   ./update-exec.sh <branch> <machine-ip> [machine-ip...]   # every node on those machines
+#   ./update-exec.sh <branch> --all                          # every pool machine
+#   ./update-exec.sh <branch> --all --include-fixed          # plus the fullnode and faucet machines
 #
-# Environment overrides:
-#   REMOTE_BIN_REL=Desktop/rubix   where the binary lives on each target,
-#                                  relative to its $HOME. REQUIRED for a fleet
-#                                  brought up by hand rather than by
-#                                  systems/install/setup.sh. Check with:
-#                                  systemctl cat rubixgoplatform | grep ExecStart
+# Environment overrides (or exec-update.env, see the example):
 #   PREBUILT_BINARY=/path/to/bin   skip the build and ship this binary instead
 #                                  (for a controller with no Go toolchain)
-#   JOBS=1                         deploy one host at a time (default: all at
-#                                  once) - useful when watching a failure
 #   REPO_DIR=~/Desktop/rubixgoplatform   the checkout to build from
+#   JOBS=1                         deploy one machine at a time (default: all at
+#                                  once) - useful when watching a failure
 #
-# Typical use on this fleet:
-#   REMOTE_BIN_REL=Desktop/rubix ./update-exec.sh my-branch 192.168.1.104   # one host
-#   REMOTE_BIN_REL=Desktop/rubix ./update-exec.sh my-branch --all           # then all
-#   cd .. && python3 node-versions.py                                       # verify
+# Typical use:
+#   ./update-exec.sh my-branch 192.168.1.107                 # one machine first
+#   ./update-exec.sh my-branch --all --include-fixed         # then every node
+#   cd .. && python3 node-versions.py --include-fixed        # verify the commit landed
 
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
-  echo "Usage: $0 <branch> <target-ip> [target-ip...]"
-  echo "       $0 <branch> --all"
+  echo "Usage: $0 <branch> <machine-ip> [machine-ip...]"
+  echo "       $0 <branch> --all [--include-fixed]"
   exit 1
 fi
 
 BRANCH="$1"; shift
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONTROLLER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ---------------------------------------------------------------------------
-# Settings file. Avoids retyping REPO_DIR / REMOTE_BIN_REL on every run - and
-# forgetting REMOTE_BIN_REL is the dangerous one, because it silently targets
-# the wrong path on every node.
+# Settings file. Avoids retyping REPO_DIR / PREBUILT_BINARY on every run.
 #
 #   cp exec-update.env.example exec-update.env    # then edit
 #
 # Precedence: an already-exported variable WINS over the file, so a one-off
-#   REMOTE_BIN_REL=other/path ./update-exec.sh ...
+#   REPO_DIR=other/path ./update-exec.sh ...
 # still overrides the saved setting. The file only fills in what is unset.
 # Point somewhere else with EXEC_UPDATE_ENV=/path/to/file.
 # ---------------------------------------------------------------------------
@@ -94,55 +88,63 @@ if [ -f "$ENV_FILE" ]; then
   load_env_file "$ENV_FILE"
   echo "Settings loaded from $ENV_FILE"
 fi
-# Product repo clone, for BUILDING (controller-local). This fleet keeps it at
-# ~/Desktop/rubixgoplatform - NOT inside ~/Desktop/rubix, where a FILE of the
-# same name (the running binary) already lives and would collide with a clone.
+# The single-node fleet needed REMOTE_BIN_REL to find its binary. Every node
+# now lives at ~/rubix-lab/nodes/node<slot>, so a leftover value would only
+# mislead - say so instead of silently ignoring it.
+if [ -n "${REMOTE_BIN_REL:-}${NODE_NAME:-}" ]; then
+  echo "NOTE: REMOTE_BIN_REL / NODE_NAME are no longer used (nodes live in"
+  echo "      ~/rubix-lab/nodes/node<slot>); remove them from exec-update.env."
+fi
+# Product repo clone, for BUILDING (controller-local).
 REPO_DIR="${REPO_DIR:-$HOME/Desktop/rubixgoplatform}"
-REMOTE_REPO_REL="${REMOTE_REPO_REL:-rubix-lab}"   # rubix-lab clone location on EACH TARGET, relative to that target's own $HOME
-NODE_NAME="${NODE_NAME:-testnode}"
 SSH_USER="${SSH_USER:-$(whoami)}"
-# NODE_DIR is resolved per-target inside the deploy loop below (needs each
-# target's own $HOME, which the controller can't assume — resolving a
-# literal path once per target avoids relying on scp/ssh expanding $HOME or
-# ~ remotely, which isn't consistent across implementations).
 
-if [ "$1" == "--all" ]; then
-  # controller/hosts.txt is the fleet's single source of truth - the same file
-  # every other controller tool reads. Keeping a second list here would drift,
-  # and a host commented out as down would silently come back.
-  # Fixed-role hosts are skipped: the fullnode is the bootstrap seed every node
-  # points at, and the explorer/controller run no participating node.
-  MAIN_HOSTS="$(cd "$SCRIPT_DIR/.." && pwd)/hosts.txt"
-  if [ -f "$SCRIPT_DIR/hosts.txt" ]; then
-    echo "Using $SCRIPT_DIR/hosts.txt (local override)"
-    mapfile -t TARGETS < <(grep -vE '^\s*(#|$)' "$SCRIPT_DIR/hosts.txt" | awk '{print $1}')
-  elif [ -f "$MAIN_HOSTS" ]; then
-    echo "Using $MAIN_HOSTS (fixed-role hosts skipped)"
-    mapfile -t TARGETS < <(grep -v '^\s*#' "$MAIN_HOSTS" \
-      | awk 'NF && $2 != "fullnode" && $2 != "explorer" && $2 != "controller" {print $1}')
-  else
-    echo "ERROR: --all needs $MAIN_HOSTS (or a local $SCRIPT_DIR/hosts.txt)."; exit 1
-  fi
-else
-  TARGETS=("$@")
+ALL=0; INCLUDE_FIXED=0; TARGET_ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --all) ALL=1 ;;
+    --include-fixed) INCLUDE_FIXED=1 ;;
+    -*) echo "Unknown argument: $a"; exit 1 ;;
+    *) TARGET_ARGS+=("$a") ;;
+  esac
+done
+if [ "$ALL" -eq 1 ] && [ "${#TARGET_ARGS[@]}" -gt 0 ]; then
+  echo "ERROR: give machine IPs or --all, not both."; exit 1
 fi
 
-[ "${#TARGETS[@]}" -gt 0 ] || { echo "ERROR: no targets given."; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is needed (fleet.py reads hosts.txt)."; exit 1; }
+fleet() { python3 "$CONTROLLER_DIR/fleet.py" "$@"; }
+
+# "ip slot node_index api_port ..." for every node being deployed to.
+# controller/hosts.txt is the fleet's single source of truth - the same file
+# every other controller tool reads; fleet.py stops on a bad entry.
+if [ "$ALL" -eq 1 ]; then
+  if [ "$INCLUDE_FIXED" -eq 1 ]; then listing="$(fleet nodes --include-fixed)"; else listing="$(fleet nodes)"; fi
+else
+  [ "${#TARGET_ARGS[@]}" -gt 0 ] || { echo "ERROR: no machines given."; exit 1; }
+  listing=""
+  for t in "${TARGET_ARGS[@]}"; do
+    out="$(fleet nodes --host "$t")"
+    [ -n "$out" ] || { echo "ERROR: $t runs no node (explorer/controller)."; exit 1; }
+    listing+="$out"$'\n'
+  done
+fi
+TARGETS=()
+while read -r ip _rest; do
+  [ -n "$ip" ] || continue
+  case " ${TARGETS[*]-} " in *" $ip "*) ;; *) TARGETS+=("$ip") ;; esac
+done <<<"$listing"
+[ "${#TARGETS[@]}" -gt 0 ] || { echo "ERROR: no machines selected."; exit 1; }
 
 # ---------------------------------------------------------------------------
-# Build FIRST, deploy only if it succeeds — never leave a target stopped
+# Build FIRST, deploy only if it succeeds — never leave a node stopped
 # because a later step failed.
 # ---------------------------------------------------------------------------
 # PREBUILT_BINARY skips the build entirely and ships a binary someone else
 # produced. The build needs CGO_ENABLED=1 (see the Makefile), so it has to
 # happen on Linux with a C toolchain - it cannot be cross-compiled from
-# Windows or macOS without one. Building on the controller is the normal path;
-# this exists for when the controller has no Go, or a release binary was
-# handed over directly.
+# Windows or macOS without one. Building on the controller is the normal path.
 #   PREBUILT_BINARY=/path/to/rubixgoplatform ./update-exec.sh v1.0.5 --all
-#
-# NOTE: the fleet NODES never need Go or a source checkout. They receive a
-# compiled binary over scp and nothing else. Only the build host needs either.
 if [ -n "${PREBUILT_BINARY:-}" ]; then
   BINARY="$PREBUILT_BINARY"
   [ -f "$BINARY" ] || { echo "ERROR: PREBUILT_BINARY=$BINARY does not exist."; exit 1; }
@@ -184,100 +186,104 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Deploy — PARALLEL. These are separate machines with one SSH connection each,
-# and the per-host cost is dominated by systemctl stop/start plus the API
-# readiness wait (up to 30s), not by the 27MB copy (~1s on gigabit). Run
-# sequentially, 31 hosts took ~15 minutes; in parallel it finishes in about the
-# time of the slowest single host.
-#
-# Same pattern as restart-nodes.sh and wipe-node-db.sh: each host runs in a
-# background subshell, output is buffered to a file and printed in host order
-# at the end, and the result travels back through an exit code (a subshell
-# cannot append to the parent's arrays).
-#
-# --jobs N caps concurrency; JOBS=0 (default) means all at once. Drop to
-# --jobs 1 to watch one host at a time when something is going wrong.
+# Deploy — machines in PARALLEL (separate machines, one SSH connection each;
+# the per-machine cost is the stop/start and the readiness wait, not the copy).
+# Same pattern as restart-nodes.sh: each machine runs in a background
+# subshell, output is buffered to a file and printed in order at the end, and
+# the result travels back through an exit code.
 # ---------------------------------------------------------------------------
 JOBS="${JOBS:-0}"
 [ "$JOBS" -le 0 ] && JOBS=${#TARGETS[@]}
 
-deploy_one() {
-  local TARGET="$1"
-  local TARGET_HOME NODE_DIR
+ssh_run() {   # $1 = machine, rest = args for the remote script on stdin
+  local target="$1"; shift
+  ssh -o BatchMode=yes -o ConnectTimeout=8 "${SSH_USER}@${target}" bash -s -- "$@"
+}
 
-  # Resolve the target's own $HOME rather than assuming it - and treat an
-  # unreachable host as a clean "skipped", not a crash. A typo'd IP is the
-  # common cause, and it must read as "cannot reach", not as a shell error.
-  if ! TARGET_HOME="$(ssh -o ConnectTimeout=8 -o BatchMode=yes \
-                          "${SSH_USER}@${TARGET}" 'echo $HOME' 2>&1)" \
-     || [ -z "$TARGET_HOME" ]; then
-    echo "-- WARNING: cannot reach ${SSH_USER}@${TARGET} over SSH - node untouched"
-    echo "            ${TARGET_HOME:-no response}"
-    echo "            Check the IP is right and SSH keys are set up:"
-    echo "              ssh ${SSH_USER}@${TARGET} 'echo ok'"
+# Runs on the machine: `start` or `stop`, then the slots - through the sudo
+# grant setup.sh installs, one unit per call.
+UNITS_SCRIPT='rc=0; v="$1"; shift
+for s in "$@"; do sudo -n systemctl "$v" "rubixgoplatform@$s" || rc=1; done
+exit $rc'
+
+deploy_one() {
+  local TARGET="$1" slots=() ports=() hip slot _i api _rest missing
+  while read -r hip slot _i api _rest; do
+    [ "$hip" = "$TARGET" ] && { slots+=("$slot"); ports+=("$api"); }
+  done <<<"$listing"
+
+  # Reachable, and every node folder already holds a binary. A missing one
+  # means the machine was never installed - copying would put a binary where
+  # no unit runs it, and the summary would still say OK.
+  if ! missing="$(ssh_run "$TARGET" "${slots[@]}" 2>"$WORKDIR/$TARGET.err" <<'REMOTE'
+for s in "$@"; do [ -f ~/rubix-lab/nodes/node$s/rubixgoplatform ] || echo "$s"; done
+REMOTE
+  )"; then
+    echo "-- WARNING: cannot reach ${SSH_USER}@${TARGET} over SSH - nodes untouched"
+    echo "            $(tail -1 "$WORKDIR/$TARGET.err" 2>/dev/null || echo no response)"
     return 2
   fi
-
-  # Where the BINARY lives on the target - which is not always where the
-  # node's data dir lives.
-  #
-  # Default assumes systems/install/setup.sh's layout:
-  #   <clone>/nodes/<NODE_NAME>/rubixgoplatform
-  # This fleet was brought up BY HAND instead, and its systemd unit runs
-  #   $HOME/Desktop/rubix/rubixgoplatform run -p $HOME/Desktop/rubix/node
-  # so the binary sits at ~/Desktop/rubix with no "nodes/" segment at all.
-  # REMOTE_BIN_REL overrides the whole path (relative to the target's $HOME):
-  #   REMOTE_BIN_REL=Desktop/rubix ./update-exec.sh <branch> --all
-  # Copying to the wrong directory is silent-ish: the scp fails, or worse
-  # succeeds somewhere the service never reads, leaving the OLD binary running
-  # while the summary says OK. Check with node-versions.py afterwards.
-  if [ -n "${REMOTE_BIN_REL:-}" ]; then
-    NODE_DIR="${TARGET_HOME}/${REMOTE_BIN_REL}"
-  else
-    NODE_DIR="${TARGET_HOME}/${REMOTE_REPO_REL}/nodes/${NODE_NAME}"
-  fi
-
-  if ! ssh -o ConnectTimeout=8 "${SSH_USER}@${TARGET}" "[ -f ${NODE_DIR}/rubixgoplatform ]"; then
-    echo "-- WARNING: no existing binary at ${NODE_DIR}/rubixgoplatform"
-    echo "            Refusing to deploy - the service would keep running the old"
-    echo "            binary from wherever it actually lives. Set REMOTE_BIN_REL."
-    echo "            Find it with:  ssh ${SSH_USER}@${TARGET} 'systemctl cat rubixgoplatform | grep ExecStart'"
+  if [ -n "$missing" ]; then
+    echo "-- WARNING: no binary for node(s) $(echo $missing) in ~/rubix-lab/nodes - refusing to deploy."
+    echo "            Install the machine first: ./install-nodes.sh --host ${TARGET}"
     return 3
   fi
 
-  echo "-- stopping service"
-  if ! ssh -o ConnectTimeout=8 "${SSH_USER}@${TARGET}" 'sudo systemctl stop rubixgoplatform'; then
-    echo "-- WARNING: could not stop service (SSH/sudo issue?) - node left as-is"
+  echo "-- stopping ${#slots[@]} node(s)"
+  if ! ssh_run "$TARGET" stop "${slots[@]}" <<<"$UNITS_SCRIPT"; then
+    echo "-- WARNING: could not stop every node (sudo grant missing? re-run setup.sh there)."
+    echo "            Starting them again with the binary unchanged."
+    ssh_run "$TARGET" start "${slots[@]}" <<<"$UNITS_SCRIPT" || true
     return 2
   fi
 
   echo "-- copying binary"
-  # Copy to a temp name then rename in place — atomic, so a target never sees
-  # a half-written binary if the copy gets interrupted.
-  if ! scp -q "$BINARY" "${SSH_USER}@${TARGET}:${NODE_DIR}/rubixgoplatform.new"; then
-    echo "-- ERROR: copy failed. Node is STOPPED with its old binary intact."
-    echo "          Restart it with: ssh ${SSH_USER}@${TARGET} 'sudo systemctl start rubixgoplatform'"
+  if ! scp -q "$BINARY" "${SSH_USER}@${TARGET}:rubix-lab/nodes/rubixgoplatform.new"; then
+    echo "-- ERROR: copy failed. Nodes are STOPPED with their old binary intact."
+    echo "          Start them with: cd .. && ./restart-nodes.sh --host ${TARGET}"
     return 1
   fi
-  ssh "${SSH_USER}@${TARGET}" "mv ${NODE_DIR}/rubixgoplatform.new ${NODE_DIR}/rubixgoplatform && chmod +x ${NODE_DIR}/rubixgoplatform"
+  # Into each node folder under a temp name, then renamed into place - atomic,
+  # so no node ever sees a half-written binary.
+  if ! ssh_run "$TARGET" "${slots[@]}" <<'REMOTE'
+set -e
+cd ~/rubix-lab/nodes
+for s in "$@"; do
+  cp rubixgoplatform.new "node$s/rubixgoplatform.new"
+  chmod +x "node$s/rubixgoplatform.new"
+  mv "node$s/rubixgoplatform.new" "node$s/rubixgoplatform"
+done
+rm -f rubixgoplatform.new
+REMOTE
+  then
+    echo "-- ERROR: swapping the binary failed part-way - starting the nodes as they are."
+    ssh_run "$TARGET" start "${slots[@]}" <<<"$UNITS_SCRIPT" || true
+    return 1
+  fi
 
-  echo "-- starting service"
-  ssh "${SSH_USER}@${TARGET}" 'sudo systemctl start rubixgoplatform'
+  echo "-- starting ${#slots[@]} node(s)"
+  ssh_run "$TARGET" start "${slots[@]}" <<<"$UNITS_SCRIPT" || echo "-- WARNING: a start command failed"
 
-  echo "-- waiting for API..."
-  local UP=0 i
-  for i in $(seq 1 15); do
-    if curl -s -o /dev/null --max-time 2 "http://${TARGET}:20000/rubix/v1/dids"; then
-      UP=1; break
-    fi
+  # Nine nodes starting at once on one machine take longer than one did.
+  echo "-- waiting for the APIs..."
+  local i n pending=("${!slots[@]}") still
+  for n in $(seq 1 30); do
+    still=()
+    for i in "${pending[@]}"; do
+      curl -s -o /dev/null --max-time 2 "http://${TARGET}:${ports[$i]}/rubix/v1/dids" || still+=("$i")
+    done
+    pending=("${still[@]}")
+    [ "${#pending[@]}" -eq 0 ] && break
     sleep 2
   done
-  if [ "$UP" -eq 1 ]; then
-    echo "-- up on $BRANCH @ $COMMIT"
+  if [ "${#pending[@]}" -eq 0 ]; then
+    echo "-- ${#slots[@]} node(s) up on $BRANCH @ $COMMIT"
     return 0
   fi
-  echo "-- WARNING: did not respond within 30s after restart"
-  echo "            check: ssh ${SSH_USER}@${TARGET} journalctl -u rubixgoplatform -n 100"
+  for i in "${pending[@]}"; do
+    echo "-- WARNING: node ${slots[$i]} (:${ports[$i]}) did not respond within 60s"
+    echo "            check: ssh ${SSH_USER}@${TARGET} journalctl -u rubixgoplatform@${slots[$i]} -n 100"
+  done
   return 4
 }
 
@@ -285,14 +291,14 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 echo ""
-echo "== Deploying to ${#TARGETS[@]} host(s), ${JOBS} at a time =="
-echo "   (output is buffered per host and printed together when all are done)"
+echo "== Deploying to ${#TARGETS[@]} machine(s), ${JOBS} at a time =="
+echo "   (output is buffered per machine and printed together when all are done)"
 
 running=0
 for TARGET in "${TARGETS[@]}"; do
   {
     # set +e inside the subshell: errexit would abort before the .rc file is
-    # written, losing this host's real result.
+    # written, losing this machine's real result.
     set +e
     deploy_one "$TARGET" > "$WORKDIR/$TARGET.out" 2>&1
     echo $? > "$WORKDIR/$TARGET.rc"
@@ -313,10 +319,10 @@ for TARGET in "${TARGETS[@]}"; do
   rc="$(cat "$WORKDIR/$TARGET.rc" 2>/dev/null || echo 1)"
   case "$rc" in
     0) RESULT[$TARGET]="OK ($BRANCH @ $COMMIT)" ;;
-    2) RESULT[$TARGET]="SKIPPED — stop failed, node untouched" ;;
-    3) RESULT[$TARGET]="SKIPPED — no binary at expected path, node untouched" ;;
-    4) RESULT[$TARGET]="STARTED BUT NOT RESPONDING — check journalctl" ;;
-    *) RESULT[$TARGET]="FAILED — node may be STOPPED, see output above" ;;
+    2) RESULT[$TARGET]="SKIPPED — unreachable or stop failed, binary unchanged" ;;
+    3) RESULT[$TARGET]="SKIPPED — not installed (no binary in a node folder)" ;;
+    4) RESULT[$TARGET]="STARTED BUT NOT ALL RESPONDING — check journalctl" ;;
+    *) RESULT[$TARGET]="FAILED — nodes may be STOPPED, see output above" ;;
   esac
 done
 
@@ -328,8 +334,8 @@ for TARGET in "${TARGETS[@]}"; do
   case "${RESULT[$TARGET]}" in OK*) ;; *) FAILED=$(( FAILED + 1 )) ;; esac
 done
 echo ""
-echo "  $(( ${#TARGETS[@]} - FAILED )) / ${#TARGETS[@]} on $BRANCH @ $COMMIT"
+echo "  $(( ${#TARGETS[@]} - FAILED )) / ${#TARGETS[@]} machine(s) on $BRANCH @ $COMMIT"
 echo ""
-echo "  A green summary only means the service restarted and answered. Confirm the"
-echo "  binary actually changed:   cd .. && python3 node-versions.py"
+echo "  A green summary only means the nodes restarted and answered. Confirm the"
+echo "  binary actually changed:   cd .. && python3 node-versions.py --include-fixed"
 [ "$FAILED" -eq 0 ] || exit 1

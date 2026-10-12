@@ -2,8 +2,8 @@
 """
 db_client.py - read a lab node's Postgres directly.
 
-Companion to rubix_client.py. That one talks to the node's HTTP API on :20000;
-this one reads the database behind it on :5433. Not a replacement - most cases
+Companion to rubix_client.py. That one talks to the node's HTTP API; this one
+reads the database behind it. Not a replacement - most cases
 should use the API, because that is what a real user sees. This exists for the
 handful of things the API genuinely does not expose:
 
@@ -24,17 +24,23 @@ REQUIREMENT
     psycopg2 is the standard PostgreSQL driver for Python - the same role
     `requests` plays for HTTP. Nothing Rubix-specific.
 
-    Nothing is installed on the nodes. Each node already runs Postgres in
-    Docker with the port published (docker run ... -p 5433:5432), so the
-    controller connects over the lab network.
+    Nothing is installed on the nodes. Each node already runs its own Postgres
+    in Docker with the port published, so the controller connects over the
+    lab network.
 
     If it is missing, every function here raises DBUnavailable with an
     actionable message, and cases turn that into an honest SKIP rather than a
     false pass. Import this module freely - importing never fails.
 
 CONNECTION
-    Defaults match what setup.sh and wipe-node-db.sh actually create:
-        port 5433, database "rubix", user "rubix", password "rubixpass"
+    Every function takes `host`: a node address "ip:api_port" (what the runner
+    passes - one machine runs several nodes) or a bare IP. A node's Postgres
+    listens on 5433 + its node_index, as its API does on 20000 + node_index
+    (setup.sh; core/config/config.go:148-152), so the address names the
+    database too: 192.168.1.107:20300 -> 192.168.1.107:5733. A bare IP gets
+    `port` (default 5433, node_index 0).
+    Database "rubix", user "rubix", password "rubixpass" - what setup.sh and
+    wipe-node-db.sh create.
 
 SAFETY - READ-ONLY IS ENFORCED, NOT PROMISED
     Every connection opened by query() is put into
@@ -70,7 +76,8 @@ TOKEN STATUS VALUES
 
 import sys
 
-DB_PORT = 5433
+DB_PORT = 5433          # node_index 0; a node's database is 5433 + node_index
+API_PORT = 20000        # node_index 0; a node's API is 20000 + node_index
 DB_NAME = "rubix"
 DB_USER = "rubix"
 DB_PASSWORD = "rubixpass"
@@ -148,6 +155,16 @@ READ_ONLY_OPTS = "-c default_transaction_read_only=on"
 WRITABLE_OPTS = "-c default_transaction_read_only=off"
 
 
+def node_db(host, port=DB_PORT):
+    """(ip, Postgres port) for a node address "ip:api_port", or for a bare ip
+    with the port given."""
+    host = str(host)
+    if ":" in host:
+        ip, api = host.rsplit(":", 1)
+        return ip, DB_PORT + int(api) - API_PORT
+    return host, port
+
+
 def _connect(host, port=DB_PORT, read_only=True):
     """Open a connection. READ-ONLY unless a caller explicitly asks otherwise.
 
@@ -155,16 +172,16 @@ def _connect(host, port=DB_PORT, read_only=True):
     through writable_query(), never from any read path.
     """
     psycopg2 = _driver()
-    kwargs = dict(host=host, port=port, dbname=DB_NAME, user=DB_USER,
+    ip, port = node_db(host, port)
+    kwargs = dict(host=ip, port=port, dbname=DB_NAME, user=DB_USER,
                   password=DB_PASSWORD, connect_timeout=CONNECT_TIMEOUT,
                   options=READ_ONLY_OPTS if read_only else WRITABLE_OPTS)
     try:
         return psycopg2.connect(**kwargs)
     except Exception as e:
         raise DBUnavailable(
-            "cannot reach Postgres at {}:{} ({}). Check the container is up on "
-            "that host:  ssh rubix@{} 'docker ps | grep postgres'".format(
-                host, port, e, host))
+            "cannot reach Postgres at {}:{} ({}). Check the node's container is up:  "
+            "ssh rubix@{} 'docker ps | grep rubix-db'".format(ip, port, e, ip))
 
 
 def query(host, sql, params=None, port=DB_PORT):
@@ -812,7 +829,7 @@ def expect_receive(before, after, amount, tol=0.0015):
 def wallet_totals(host, did, port=DB_PORT, token_type=TYPE_RBT):
     """Value and row count per status for one DID, as SUMs.
 
-    Deliberately not capture(): a fleet-wide ledger over 31 hosts does not need
+    Deliberately not capture(): a fleet-wide ledger over ~1,000 DIDs does not need
     every token row shipped back, only the totals.
     """
     out = {}

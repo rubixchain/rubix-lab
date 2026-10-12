@@ -1,181 +1,251 @@
 #!/usr/bin/env bash
 # Rubix lab — fleet-wide node identity + wallet reset.
 #
-# DESTRUCTIVE AND IRREVERSIBLE. This deletes, per host:
-#   1. The Postgres container + its data volume (wallet, tokens, quorum
-#      registrations, transaction history — everything generate_local_rbt
-#      and dids-to-excel.py built up).
-#   2. <remote-dir>/localnet/ on that node's own filesystem — this is where
-#      DID PRIVATE KEYS actually live (confirmed: core/config/config.go
-#      DidDir = <nodeDir>/localnet/dids, NOT in Postgres). Deleting this
-#      permanently destroys that node's DID identity. There is no recovery.
+# DESTRUCTIVE AND IRREVERSIBLE. Two modes:
 #
-# Why: every local-RBT token minted before today's rubix_client.py fix
-# (allocate_token_index_range) has a small, node-independent sequential ID
-# that collides with other nodes' tokens of the same fleet the moment a
-# shared quorum has to validate them (TokenChainIntigrityCheck, see
-# CLAUDE.md's "Known open bug" entry). New tokens minted through the fixed
-# fund_did() are safe, but every wallet's EXISTING balance is a mix of old
-# (unsafe) and new (safe) tokens, and transfers pick from the whole wallet
-# - so the collision keeps recurring until the old backlog is gone. There's
-# no way to selectively delete just the bad tokens; a full reset is the
-# clean path back to a trustworthy state.
+# Default - the nodes setup.sh installs (~/rubix-lab/nodes/node<slot>), per node:
+#   1. stop its unit rubixgoplatform@<slot>
+#   2. delete its Postgres container rubix-db-<slot> + volume rubix-pgdata-<slot>
+#      (wallet, tokens, quorum registrations, transaction history)
+#   3. delete <node>/testnet, <node>/localnet, <node>/mainnet - the DID private
+#      keys, NFT and contract files live there (core/config/config.go: DidDir =
+#      <nodeDir>/<network>/dids), NOT in Postgres. There is no recovery.
+#   4. create a fresh, empty Postgres container in its place
+#   The nodes are left STOPPED. The binary, config.toml and .ipfs (the node's
+#   peer ID) are kept, so `./restart-nodes.sh --attempts 30` brings each one
+#   back as a fresh node with no DID.
 #
-# Defaults match what's ACTUALLY running on this fleet (confirmed via
-# `docker ps` earlier — container name "node", volume "pgdata_node", NOT
-# setup.sh's rubix-node-db/rubix_node_pgdata defaults, since these machines
-# were brought up by hand, not via systems/install/setup.sh).
+# --legacy - the single node every machine ran before the multi-node layout
+#   (hand-built in ~/Desktop/rubix, or an older setup.sh in ~/rubix-lab/nodes/testnode):
+#   stops rubixgoplatform.service, deletes Postgres container node / rubix-node-db
+#   and its volume, the old node's profile (the unit's -p folder: config, DIDs,
+#   IPFS repo), its binaries and swarm key, and ~/rubix-lab/nodes/testnode.
+#   ~/Desktop/rubix itself goes only if nothing else is in it - the old
+#   controller kept its rubix-lab clone there; anything left is listed.
+#   Nothing is recreated: install-nodes.sh comes next. Refuses if another Rubix
+#   node is still running on the machine - a second node from that era (the
+#   old faucet quorum on port 20010) has to be stopped by hand first, so
+#   nothing is deleted from under a live process.
+#
+# Pool machines by default; --include-fixed adds the fullnode, faucet, explorer
+# and controller machines (for --legacy that means every machine in hosts.txt).
 #
 # Usage:
-#   ./wipe-node-db.sh                  # DRY RUN — prints what would happen, changes nothing
-#   ./wipe-node-db.sh --yes            # actually do it, fleet-wide
-#   ./wipe-node-db.sh --yes --host 192.168.1.104   # just one host — DO THIS FIRST
-#
-# Strongly recommended: run against ONE host with --yes first, confirm the
-# node comes back up clean and DID/token state is really gone, before
-# running fleet-wide.
+#   ./wipe-node-db.sh                                   # DRY RUN — prints what would happen
+#   ./wipe-node-db.sh --yes                             # pool machines' nodes
+#   ./wipe-node-db.sh --yes --host 192.168.1.107        # one machine — DO THIS FIRST
+#   ./wipe-node-db.sh --legacy --include-fixed --yes    # the one-time flush before the rebuild
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOSTS_FILE="$HERE/hosts.txt"
 SSH_USER="rubix"
-REMOTE_DIR='~/Desktop/rubix/node'
-CONTAINER="node"
-VOLUME="pgdata_node"
-DB_PORT=5433
 DRY_RUN=1
+LEGACY=0
 SINGLE_HOST=""
 INCLUDE_FIXED=0
-# Concurrent hosts. 0 = all at once (default) - separate machines, one SSH
-# connection each, no shared bottleneck at lab scale. --jobs N to cap it
-# (--jobs 1 = serial, easier to watch a partial failure).
+# Concurrent machines. 0 = all at once (default) - separate machines, one SSH
+# connection each. --jobs 1 = serial, easier to watch a partial failure.
 JOBS=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) DRY_RUN=0; shift ;;
+    --legacy) LEGACY=1; shift ;;
     --host) SINGLE_HOST="$2"; shift 2 ;;
     --hosts) HOSTS_FILE="$2"; shift 2 ;;
     --user) SSH_USER="$2"; shift 2 ;;
-    --remote-dir) REMOTE_DIR="$2"; shift 2 ;;
-    --container) CONTAINER="$2"; shift 2 ;;
-    --volume) VOLUME="$2"; shift 2 ;;
     --include-fixed) INCLUDE_FIXED=1; shift ;;
     --jobs) JOBS="$2"; shift 2 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
 
-if [ -n "$SINGLE_HOST" ]; then
-  HOSTS=("$SINGLE_HOST")
-else
-  [ -f "$HOSTS_FILE" ] || { echo "ERROR: $HOSTS_FILE not found."; exit 1; }
-  # NEVER wipe fixed-role hosts by default. The fullnode is the bootstrap seed
-  # whose peer ID is baked into every other node's localnet_bootstrap_nodes -
-  # wiping it would break the whole swarm's bootstrap path. The explorer and
-  # controller don't run a rubix node at all. Filters on hosts.txt's role
-  # column, same as smoke_test.py's FIXED_ROLES.
-  if [ "$INCLUDE_FIXED" -eq 1 ]; then
-    mapfile -t HOSTS < <(grep -v '^\s*#' "$HOSTS_FILE" | awk 'NF {print $1}')
-  else
-    mapfile -t HOSTS < <(grep -v '^\s*#' "$HOSTS_FILE" \
-      | awk 'NF && $2 != "fullnode" && $2 != "explorer" && $2 != "controller" {print $1}')
-  fi
-fi
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is needed (fleet.py reads hosts.txt)."; exit 1; }
+SELECT=(--hosts "$HOSTS_FILE")
+[ -n "$SINGLE_HOST" ] && SELECT+=(--host "$SINGLE_HOST")
+[ "$INCLUDE_FIXED" -eq 1 ] && SELECT+=(--include-fixed)
 
+# Machines, and for the default mode each machine's slots ("ip slot ..." lines
+# from fleet.py). fleet.py stops with a clear message on a bad hosts.txt.
+if [ "$LEGACY" -eq 1 ]; then
+  listing="$(python3 "$HERE/fleet.py" hosts "${SELECT[@]}")"
+else
+  listing="$(python3 "$HERE/fleet.py" nodes "${SELECT[@]}")"
+fi
+HOSTS=()
+declare -A SLOTS_OF=()
+while read -r ip slot _rest; do
+  [ -n "$ip" ] || continue
+  if [ -z "${SLOTS_OF[$ip]+set}" ]; then HOSTS+=("$ip"); SLOTS_OF[$ip]=""; fi
+  [ "$LEGACY" -eq 1 ] || SLOTS_OF[$ip]="${SLOTS_OF[$ip]} $slot"
+done <<<"$listing"
+[ "${#HOSTS[@]}" -gt 0 ] || { echo "No machines selected."; exit 1; }
 [ "$JOBS" -le 0 ] && JOBS=${#HOSTS[@]}
 
-if [ "$DRY_RUN" -eq 1 ]; then
-  echo "== DRY RUN — nothing will be changed. Pass --yes to actually wipe. =="
-else
-  echo "== LIVE RUN — this WILL permanently delete DID keys and wallet data on ${#HOSTS[@]} host(s). =="
-  echo "Container: $CONTAINER   Volume: $VOLUME   Remote dir: $REMOTE_DIR"
-  echo "Running ${JOBS} host(s) at a time; output is buffered per host and printed together at the end."
-  read -r -p "Type 'wipe' to confirm: " CONFIRM
-  [ "$CONFIRM" = "wipe" ] || { echo "Not confirmed, aborting."; exit 1; }
-fi
-echo
-
-# Handles one host. Runs in a background subshell, so it reports its result
-# ONLY via exit code (array appends in a subshell wouldn't propagate):
-# 0 = wiped cleanly, 1 = failed.
-wipe_one() {
-  local ip="$1"
-
-  if ! ssh -o ConnectTimeout=8 "${SSH_USER}@${ip}" bash -s -- "$REMOTE_DIR" "$CONTAINER" "$VOLUME" "$DB_PORT" <<'REMOTE_SCRIPT'
-set -euo pipefail
-REMOTE_DIR="$1"; CONTAINER="$2"; VOLUME="$3"; DB_PORT="$4"
-
-echo "  stopping node process..."
-# Must go through systemd where a unit exists. The unit has Restart=always,
-# so a bare pkill would just make systemd relaunch the node ~5s later -
-# mid-wipe, against a half-deleted localnet/ and a being-recreated DB.
-# pkill is only safe as a fallback on hosts with no unit installed.
-if systemctl list-unit-files rubixgoplatform.service >/dev/null 2>&1; then
-  sudo systemctl stop rubixgoplatform
-else
-  pkill -f "rubixgoplatform run" >/dev/null 2>&1 || true
-fi
-
-# Verify it's really gone before deleting anything underneath it.
-for i in $(seq 1 15); do
-  pgrep -f "rubixgoplatform run" >/dev/null 2>&1 || break
-  sleep 1
-done
-if pgrep -f "rubixgoplatform run" >/dev/null 2>&1; then
-  echo "  ERROR: node process still running after stop - refusing to wipe data underneath it"
-  exit 1
-fi
-
-echo "  wiping Postgres (container + volume)..."
-docker stop "$CONTAINER" >/dev/null 2>&1 || true
-docker rm "$CONTAINER" >/dev/null 2>&1 || true
-docker volume rm "$VOLUME" >/dev/null 2>&1 || true
-
-echo "  deleting DID/NFT/SC key material ($REMOTE_DIR/localnet)..."
-eval "rm -rf ${REMOTE_DIR}/localnet"
-
-echo "  recreating a fresh Postgres container..."
-docker run --name "$CONTAINER" \
-  -e POSTGRES_PASSWORD=rubixpass -e POSTGRES_USER=rubix -e POSTGRES_DB=rubix \
-  -p "${DB_PORT}:5432" \
-  -v "${VOLUME}:/var/lib/postgresql" \
-  --restart always \
-  -d postgres:18 >/dev/null
-
-echo "  waiting for Postgres..."
-# Bounded, not `until ... done` - an unbounded wait would hang this host
-# forever if Postgres never comes up, which is invisible during a parallel run.
-PG_READY=0
-for i in $(seq 1 30); do
-  if docker exec "$CONTAINER" pg_isready -U rubix >/dev/null 2>&1; then PG_READY=1; break; fi
-  sleep 2
-done
-if [ "$PG_READY" -ne 1 ]; then
-  echo "  ERROR: Postgres did not become ready within 60s"
-  exit 1
-fi
-echo "  done — node stopped, DB fresh, DID/NFT/SC dir gone. Bring the node back up when ready."
-REMOTE_SCRIPT
-  then
-    echo "  FAILED"
-    return 1
+what_happens() {   # $1 = ip
+  if [ "$LEGACY" -eq 1 ]; then
+    echo "  would: stop rubixgoplatform.service; docker rm -f node rubix-node-db; docker volume rm"
+    echo "         pgdata_node rubix_node_pgdata; delete the old node's profile (the unit's -p folder),"
+    echo "         its binaries and swarm key in ~/Desktop/rubix, and ~/rubix-lab/nodes/testnode"
+  else
+    for s in ${SLOTS_OF[$1]}; do
+      echo "  would: node $s - stop rubixgoplatform@$s; docker rm -f rubix-db-$s + volume rubix-pgdata-$s;"
+      echo "         rm -rf ~/rubix-lab/nodes/node$s/{testnet,localnet,mainnet}; recreate an empty rubix-db-$s"
+    done
   fi
-  return 0
 }
 
 if [ "$DRY_RUN" -eq 1 ]; then
+  echo "== DRY RUN — nothing will be changed. Pass --yes to actually wipe. =="
+  echo
   for ip in "${HOSTS[@]}"; do
     echo "== $ip =="
-    echo "  would: stop node process, docker rm -f $CONTAINER, docker volume rm $VOLUME,"
-    echo "         rm -rf ${REMOTE_DIR}/localnet, recreate a fresh $CONTAINER Postgres container"
+    what_happens "$ip"
     echo
   done
   echo "----------------------------------------"
   echo "DRY RUN — nothing was changed. Pass --yes to actually wipe."
   exit 0
 fi
+
+if [ "$LEGACY" -eq 1 ]; then
+  echo "== LIVE RUN — this WILL permanently delete the old single-node install (DID keys, wallet, IPFS repo) on ${#HOSTS[@]} machine(s). =="
+else
+  echo "== LIVE RUN — this WILL permanently delete DID keys and wallet data of every node on ${#HOSTS[@]} machine(s). =="
+fi
+echo "Running ${JOBS} machine(s) at a time; output is buffered per machine and printed together at the end."
+read -r -p "Type 'wipe' to confirm: " CONFIRM
+[ "$CONFIRM" = "wipe" ] || { echo "Not confirmed, aborting."; exit 1; }
+echo
+
+# Runs ON the machine. $1 = "legacy" or "nodes", then the slots.
+REMOTE_SCRIPT='
+set -uo pipefail
+MODE="$1"; shift
+
+wait_gone() {   # $1 = pgrep -f pattern; 15s for the process to exit
+  for _ in $(seq 1 15); do
+    pgrep -f "$1" >/dev/null 2>&1 || return 0
+    sleep 1
+  done
+  ! pgrep -f "$1" >/dev/null 2>&1
+}
+
+fresh_db() {   # $1 = container, $2 = volume, $3 = port
+  docker run --name "$1" \
+    -e POSTGRES_PASSWORD=rubixpass -e POSTGRES_USER=rubix -e POSTGRES_DB=rubix \
+    -p "$3:5432" -v "$2:/var/lib/postgresql" --restart always -d postgres:18 >/dev/null || return 1
+  # Bounded: an endless wait would hang this machine invisibly in a parallel run.
+  for _ in $(seq 1 30); do
+    docker exec "$1" pg_isready -U rubix >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  echo "  ERROR: $1 did not become ready within 60s"
+  return 1
+}
+
+if [ "$MODE" = "legacy" ]; then
+  if [ -e /etc/systemd/system/rubixgoplatform@.service ] \
+     || compgen -G "$HOME/rubix-lab/nodes/node[0-9]*" >/dev/null; then
+    echo "  ERROR: this machine already has the multi-node layout - --legacy is only for the"
+    echo "         old single-node install. Use the default mode for the new nodes."
+    exit 1
+  fi
+  echo "  stopping the old node..."
+  # Through systemd where the unit exists: it has Restart=always, so a bare
+  # pkill would just make systemd relaunch the node mid-wipe.
+  if systemctl list-unit-files rubixgoplatform.service >/dev/null 2>&1; then
+    sudo -n systemctl stop rubixgoplatform || { echo "  ERROR: could not stop rubixgoplatform.service"; exit 1; }
+  else
+    pkill -f "rubixgoplatform run" >/dev/null 2>&1 || true
+  fi
+  if ! wait_gone "rubixgoplatform run"; then
+    echo "  ERROR: a Rubix node is still running here - refusing to delete anything:"
+    pgrep -af "rubixgoplatform run" | sed "s/^/           /"
+    echo "         Stop it by hand (a second node from the old layout, e.g. the old faucet"
+    echo "         quorum on port 20010), then run this again."
+    exit 1
+  fi
+  for c in node rubix-node-db; do docker rm -f "$c" >/dev/null 2>&1 && echo "  deleted container $c"; done
+  for v in pgdata_node rubix_node_pgdata; do docker volume rm "$v" >/dev/null 2>&1 && echo "  deleted volume $v"; done
+
+  # Only the files of the old node. ~/Desktop/rubix can hold other things - the
+  # old controller kept its rubix-lab clone in it - so the folder itself goes
+  # only when nothing else is left in it. The node profile (config, DIDs, IPFS
+  # repo) is wherever -p of the old unit pointed, and is deleted only if it
+  # really is a node profile (has a config.toml) and is not the repo.
+  # (No apostrophes in this block: it is one single-quoted string.)
+  old=~/Desktop/rubix
+  profile="$(sed -n "s/^ExecStart=.* -p \([^ ]*\).*/\1/p" /etc/systemd/system/rubixgoplatform.service 2>/dev/null | head -1)"
+  [ -n "$profile" ] || profile="$old/node"
+  if [ "${profile%/}" = "$HOME" ] || [ -e "$profile/.git" ] || [ -e "$profile/rubix-lab" ]; then
+    echo "  NOTE: not deleting $profile - it holds more than a node"
+  elif [ -f "$profile/config.toml" ]; then
+    rm -rf "$profile" && echo "  deleted $profile (old node: config, DIDs, IPFS repo)"
+  fi
+  if [ -d "$old" ]; then
+    for f in rubixgoplatform ipfs localnetswarm.key testnetswarm.key node-restart.log log.txt .ipfs; do
+      [ -e "$old/$f" ] && rm -rf "$old/$f" && echo "  deleted $old/$f"
+    done
+    rest="$(ls -A "$old" 2>/dev/null)"
+    if [ -z "$rest" ]; then
+      rmdir "$old" && echo "  deleted the now-empty $old"
+    else
+      echo "  NOTE: left in $old - not the old node files, remove by hand if unwanted: $(echo $rest)"
+    fi
+  fi
+  [ -e ~/rubix-lab/nodes/testnode ] && rm -rf ~/rubix-lab/nodes/testnode && echo "  deleted ~/rubix-lab/nodes/testnode"
+  left="$(docker ps -a --format "{{.Names}} ({{.Image}})" | grep -i postgres || true)"
+  [ -z "$left" ] || echo "  NOTE: other Postgres containers are still here (not touched): $left"
+  if [ -f /etc/systemd/system/rubixgoplatform.service ]; then
+    echo "  The old unit file stays until install-nodes.sh removes it. On a machine that will run"
+    echo "  no node (explorer, controller) remove it by hand so it stops retrying at boot:"
+    echo "    sudo systemctl disable rubixgoplatform && sudo rm /etc/systemd/system/rubixgoplatform.service"
+  fi
+  echo "  done — old install gone. Next: install-nodes.sh"
+  exit 0
+fi
+
+FAILED=0
+for s in "$@"; do
+  slot="${s%%:*}"; port="${s#*:}"
+  echo "  node $slot: stopping..."
+  sudo -n systemctl stop "rubixgoplatform@$slot" 2>/dev/null \
+    || { echo "  ERROR: could not stop rubixgoplatform@$slot (sudo grant missing? re-run setup.sh)"; FAILED=1; continue; }
+  # Verify it is really gone before deleting anything underneath it.
+  if ! wait_gone "nodes/node$slot/rubixgoplatform run"; then
+    echo "  ERROR: node $slot still running after stop - refusing to wipe data underneath it"
+    FAILED=1; continue
+  fi
+  docker rm -f "rubix-db-$slot" >/dev/null 2>&1 || true
+  docker volume rm "rubix-pgdata-$slot" >/dev/null 2>&1 || true
+  rm -rf ~/rubix-lab/nodes/node$slot/testnet ~/rubix-lab/nodes/node$slot/localnet ~/rubix-lab/nodes/node$slot/mainnet
+  if fresh_db "rubix-db-$slot" "rubix-pgdata-$slot" "$port"; then
+    echo "  node $slot: wiped, empty database on $port, node stopped"
+  else
+    FAILED=1
+  fi
+done
+exit $FAILED
+'
+
+# Handles one machine. Runs in a background subshell, so it reports its result
+# ONLY via exit code (array appends in a subshell would not propagate).
+wipe_one() {
+  local ip="$1" args=() s
+  if [ "$LEGACY" -eq 1 ]; then
+    args=(legacy)
+  else
+    args=(nodes)
+    # "slot:db_port" - the database port follows the node_index (fleet.py)
+    while read -r hip slot _index _api db _rest; do
+      [ "$hip" = "$ip" ] && args+=("$slot:$db")
+    done <<<"$listing"
+  fi
+  ssh -o BatchMode=yes -o ConnectTimeout=8 "${SSH_USER}@${ip}" bash -s -- "${args[@]}" <<<"$REMOTE_SCRIPT"
+}
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -184,8 +254,7 @@ running=0
 for ip in "${HOSTS[@]}"; do
   {
     # set +e inside the subshell: errexit would abort it before the .rc file
-    # is written, losing this host's real result. Same reason `wait -n` is
-    # guarded below.
+    # is written, losing this machine's real result.
     set +e
     wipe_one "$ip" > "$WORKDIR/$ip.out" 2>&1
     echo $? > "$WORKDIR/$ip.rc"
@@ -208,16 +277,17 @@ for ip in "${HOSTS[@]}"; do
 done
 
 echo "----------------------------------------"
-WIPED=$(( ${#HOSTS[@]} - ${#FAILED[@]} ))
-echo "${#HOSTS[@]} host(s) total: $WIPED wiped cleanly, ${#FAILED[@]} need attention."
+echo "${#HOSTS[@]} machine(s): $(( ${#HOSTS[@]} - ${#FAILED[@]} )) wiped cleanly, ${#FAILED[@]} need attention."
 if [ "${#FAILED[@]}" -gt 0 ]; then
   echo "Needs attention: ${FAILED[*]}"
-  echo "(re-run against just those with: --yes --host <ip>)"
+  echo "(re-run against just one with: --yes --host <ip>)"
   exit 1
 fi
-
 echo
-echo "Every wiped node needs to be brought back up before anything else:"
-echo "  ./restart-nodes.sh --attempts 30   # cold start after a wipe is slower than a normal restart"
-echo "Then controller/dids-to-excel.py to re-create DIDs (SSH keys weren't touched by this,"
-echo "no need to re-run setup-ssh.sh)."
+if [ "$LEGACY" -eq 1 ]; then
+  echo "Next: ./install-nodes.sh (first fullnode with --first, see SETUP-RUNBOOK.md Phase B)."
+else
+  echo "Every wiped node is stopped. Bring them back (a cold start after a wipe is slow):"
+  echo "  ./restart-nodes.sh --attempts 30"
+  echo "Then python3 dids-to-excel.py to create the DIDs again."
+fi

@@ -2,41 +2,42 @@
 # Rubix lab — pre-test readiness check across the whole fleet.
 #
 # Answers one question: "is every machine actually ready to be tested against?"
-# Checks both layers, because either one silently breaks a test run:
+# One row per machine; a machine runs several nodes, so the node columns are
+# counts (9/9). Checks both layers, because either one silently breaks a run:
 #
-#   SYSTEM layer (over SSH)
+#   SYSTEM layer (one SSH round trip per machine)
 #     ssh      - controller can log in without a password (setup-ssh.sh done)
 #     docker   - docker.service enabled AND active (enabled matters: without
-#                it the DB container never comes back after a reboot)
-#     pgsql    - the Postgres container is running, with restart policy
-#                'always' (that's Docker's policy, NOT systemd - the container
-#                comes back because the daemon restarts it)
-#     unit     - rubixgoplatform.service enabled AND active
-#     sudo     - passwordless sudo works for systemctl on that unit, which is
-#                what restart-nodes.sh needs (tested with sudo -n, so it fails
-#                rather than hanging on a password prompt)
-#     binary   - the rubixgoplatform binary is actually where the unit expects
+#                it the DB containers never come back after a reboot)
+#     clock    - NTP-synchronised. The product allows NO clock difference: a
+#                sender a second ahead of its quorum is refused
+#                (core/consensus/checks.go:61, Epoch > time.Now()).
+#     units    - rubixgoplatform@<slot> enabled AND active, per node
+#     pgsql    - Postgres container rubix-db-<slot> running with restart policy
+#                'always' (Docker's policy, not systemd's), per node
+#     bin      - the node's binary is where its unit expects it
+#     sudo     - passwordless sudo for systemctl on this machine's units, which
+#                restart-nodes.sh and update-exec.sh need (tested with sudo -n,
+#                so it fails rather than hanging on a password prompt)
 #
 #   API layer (over HTTP, from the controller)
-#     api      - the node answers on port 20000
-#     dids     - how many DIDs it has (expect exactly 1 for a pool host that's
-#                been through dids-to-excel.py; 0 right after a wipe)
+#     api      - each node answers on its own port
+#     dids     - DIDs held against the layout's target (0 right after a wipe;
+#                dids-to-excel.py creates the rest). Shown, not counted in
+#                "ready": a node below target is still usable.
 #
 # Read-only: this script changes nothing anywhere. Safe to run any time.
 #
 # Usage:
-#   ./preflight-check.sh                        # all pool hosts (fixed-role ones excluded)
-#   ./preflight-check.sh --host 192.168.1.104    # just one
-#   ./preflight-check.sh --include-fixed         # include fullnode/explorer/controller
+#   ./preflight-check.sh                        # pool machines
+#   ./preflight-check.sh --include-fixed        # plus fullnodes and faucet machines
+#   ./preflight-check.sh --host 192.168.1.107   # one machine (any role)
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOSTS_FILE="$HERE/hosts.txt"
 SSH_USER="rubix"
-BINARY_DIR='~/Desktop/rubix'
-CONTAINER="node"
-PORT=20000
 SINGLE_HOST=""
 INCLUDE_FIXED=0
 JOBS=0   # 0 = all at once
@@ -46,112 +47,109 @@ while [ $# -gt 0 ]; do
     --host) SINGLE_HOST="$2"; shift 2 ;;
     --hosts) HOSTS_FILE="$2"; shift 2 ;;
     --user) SSH_USER="$2"; shift 2 ;;
-    --binary-dir) BINARY_DIR="$2"; shift 2 ;;
-    --container) CONTAINER="$2"; shift 2 ;;
-    --port) PORT="$2"; shift 2 ;;
     --jobs) JOBS="$2"; shift 2 ;;
     --include-fixed) INCLUDE_FIXED=1; shift ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
 
-if [ -n "$SINGLE_HOST" ]; then
-  HOSTS=("$SINGLE_HOST")
-else
-  [ -f "$HOSTS_FILE" ] || { echo "ERROR: $HOSTS_FILE not found."; exit 1; }
-  if [ "$INCLUDE_FIXED" -eq 1 ]; then
-    mapfile -t HOSTS < <(grep -v '^\s*#' "$HOSTS_FILE" | awk 'NF {print $1}')
-  else
-    mapfile -t HOSTS < <(grep -v '^\s*#' "$HOSTS_FILE" \
-      | awk 'NF && $2 != "fullnode" && $2 != "explorer" && $2 != "controller" {print $1}')
-  fi
-fi
-
-[ "$JOBS" -le 0 ] && JOBS=${#HOSTS[@]}
-
-# Without curl every API check silently fails and EVERY host gets reported as
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is needed (fleet.py reads hosts.txt)."; exit 1; }
+# Without curl every API check silently fails and EVERY node gets reported as
 # down - which looks like a fleet-wide outage rather than a missing tool.
-# (The Python tooling uses urllib and is unaffected, which makes the
-# discrepancy especially confusing.)
 command -v curl >/dev/null 2>&1 || {
   echo "ERROR: curl is not installed on this controller, so no API check can run."
   echo "       Install it first:  sudo apt install -y curl"
   exit 1
 }
 
+SELECT=(--hosts "$HOSTS_FILE")
+[ -n "$SINGLE_HOST" ] && SELECT+=(--host "$SINGLE_HOST")
+[ "$INCLUDE_FIXED" -eq 1 ] && SELECT+=(--include-fixed)
+# "ip slot node_index api_port db_port swarm_port dids role" per node.
+listing="$(python3 "$HERE/fleet.py" nodes "${SELECT[@]}")"
+HOSTS=()
+while read -r ip _rest; do
+  [ -n "$ip" ] || continue
+  case " ${HOSTS[*]-} " in *" $ip "*) ;; *) HOSTS+=("$ip") ;; esac
+done <<<"$listing"
+[ "${#HOSTS[@]}" -gt 0 ] || { echo "No nodes selected."; exit 1; }
+[ "$JOBS" -le 0 ] && JOBS=${#HOSTS[@]}
+
 check_one() {
-  local ip="$1"
-  local ssh_ok=FAIL docker_ok=- pg_ok=- unit_ok=- sudo_ok=- bin_ok=- api_ok=FAIL dids="-"
-  local raw
+  local ip="$1" role="" slots=() apis=() targets=() hip slot _i api _db _sw dids r
+  while read -r hip slot _i api _db _sw dids r; do
+    [ "$hip" = "$ip" ] || continue
+    slots+=("$slot"); apis+=("$api"); targets+=("$dids"); role="$r"
+  done <<<"$listing"
+  local n=${#slots[@]} ssh_ok=FAIL docker_ok=- clock_ok=- units=- pg=- bin=- sudo_ok=- raw
+  local details=()
 
   # --- system layer, one SSH round trip emitting key=value lines ---
   if raw=$(ssh -o BatchMode=yes -o ConnectTimeout=8 "${SSH_USER}@${ip}" \
-             bash -s -- "$BINARY_DIR" "$CONTAINER" 2>/dev/null <<'REMOTE'
-BINARY_DIR_RAW="$1"; CONTAINER="$2"
-NODE_DIR="$(eval echo "$BINARY_DIR_RAW")"
-echo "docker_enabled=$(systemctl is-enabled docker 2>/dev/null || echo no)"
-echo "docker_active=$(systemctl is-active docker 2>/dev/null || echo no)"
-echo "pg_running=$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || echo no)"
-echo "pg_policy=$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTAINER" 2>/dev/null || echo none)"
-echo "unit_enabled=$(systemctl is-enabled rubixgoplatform 2>/dev/null || echo no)"
-echo "unit_active=$(systemctl is-active rubixgoplatform 2>/dev/null || echo no)"
-# `sudo -n -l <cmd>` asks "am I allowed to run this?" WITHOUT running it, and
-# -n means it fails instead of prompting. Must test a command that is actually
-# in the grant (start/stop/restart/daemon-reload/enable) - testing something
-# like `systemctl is-active` reports a false failure, since that isn't granted
-# and doesn't need sudo in the first place.
-if sudo -n -l /usr/bin/systemctl restart rubixgoplatform >/dev/null 2>&1; then echo "sudo_ok=yes"; else echo "sudo_ok=no"; fi
-echo "systemctl_path=$(command -v systemctl 2>/dev/null || echo none)"
-if [ -x "$NODE_DIR/rubixgoplatform" ]; then echo "binary=yes"; else echo "binary=no"; fi
+             bash -s -- "${slots[@]}" 2>/dev/null <<'REMOTE'
+v() { "$@" 2>/dev/null; }
+echo "docker=$(v systemctl is-enabled docker)/$(v systemctl is-active docker)"
+echo "clock=$(v timedatectl show -p NTPSynchronized --value)"
+for s in "$@"; do
+  echo "unit.$s=$(v systemctl is-enabled "rubixgoplatform@$s")/$(v systemctl is-active "rubixgoplatform@$s")"
+  echo "pg.$s=$(v docker inspect -f '{{.State.Running}}/{{.HostConfig.RestartPolicy.Name}}' "rubix-db-$s")"
+  if [ -x ~/rubix-lab/nodes/node$s/rubixgoplatform ]; then echo "bin.$s=yes"; else echo "bin.$s=no"; fi
+done
+# `sudo -n -l <cmd>` asks "am I allowed to run this?" WITHOUT running it; -n
+# fails instead of prompting. It must be a command the grant covers.
+if sudo -n -l "$(command -v systemctl)" restart "rubixgoplatform@$1" >/dev/null 2>&1; then
+  echo "sudo=yes"; else echo "sudo=no"; fi
 REMOTE
         ); then
     ssh_ok=ok
-    local docker_enabled docker_active pg_running pg_policy unit_enabled unit_active sudo_flag binary sysctl_path
-    docker_enabled=$(sed -n 's/^docker_enabled=//p' <<<"$raw")
-    docker_active=$(sed -n 's/^docker_active=//p' <<<"$raw")
-    pg_running=$(sed -n 's/^pg_running=//p' <<<"$raw")
-    pg_policy=$(sed -n 's/^pg_policy=//p' <<<"$raw")
-    unit_enabled=$(sed -n 's/^unit_enabled=//p' <<<"$raw")
-    unit_active=$(sed -n 's/^unit_active=//p' <<<"$raw")
-    sudo_flag=$(sed -n 's/^sudo_ok=//p' <<<"$raw")
-    binary=$(sed -n 's/^binary=//p' <<<"$raw")
-    sysctl_path=$(sed -n 's/^systemctl_path=//p' <<<"$raw")
-
-    [ "$docker_enabled" = "enabled" ] && [ "$docker_active" = "active" ] && docker_ok=ok || docker_ok="FAIL($docker_enabled/$docker_active)"
-    [ "$pg_running" = "true" ] && [ "$pg_policy" = "always" ] && pg_ok=ok || pg_ok="FAIL($pg_running/$pg_policy)"
-    [ "$unit_enabled" = "enabled" ] && [ "$unit_active" = "active" ] && unit_ok=ok || unit_ok="FAIL($unit_enabled/$unit_active)"
-    # The sudoers grant hardcodes /usr/bin/systemctl; if systemctl lives
-    # somewhere else on a host, the grant silently never matches.
-    if [ "$sudo_flag" = "yes" ]; then
-      sudo_ok=ok
-    elif [ -n "$sysctl_path" ] && [ "$sysctl_path" != "/usr/bin/systemctl" ]; then
-      sudo_ok="FAIL(systemctl at $sysctl_path)"
-    else
-      sudo_ok=FAIL
-    fi
-    [ "$binary" = "yes" ] && bin_ok=ok || bin_ok=FAIL
+    val() { sed -n "s/^$1=//p" <<<"$raw"; }
+    [ "$(val docker)" = "enabled/active" ] && docker_ok=ok || docker_ok="FAIL"
+    case "$(val clock)" in
+      yes) clock_ok=ok ;;
+      no) clock_ok=FAIL; details+=("clock not NTP-synchronised: sudo timedatectl set-ntp true") ;;
+      *) clock_ok="?" ;;
+    esac
+    [ "$(val sudo)" = "yes" ] && sudo_ok=ok || { sudo_ok=FAIL; details+=("no passwordless sudo for the node units - re-run setup.sh there"); }
+    local u=0 p=0 b=0 s
+    for s in "${slots[@]}"; do
+      if [ "$(val "unit.$s")" = "enabled/active" ]; then u=$((u + 1)); else details+=("node $s unit: $(val "unit.$s")"); fi
+      if [ "$(val "pg.$s")" = "true/always" ]; then p=$((p + 1)); else details+=("node $s Postgres rubix-db-$s: $(val "pg.$s" || true)"); fi
+      if [ "$(val "bin.$s")" = "yes" ]; then b=$((b + 1)); else details+=("node $s: no binary in ~/rubix-lab/nodes/node$s"); fi
+    done
+    units="$u/$n"; pg="$p/$n"; bin="$b/$n"
+    [ "$docker_ok" = ok ] || details+=("docker not enabled+active: sudo systemctl enable --now docker")
+  else
+    details+=("no passwordless SSH (run setup-ssh.sh)")
   fi
 
   # --- API layer, from the controller ---
-  local body
-  if body=$(curl -s --max-time 5 "http://${ip}:${PORT}/rubix/v1/dids" 2>/dev/null) && [ -n "$body" ]; then
-    api_ok=ok
-    dids=$(grep -o 'bafybmi[a-zA-Z0-9]*' <<<"$body" | wc -l | tr -d ' ')
-  fi
+  local a=0 have=0 want=0 i body c
+  for i in "${!slots[@]}"; do
+    want=$((want + targets[i]))
+    if body=$(curl -s --max-time 5 "http://${ip}:${apis[i]}/rubix/v1/dids" 2>/dev/null) && [ -n "$body" ]; then
+      a=$((a + 1))
+      c=$(grep -o 'bafybmi[a-zA-Z0-9]*' <<<"$body" | wc -l | tr -d ' ')
+      have=$((have + c))
+      [ "$c" -le "${targets[i]}" ] || details+=("node ${slots[i]} holds $c DIDs, layout says ${targets[i]} - check by hand")
+    else
+      details+=("node ${slots[i]} not answering on :${apis[i]}")
+    fi
+  done
 
-  printf '%-16s %-5s %-18s %-18s %-18s %-5s %-5s %-5s %s\n' \
-    "$ip" "$ssh_ok" "$docker_ok" "$pg_ok" "$unit_ok" "$sudo_ok" "$bin_ok" "$api_ok" "$dids"
+  printf '%-15s %-13s %-4s %-6s %-5s %-5s %-5s %-5s %-4s %-5s %s\n' \
+    "$ip" "${role:-pool}" "$ssh_ok" "$docker_ok" "$clock_ok" "$units" "$pg" "$bin" "$sudo_ok" "$a/$n" "$have/$want"
+  for d in "${details[@]}"; do echo "      - $d"; done
 
-  # non-zero if anything is not ok
-  [[ "$ssh_ok" == ok && "$docker_ok" == ok && "$pg_ok" == ok && "$unit_ok" == ok \
-     && "$sudo_ok" == ok && "$bin_ok" == ok && "$api_ok" == ok ]]
+  # non-zero if anything is not ok (the DID count is shown, not judged)
+  [[ "$ssh_ok" == ok && "$docker_ok" == ok && "$clock_ok" != FAIL && "$units" == "$n/$n" \
+     && "$pg" == "$n/$n" && "$bin" == "$n/$n" && "$sudo_ok" == ok && "$a" -eq "$n" ]]
 }
 
-echo "Checking ${#HOSTS[@]} host(s), ${JOBS} at a time. Read-only — nothing is changed."
+echo "Checking ${#HOSTS[@]} machine(s), ${JOBS} at a time. Read-only — nothing is changed."
 echo
-printf '%-16s %-5s %-18s %-18s %-18s %-5s %-5s %-5s %s\n' \
-  HOST SSH DOCKER PGSQL UNIT SUDO BIN API DIDs
-printf '%s\n' "-------------------------------------------------------------------------------------------------------"
+printf '%-15s %-13s %-4s %-6s %-5s %-5s %-5s %-5s %-4s %-5s %s\n' \
+  HOST ROLE SSH DOCKER CLOCK UNITS PGSQL BIN SUDO API DIDs
+printf '%s\n' "--------------------------------------------------------------------------------------"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -180,16 +178,13 @@ done
 
 echo
 echo "----------------------------------------"
-READY=$(( ${#HOSTS[@]} - ${#NOT_READY[@]} ))
-echo "${READY}/${#HOSTS[@]} host(s) fully ready."
+echo "$(( ${#HOSTS[@]} - ${#NOT_READY[@]} ))/${#HOSTS[@]} machine(s) fully ready."
 if [ "${#NOT_READY[@]}" -gt 0 ]; then
   echo "Not ready: ${NOT_READY[*]}"
   echo
   echo "Common fixes:"
-  echo "  DOCKER not enabled  -> ssh <host> sudo systemctl enable --now docker"
-  echo "  PGSQL not running   -> the container is gone; re-create it (see systems/LAB-QUICKREF.txt)"
-  echo "  UNIT not installed  -> run the systemd block from systems/LAB-QUICKREF.txt section 6 on that host"
-  echo "  SUDO fail           -> the sudoers grant is missing; also in systems/LAB-QUICKREF.txt section 6"
-  echo "  API fail but UNIT ok-> still starting, or crashed: ssh <host> journalctl -u rubixgoplatform -n 100"
+  echo "  UNITS/PGSQL/BIN short -> re-run the install there: ./install-nodes.sh --host <ip> --force"
+  echo "  API short but UNITS ok -> still starting, or crashed: ssh <host> journalctl -u rubixgoplatform@<slot> -n 100"
+  echo "  SUDO fail             -> the grant comes from setup.sh; re-run the install there"
   exit 1
 fi

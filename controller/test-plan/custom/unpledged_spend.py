@@ -78,9 +78,9 @@ WHAT IT CHANGES ON THE LAB - read before running
     read. Do not run it during a catalogue run - it rewires 4 nodes' quorums.
 
 RUN (on the controller)
-    cd ~/Desktop/rubix/rubix-lab/controller/test-plan/custom
+    cd ~/rubix-lab/controller/test-plan/custom
     python3 unpledged_spend.py                       # shows the plan, asks first
-    python3 unpledged_spend.py --sizes 10,50 --quorum 192.168.1.141 --yes
+    python3 unpledged_spend.py --sizes 10,50 --quorum 192.168.1.141:20000 --yes
 """
 
 import argparse
@@ -393,17 +393,14 @@ def run(args):
     if not sizes or sizes[0] < 2:
         sys.exit("ERROR: --sizes needs whole numbers of 2 or more, e.g. 10,50,100")
 
-    all_hosts = rc.load_hosts(args.hosts)
-    if "RUBIX_FAUCET_HOST" not in os.environ:
-        controller = [h["host"] for h in all_hosts if h["role"] == "controller"]
-        if controller:
-            rc.FAUCET_HOST = controller[0]
+    # Faucet, faucet quorum and fullnodes from the hosts.txt roles; pool nodes
+    # from fleet.py, each addressed "ip:port".
+    _hosts, specs = tr.load_fleet(args.hosts)
     ok, note = rc.faucet_ready()
     if not ok:
         sys.exit("ERROR: faucet not ready - {}".format(note))
 
-    hosts = [h for h in all_hosts if h["role"] not in tr.FIXED_ROLES]
-    pool, excluded = tr.discover_pool(hosts, PORT, rc.DEFAULT_TIMEOUT)
+    pool, excluded = tr.discover_pool(specs, rc.DEFAULT_TIMEOUT)
     for line in excluded:
         print("  excluded: {}".format(line))
     q, a, b, c, info = choose(pool, args.quorum)
@@ -746,7 +743,8 @@ def main():
         description="Can a DID spend tokens it pledged as a quorum, once the pledge is released?")
     p.add_argument("--hosts", default=tr.DEFAULT_HOSTS)
     p.add_argument("--quorum", default="",
-                   help="host to put under test (default: the clean DID with the fewest whole tokens)")
+                   help="node to put under test, as ip:port e.g. 192.168.1.107:20300 "
+                        "(default: the clean DID with the fewest whole tokens)")
     p.add_argument("--sizes", default="10,50,100",
                    help="pledge sizes in RBT, one cycle each, ascending (default 10,50,100)")
     p.add_argument("--release-timeout", type=int, default=300,

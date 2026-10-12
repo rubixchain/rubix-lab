@@ -1,33 +1,31 @@
 Rubix Lab — SSH setup + node version check
 ============================================
 This doc has two parts: setting up passwordless SSH from the controller to
-every node (a one-time thing, needed here and by exec-update), and running
-node-versions.py once that's done.
+every machine (a one-time thing, needed by every SSH-based tool: install,
+restart, wipe, exec-update), and running node-versions.py once that's done.
 
 Part 1 — SSH setup, in simple words
 ----------------------------------------
 Right now, to run a command on another machine you have to type its
 password every time. An SSH "key" fixes that: you make one key pair on the
-controller, hand the public half to every node once, and after that the
+controller, hand the public half to every machine once, and after that the
 controller can log into any of them with no password.
 
 There's a script that does this for you — setup-ssh.sh. It makes the key
-(if you don't have one yet) and copies it to every host listed in
-controller/hosts.txt. Generate that file with the fixed fleet range
-(101-144, excluding .142/.143 — those are other systems) if you haven't yet:
+(if you don't have one yet) and copies it to every machine listed in
+controller/hosts.txt (fullnodes, faucet, explorer and pool alike):
 
     cd ~/rubix-lab/controller
-    for i in $(seq 101 144); do
-      [ "$i" = "142" ] || [ "$i" = "143" ] && continue
-      echo "192.168.1.$i"
-    done > hosts.txt
     ./setup-ssh.sh
+
+hosts.txt must already list the fleet with its roles — do NOT regenerate it
+from an IP range, that would drop the roles (see hosts.txt.example).
 
 It will still ask for each machine's normal login password once — that
 part can't be automated away without storing the password somewhere
 insecurely — but you only type the script name once instead of running
-four commands per machine by hand. At the end it re-checks every host and
-tells you plainly which ones (if any) still need attention.
+four commands per machine by hand. At the end it re-checks every machine
+and tells you plainly which ones (if any) still need attention.
 
 Safe to re-run any time, e.g. after adding new machines to hosts.txt —
 machines that already have the key are just skipped over, nothing breaks.
@@ -35,18 +33,23 @@ machines that already have the key are just skipped over, nothing breaks.
 Part 2 — get every node's Rubix version
 ----------------------------------------
 Needs Part 1 done first. Also needs openpyxl (one-time):
-    pip install openpyxl
+    sudo apt install -y python3-openpyxl
 
 Then, from the controller:
     cd ~/rubix-lab/controller
-    python3 node-versions.py --user rubix --remote-dir '~/Desktop/rubix'
+    python3 node-versions.py                    # every pool node
+    python3 node-versions.py --include-fixed    # plus fullnodes and faucet nodes
 
-This SSHes into each host in the range, runs `./rubixgoplatform -v` there
-(just prints the version and exits — doesn't touch the running node), and
-writes controller/versions.xlsx with columns: Host, Version, Note, Checked At.
+Every node has its own copy of the binary (~/rubix-lab/nodes/node<slot>/),
+so each one is read: one SSH call per machine runs `./rubixgoplatform -v` in
+every node folder (it just prints the version and exits — doesn't touch the
+running node). It prints one row per node with the version and the commit,
+says "Uniform" or "MIXED" at the end, and writes controller/versions.xlsx.
 
-If a host shows "ssh failed: ..." in the Note column, Part 1 wasn't
-completed for that machine — go back and run ssh-copy-id for it.
+The commit column is what proves a deploy landed - e.g. that every node,
+fullnodes included, runs the build with the new faucet DIDs in its minter
+allowlist.
 
-If your nodes live somewhere other than ~/Desktop/rubix, pass the real path:
-    python3 node-versions.py --remote-dir '~/some/other/path'
+If a machine shows "ssh failed: ..." in the Note column, Part 1 wasn't
+completed for that machine — re-run setup-ssh.sh. "No such file or
+directory" means that node was never installed (install-nodes.sh).

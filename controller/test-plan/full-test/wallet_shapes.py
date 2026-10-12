@@ -205,31 +205,17 @@ def drain_to(ctx, target, sink, keep=0.0):
     return True, "drained {} RBT, now holding {:.3f}".format(sent, now)
 
 
-def second_did(ctx, entry, create=True):
-    """Return a SECOND DID on `entry`'s host, or None.
+def second_did(ctx, entry, create=False):
+    """Return a SECOND DID on `entry`'s node, other than the one it plays, or None.
 
-    Idempotent by design: it reuses an existing extra DID and only creates one
-    when the host has just the primary. CreateDID has no idempotency of its own
-    (core/did.go:26) - calling it blindly each run would leave a machine with a
-    growing pile of identities and no error to show for it.
-
-    Returns None unless the host is tagged 'multidid' in hosts.txt. That guard
-    is deliberate: a second DID on an untagged host breaks the one-DID-per-node
-    invariant every controller tool relies on, and a test should never do that
-    to a machine that did not opt in.
+    The runner hands every participant its node's whole DID list
+    (test_runner.allocate), and systems/node-layout.txt gives most nodes 5 or
+    10 DIDs, so a second one is normally just there. None is never created:
+    DIDs are fixed (dids-to-excel.py makes them), and CreateDID has no
+    idempotency (core/did.go:26) - creating one per run would leave a node
+    with a growing pile of identities and no error to show for it. A case on
+    a one-DID node gets None and skips. `create` is accepted and ignored, so
+    older callers still work.
     """
     dids = entry.get("dids") or ([entry["did"]] if entry.get("did") else [])
-    if len(dids) > 1:
-        return dids[1]
-    if not create:
-        return None
-    if entry.get("role") != "multidid":
-        return None
-
-    did, msg = rc.create_did(entry["host"], ctx.port)
-    if not did:
-        return None
-    entry.setdefault("dids", list(dids)).append(did)
-    rc.announce_did(entry["host"], did, ctx.port)
-    time.sleep(SETTLE)
-    return did
+    return next((d for d in dids if d != entry.get("did")), None)

@@ -68,21 +68,21 @@ class _Args:
     tiny_tokens = 3
     chain_hops = 3
     burst_count = 3
-    callback_host = "192.168.1.103"
     ssh_user = "rubix"
-    remote_dir = "~/Desktop/rubix"
     # Stress cases scale their volume by this; 0 keeps the offline
     # validation instant while still executing every code path.
     scale = 0.01
 
 
 def _entry(n):
-    # .121 stands in for a host tagged 'multidid' in hosts.txt, so the
+    # The shape allocate() hands a case: a node address, its machine, the DID
+    # it plays and every DID on the node. .121 holds a second DID, so the
     # intra-node cases execute their body instead of skipping.
-    return {"host": "192.168.1.{}".format(n),
-            "did": "bafybmi{}".format(str(n) * 7),
-            "dids": ["bafybmi{}".format(str(n) * 7)],
-            "role": "multidid" if n == 121 else ""}
+    dids = ["bafybmi{}".format(str(n) * 7)]
+    if n == 121:
+        dids.append("bafybmi" + "s" * 52)
+    return {"host": "192.168.1.{}:20300".format(n), "machine": "192.168.1.{}".format(n),
+            "did": dids[0], "dids": dids}
 
 
 def build_ctx(n_quorum=3, n_pairs=6):
@@ -242,10 +242,26 @@ def _patch_sleep():
 
 
 def _fake_fullnode():
-    """A fullnode that answers but has recorded nothing, so every fullnode
+    """Four fullnodes that answer but have recorded nothing, so every fullnode
     path runs and returns at once."""
-    tr.case_evidence.FULLNODE_HOST = "192.168.1.101"
+    tr.case_evidence.FULLNODE_HOSTS = ["192.168.1.{}".format(n) for n in (101, 102, 103, 104)]
     tr.case_evidence.FULLNODE_WAIT = 0
+
+
+def _fake_pool(machines):
+    """`machines` pool machines, each running every node in
+    systems/node-layout.txt with its DID count - the shape discover_pool
+    returns on the real fleet."""
+    pool = []
+    for m in range(machines):
+        ip = "192.168.1.{}".format(107 + m)
+        for e in tr.fleet_inventory.load_layout():
+            pool.append({
+                "host": "{}:{}".format(ip, tr.fleet_inventory.API_BASE + e["index"]),
+                "machine": ip, "slot": e["slot"], "did_target": e["did_target"],
+                "dids": ["bafybmi{:0>52}".format("{:03d}{:02d}{:03d}".format(m, e["slot"], k))
+                         for k in range(e["did_target"])]})
+    return pool
 
 
 def validate(module_name, verbose=False):
@@ -280,19 +296,19 @@ def validate(module_name, verbose=False):
     return failures
 
 
-def validate_schedule(module_name, n_nodes=28):
+def validate_schedule(module_name, machines=26):
     """Drive the real scheduler (test_runner.run_units) over a fake pool.
 
     Checks what the per-case run cannot: every case is scheduled exactly once,
     two units running at the same time never share a node, and a unit gets the
-    number of senders/receivers/quorums its NEEDS asks for. Node .104 holds
-    three DIDs, so same-node units have somewhere to go.
+    number of senders/receivers/quorums its NEEDS asks for. The pool is the
+    lab's shape - every machine runs the nodes in systems/node-layout.txt - so
+    same-node units find their multi-DID nodes.
     """
     import threading
     mod = load_case_module(module_name)
-    pool = [{"host": "192.168.1.{}".format(104 + i),
-             "dids": ["bafybmi{:0>52}".format("{}{}".format(i, k)) for k in range(3 if i == 0 else 1)]}
-            for i in range(n_nodes)]
+    pool = _fake_pool(machines)
+    n_nodes = len(pool)
     fleet = [{"host": n["host"], "did": d} for n in pool for d in n["dids"]]
     units = tr.build_units(mod, list(mod.ORDER))
 
@@ -351,8 +367,15 @@ def validate_schedule(module_name, n_nodes=28):
             problems.append("{} has {} result row(s), expected 1".format(tid, len(rows.get(tid, []))))
     skipped = sorted(t for t, r in rows.items()
                      if r and r[0][0] == "SKIP" and r[0][1] == "not enough participants")
-    print("== schedule over a fake pool of {} nodes ==".format(n_nodes))
+    # allocate() spreads a unit over machines while free machines are left;
+    # sharing one is allowed, so this is reported, not judged.
+    doubled = [u.name for u in units if u.hosts and not u.spec["same_node"] and not u.wants_all
+               and len(set(h.rsplit(":", 1)[0] for h in u.hosts)) < len(u.hosts)]
+    print("== schedule over a fake pool of {} nodes on {} machines ==".format(n_nodes, machines))
     print("  {} unit(s); at most {} running at once".format(len(units), peak[0]))
+    if doubled:
+        print("  {} unit(s) put two nodes on one machine (they needed more nodes than there "
+              "were free machines): {}".format(len(doubled), ", ".join(doubled)))
     if skipped:
         print("  not schedulable on {} nodes: {}".format(n_nodes, ", ".join(skipped)))
     for p_ in problems:

@@ -18,14 +18,16 @@ pipeline end to end in one run. The catalogue cases
 separate thing for running the catalogue asset by asset - this isn't a
 replacement for those, it shares the same rubix_client.py underneath.
 
-Common-part flow (see also project memory "test-flow-design"):
-    1. Load hosts.txt -> pool (exclude down + fixed-role hosts).
-    2. Reachability + DID sweep. 0 DIDs -> excluded (DIDs are created by
-       hand). >1 DIDs -> excluded unless the host is tagged 'multidid'.
-    3. Assign roles: N quorum hosts, remaining split into senders/receivers
-       (alternating pairs). Written to smoke-test-roles.txt for visual
-       cross-reference against the physical machines.
-    4. Announce pass (register+signature) on every involved host.
+Common-part flow:
+    1. Load hosts.txt -> pool nodes (controller/fleet.py: every node of every
+       pool machine, addressed ip:port; down and fixed-role machines left out).
+    2. Reachability + DID sweep, and an announce pass (register+signature)
+       for every DID (test_runner.discover_pool). 0 DIDs -> excluded (DIDs
+       are created by dids-to-excel.py). A node's first DID plays its role.
+    3. Assign roles: N quorum nodes, then --pairs sender/receiver pairs, each
+       on a different machine where possible. Written to smoke-test-roles.txt
+       for visual cross-reference against the physical machines.
+    4. (announce pass - done in step 2)
     5. Quorum setup + funding on the quorum hosts.
     6. Each sender registers exactly ONE quorum (round-robin across the N
        quorums, not all of them) - a sender's first-registered quorum is
@@ -38,7 +40,7 @@ Common-part flow (see also project memory "test-flow-design"):
 
 Usage:
     python3 smoke_test.py
-    python3 smoke_test.py --quorum-count 3 --fund-quorum 1000 --fund-sender 20
+    python3 smoke_test.py --quorum-count 3 --pairs 14 --fund-quorum 1000 --fund-sender 20
 """
 
 import argparse
@@ -47,23 +49,20 @@ import json
 import os
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rubix_client as rc
+import test_runner as tr
 from test_cases import SmokeContext, TEST_CASES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FIXED_ROLES = {"fullnode", "explorer", "controller"}
-# HERE is controller/test-plan/full-test/ -> two levels up is controller/
-DEFAULT_HOSTS = os.path.join(HERE, "..", "..", "hosts.txt")
+DEFAULT_HOSTS = tr.DEFAULT_HOSTS
 ROLES_PATH = os.path.join(HERE, "smoke-test-roles.txt")
 
 # Delays at genuine async-propagation points - the real gaps where this
 # script fires the next step before the network has had any chance to catch
-# up: pubsub announce propagation, and a stagger so a batch
-# of senders doesn't hit the same quorum in the same instant.
-ANNOUNCE_SETTLE_SECONDS = 3     # after the DID/peer announce pass
+# up: pubsub announce propagation (inside tr.discover_pool), and a stagger so
+# a batch of senders doesn't hit the same quorum in the same instant.
 QUORUM_SETTLE_SECONDS = 2       # after quorum setup+funding, before senders register against them
 INTER_SENDER_DELAY_SECONDS = 0.3  # between each sender's assign+fund, inside the loop
 PRE_TESTCASE_SETTLE_SECONDS = 3   # after all common setup, before the first test case fires
@@ -110,57 +109,20 @@ class Report:
 # ---------------------------------------------------------------------------
 # Common part: pool, DID readiness, role assignment
 # ---------------------------------------------------------------------------
-def sweep_and_prepare(pool, port, timeout):
-    """Reachability + DID check (a host with no DID is excluded - DIDs are
-    fixed and never created here), announce every resulting host. Returns list of
-    {"host","did"} for hosts that ended up ready, and a list of exclusions."""
-    def check(entry):
-        host = entry["host"]
-        reachable, dids, note = rc.get_dids(host, port, timeout)
-        return {"host": host, "reachable": reachable, "dids": dids, "note": note,
-                "role": entry.get("role", ""),
-                "multidid": entry.get("role") == "multidid"}
-
-    with ThreadPoolExecutor(max_workers=min(40, len(pool))) as ex:
-        results = list(ex.map(check, pool))
-
-    ready, excluded = [], []
-    for r in results:
-        if not r["reachable"]:
-            excluded.append("{} - unreachable ({})".format(r["host"], r["note"]))
-            continue
-        n = len(r["dids"])
-        if n == 1:
-            ready.append({"host": r["host"], "did": r["dids"][0],
-                          "dids": list(r["dids"]), "role": r["role"]})
-        elif n == 0:
-            # DIDs are fixed and created by hand - never here.
-            excluded.append("{} - no DID (DIDs are created by hand)".format(r["host"]))
-        elif r.get("multidid"):
-            # Opted in via hosts.txt. A second DID here is deliberate - it is
-            # what makes intra-node cases possible at all, since a same-node
-            # transfer needs two DIDs on one machine. The FIRST is the host's
-            # primary and behaves exactly as any other pool host; the rest are
-            # carried along for cases that ask for them.
-            ready.append({"host": r["host"], "did": r["dids"][0],
-                          "dids": list(r["dids"]), "role": r["role"]})
-        else:
-            excluded.append(
-                "{} - {} DIDs, ambiguous, needs a human. If the second DID is "
-                "deliberate, tag the host 'multidid' in hosts.txt".format(
-                    r["host"], n))
-
-    for entry in ready:
-        rc.announce_did(entry["host"], entry["did"], port)
-
-    if ready:
-        print("Letting the announce pass propagate ({}s)...".format(ANNOUNCE_SETTLE_SECONDS))
-        time.sleep(ANNOUNCE_SETTLE_SECONDS)
-
+def sweep_and_prepare(specs, timeout):
+    """Reachability + DID check and the announce pass (tr.discover_pool - a
+    node with no DID is excluded; DIDs are fixed and never created here).
+    Returns ready nodes as {"host", "machine", "slot", "did", "dids"} - the
+    node's first DID plays its role - and a list of exclusions. Ordered slot
+    by slot across machines, so the first N are N different machines."""
+    nodes, excluded = tr.discover_pool(specs, timeout)
+    ready = [{"host": n["host"], "machine": n["machine"], "slot": n["slot"],
+              "did": n["dids"][0], "dids": list(n["dids"])} for n in nodes]
+    ready.sort(key=lambda e: (e["slot"], e["machine"]))
     return ready, excluded
 
 
-def assign_roles(ready, quorum_count, port=None):
+def assign_roles(ready, quorum_count, port=None, pairs=None):
     """Quorums stay put; senders and receivers are chosen by what they hold.
 
     Tokens are finite and nobody returns them at the end of a cycle, so a DID
@@ -173,13 +135,16 @@ def assign_roles(ready, quorum_count, port=None):
     strand them. They get topped up instead.
 
     Without `port` this falls back to the old alternating split, which is what
-    the offline validator uses.
+    the offline validator uses. `pairs` caps the senders and receivers: with
+    nine nodes per machine the pool is far bigger than a smoke test needs.
     """
     if len(ready) < quorum_count + 2:
-        sys.exit("ERROR: need at least {} ready hosts ({} quorum + 2), only have {}.".format(
+        sys.exit("ERROR: need at least {} ready nodes ({} quorum + 2), only have {}.".format(
             quorum_count + 2, quorum_count, len(ready)))
     quorum_hosts = ready[:quorum_count]
     rest = ready[quorum_count:]
+    if pairs:
+        rest = rest[:2 * pairs]
 
     if port is not None and len(rest) >= 2:
         balances = {}
@@ -280,8 +245,12 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--hosts", default=DEFAULT_HOSTS)
-    p.add_argument("--port", type=int, default=rc.DEFAULT_PORT)
+    # Nodes are addressed "ip:port", which carries each node's own port; this
+    # is only the default for a bare-IP call.
+    p.add_argument("--port", type=int, default=rc.DEFAULT_PORT, help=argparse.SUPPRESS)
     p.add_argument("--quorum-count", type=int, default=3)
+    p.add_argument("--pairs", type=int, default=14,
+                   help="sender/receiver pairs (default: %(default)s)")
     p.add_argument("--fund-quorum", type=int, default=1000)
     p.add_argument("--fund-sender", type=int, default=20)
     p.add_argument("--rbt-amount", type=float, default=1)
@@ -291,15 +260,15 @@ def main():
     report = Report()
 
     print("== Common: pool + reachability + DID readiness ==")
-    hosts = rc.load_hosts(args.hosts)
-    pool = [h for h in hosts if h["role"] not in FIXED_ROLES]
-    ready, excluded = sweep_and_prepare(pool, args.port, rc.DEFAULT_TIMEOUT)
-    print("{} host(s) in pool, {} ready, {} excluded".format(len(pool), len(ready), len(excluded)))
+    # Faucet, faucet quorum and fullnodes come from the hosts.txt roles.
+    _hosts, specs = tr.load_fleet(args.hosts)
+    ready, excluded = sweep_and_prepare(specs, rc.DEFAULT_TIMEOUT)
+    print("{} node(s) in the pool, {} ready, {} excluded".format(len(specs), len(ready), len(excluded)))
     for line in excluded:
         print("  excluded: {}".format(line))
 
     print("\n== Common: role assignment ==")
-    quorum_hosts, senders, receivers = assign_roles(ready, args.quorum_count, args.port)
+    quorum_hosts, senders, receivers = assign_roles(ready, args.quorum_count, args.port, args.pairs)
     write_roles_file(ROLES_PATH, quorum_hosts, senders, receivers)
     print("Quorum: {}  Senders: {}  Receivers: {}".format(
         len(quorum_hosts), len(senders), len(receivers)))

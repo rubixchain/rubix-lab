@@ -1,13 +1,13 @@
 # prerequisite/
 
-Everything a machine needs to run a Rubix lab node, in one place. `setup.sh`
-copies from here into `nodes/<name>/`.
+Everything a machine needs to run its Rubix lab nodes, in one place.
+`setup.sh` copies from here into each node's folder, `nodes/node<slot>/`.
 
 ## Contents
 
 | File | Committed? | Notes |
 |---|---|---|
-| `localnetswarm.key` | **Yes** | Shared secret. Every node needs the *identical* file to join the same private network. Never regenerate it per machine. |
+| `localnetswarm.key` | **Yes** | Shared secret. Every node needs the *identical* file to join the same private network. Never regenerate it per machine. The fleet runs in testnet mode, so `setup.sh` puts it in each node folder as `testnetswarm.key` — the name the product reads in that mode. Same key either way. |
 | `rubixgoplatform` | Your choice | The node binary. See below. |
 | `ipfs` | Your choice | IPFS/kubo binary. See below. |
 | `kubo_v0.19.1_linux-amd64.tar.gz` | Optional | Committing the tarball instead of the extracted binary saves about 65MB. `setup.sh` extracts it automatically. |
@@ -15,12 +15,17 @@ copies from here into `nodes/<name>/`.
 ## The two binaries — commit or download?
 
 `setup.sh` handles both. Pick based on whether your lab machines can reach
-GitHub.
+GitHub. (`controller/install-nodes.sh` copies this folder to each machine
+from the controller, so in practice only the controller's copy matters.)
+
+Either binary is only the *starting* one: the build under test reaches every
+node with `controller/exec-update/update-exec.sh`, and a re-run of `setup.sh`
+never puts this one back over it.
 
 **Option 1 — commit the binaries (works offline, simplest)**
 
 Put `rubixgoplatform` and `ipfs` in this folder and commit them. Every machine
-gets everything from one `git clone`. No network needed during setup.
+gets everything from one copy. No network needed during setup.
 
 Cost: git never forgets binaries. Each version you commit stays in history
 forever — roughly 150MB per full set. For a repo cloned onto 40 machines a few

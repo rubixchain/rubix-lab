@@ -2,6 +2,11 @@
 # Without this, a Windows checkout can give them CRLF endings and Linux fails
 # with a confusing "bad interpreter" error.
 *.sh text eol=lf
+# Read on the Linux machines too: the systemd unit template (a CR would end up
+# in ExecStart), the config template and the node layout.
+*.service text eol=lf
+*.template text eol=lf
+systems/node-layout.txt text eol=lf
 
 # Note on the binaries in prerequisite/ (rubixgoplatform, ipfs):
 # these are committed normally, NOT via Git LFS. LFS bandwidth on GitHub is

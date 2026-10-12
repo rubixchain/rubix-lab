@@ -220,10 +220,9 @@ def crs_c_02(ctx, ci):
 
 CASES = {
     "CRS-C-02": crs_c_02,
-    # CRS-C-04 / CRS-C-05 are written and working but NOT registered: they need
-    # a host tagged 'multidid' in hosts.txt, and no host carries that tag yet.
-    # Register them here once one does - the functions and the sweep support
-    # are already in place, so it is a two-line change.
+    # CRS-C-04 / CRS-C-05 (two DIDs of one node) are not written. Nodes with
+    # several DIDs now come with systems/node-layout.txt, so a case like that
+    # declares "same_node": True in NEEDS and gets its DIDs from one node.
 }
 
 ORDER = ["CRS-C-02"]

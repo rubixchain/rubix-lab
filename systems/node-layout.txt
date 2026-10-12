@@ -1,0 +1,35 @@
+# The nodes every POOL machine runs - every machine with no role in
+# controller/hosts.txt. Read on the machine by systems/install/setup.sh and on
+# the controller by controller/fleet.py, so both always agree.
+#
+#   slot        which node on the machine: folder ~/rubix-lab/nodes/node<slot>,
+#               systemd unit rubixgoplatform@<slot>, Postgres container
+#               rubix-db-<slot>
+#   node_index  written into the node's config.toml. The product derives every
+#               port from it (core/config/config.go:141-152):
+#                   API 20000+i   swarm 4002+i   IPFS API 5002+i   gateway 8081+i
+#               and setup.sh puts the node's Postgres on 5433+i.
+#   dids        how many DIDs controller/dids-to-excel.py creates on the node
+#
+# Spacing is 100 (decided 2026-10-09): slot N answers on port 20000 + 100*N.
+# Known cost of that spacing: the product's peer-port pool (5,000 local ports
+# from ((22000 + 1000*i) mod 65536) + 11, computed in uint16) wraps for large
+# indexes. Slot 7 gets ports 1115-6114, which hold every node's swarm and IPFS
+# API port and the Postgres ports of slots 0-6, and slot 5's pool runs past
+# 65535. The pool is used lowest port first and skips ports already bound, so
+# a clash needs a neighbour's port to be free at that moment, e.g. while that
+# node restarts. If a node cannot bind its swarm/IPFS/Postgres port after a
+# restart, or transfers fail with "address already in use" or "all ports are
+# busy", look here first. A spacing of 1 (node_index 0-8) keeps every pool off
+# those ports.
+
+# slot  node_index  dids
+0       0           1
+1       100         1
+2       200         1
+3       300         5
+4       400         5
+5       500         5
+6       600         5
+7       700         5
+8       800         10

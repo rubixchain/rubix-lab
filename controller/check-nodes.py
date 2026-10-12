@@ -3,17 +3,19 @@
 check-nodes.py - Verify the controller can reach every lab node.
 
 Run this from the controller BEFORE building anything else. It answers one
-question: which nodes are up, reachable from here, and properly set up.
+question: which nodes are up, reachable from here, and properly set up. One
+row per NODE - a pool machine runs several (systems/node-layout.txt), each on
+its own port.
 
 Uses only the Python standard library - no pip install needed.
 
 Usage:
-    python3 check-nodes.py                    # reads hosts.txt in this folder
-    python3 check-nodes.py --hosts other.txt
-    python3 check-nodes.py --port 20000 --timeout 5
-    python3 check-nodes.py --out inventory.json
+    python3 check-nodes.py                       # pool nodes, from hosts.txt
+    python3 check-nodes.py --include-fixed       # plus the fullnode and faucet nodes
+    python3 check-nodes.py --host 192.168.1.107  # one machine
+    python3 check-nodes.py --timeout 5 --out inventory.json
 
-Exit code is 0 only if every host in the file responded.
+Exit code is 0 only if every selected node responded.
 """
 
 import argparse
@@ -24,7 +26,8 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-DEFAULT_PORT = 20000
+import fleet
+
 DEFAULT_TIMEOUT = 5
 
 # All GET, confirmed against server/server.go route registration.
@@ -61,17 +64,19 @@ def result_of(payload):
     return None
 
 
-def check_host(entry, port, timeout):
+def check_node(node, timeout):
     """Check one node. Returns a dict describing its state."""
-    host = entry["host"]
-    base = "http://{}:{}".format(host, port)
+    base = "http://{}".format(node["host"])
     info = {
-        "host": host,
-        "role": entry["role"],
+        "host": node["host"],
+        "machine": node["machine"],
+        "slot": node["slot"],
+        "role": node["role"] or "pool",
         "api": base,
         "reachable": False,
         "dids": [],
         "did_count": 0,
+        "did_target": node["did_target"],
         "peer_id": None,
         "quorums": [],
         "rbt_balance": None,
@@ -104,14 +109,12 @@ def check_host(entry, port, timeout):
     else:
         info["notes"].append("dids: {}".format(payload))
 
+    # The peer ID comes back in "message", not "result"
+    # (server/node.go APIPeerID -> BasicResponse(req, true, GetPeerID(), nil)).
     ok, payload = get_json(base, EP_PEER_ID, timeout)
-    if ok:
-        res = result_of(payload)
-        if isinstance(res, str):
-            info["peer_id"] = res
-        elif isinstance(res, dict):
-            info["peer_id"] = res.get("peerID") or res.get("peer_id")
-    else:
+    if ok and isinstance(payload, dict):
+        info["peer_id"] = payload.get("message") or None
+    elif not ok:
         info["notes"].append("peer_id: {}".format(payload))
 
     ok, payload = get_json(base, EP_QUORUMS, timeout)
@@ -135,100 +138,82 @@ def check_host(entry, port, timeout):
         )
         if ok:
             res = result_of(payload)
-            if isinstance(res, dict):
-                for key in ("rbt_amount", "rbtAmount", "balance", "value"):
-                    if key in res:
-                        info["rbt_balance"] = res[key]
-                        break
+            if isinstance(res, dict) and "balance" in res:
+                info["rbt_balance"] = res["balance"]
             elif isinstance(res, (int, float)):
                 info["rbt_balance"] = res
 
-    if info["did_count"] == 0:
+    if info["did_count"] == 0 and info["did_target"]:
         info["status"] = "NO DID"
-        info["notes"].append("reachable but no DID yet - needs bootstrap")
+        info["notes"].append("reachable but no DID yet - run dids-to-excel.py")
     else:
         info["status"] = "OK"
+    if info["did_count"] != info["did_target"]:
+        info["notes"].append("holds {} DID(s), layout says {}".format(
+            info["did_count"], info["did_target"]))
 
     return info
-
-
-def load_hosts(path, default_role):
-    """Read the hosts file. Format per line:  <host> [role]  ('#' comments ok)."""
-    if not os.path.exists(path):
-        sys.exit("ERROR: hosts file not found: {}\n"
-                 "Create it with one host per line, e.g.\n"
-                 "  10.0.0.11  quorum\n"
-                 "  10.0.0.20  participant".format(path))
-    entries = []
-    with open(path, encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.split("#", 1)[0].strip()
-            if not line:
-                continue
-            parts = line.split()
-            entries.append({
-                "host": parts[0],
-                "role": parts[1] if len(parts) > 1 else default_role,
-            })
-    if not entries:
-        sys.exit("ERROR: no hosts listed in {}".format(path))
-    return entries
 
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--hosts", default=os.path.join(here, "hosts.txt"),
+    p.add_argument("--hosts", default=fleet.HOSTS_PATH,
                    help="hosts file (default: hosts.txt beside this script)")
-    p.add_argument("--port", type=int, default=DEFAULT_PORT,
-                   help="node API port (default: %(default)s)")
+    p.add_argument("--host", default="", metavar="ADDRESS",
+                   help="just this machine (any role)")
+    p.add_argument("--include-fixed", action="store_true",
+                   help="also the fullnode and faucet nodes")
     p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                    help="per-request timeout in seconds (default: %(default)s)")
     p.add_argument("--out", default=os.path.join(here, "inventory.json"),
                    help="where to write the inventory (default: inventory.json)")
-    p.add_argument("--default-role", default="pool",
-                   help="role label for hosts with none listed (default: %(default)s) — "
-                        "untagged hosts are the generic pool, not a fixed role")
     args = p.parse_args()
 
-    entries = load_hosts(args.hosts, args.default_role)
-    print("Checking {} host(s) on port {}...\n".format(len(entries), args.port))
+    nodes = fleet.fleet(fleet.load_hosts(args.hosts), include_fixed=args.include_fixed,
+                        host=args.host or None)
+    if not nodes:
+        sys.exit("No nodes selected (explorer and controller machines run none).")
+    machines = len(set(n["machine"] for n in nodes))
+    print("Checking {} node(s) on {} machine(s)...\n".format(len(nodes), machines))
 
-    with ThreadPoolExecutor(max_workers=min(20, len(entries))) as pool:
-        results = list(pool.map(
-            lambda e: check_host(e, args.port, args.timeout), entries))
+    with ThreadPoolExecutor(max_workers=min(40, len(nodes))) as pool:
+        results = list(pool.map(lambda n: check_node(n, args.timeout), nodes))
 
     width = max(len(r["host"]) for r in results)
-    header = "{:<{w}}  {:<12}  {:<8}  {:>5}  {:>8}  {}".format(
-        "HOST", "ROLE", "STATUS", "DIDs", "RBT", "NOTES", w=width)
+    header = "{:<{w}}  {:>4}  {:<13}  {:<8}  {:>7}  {:>8}  {}".format(
+        "NODE", "SLOT", "ROLE", "STATUS", "DIDs", "RBT", "NOTES", w=width)
     print(header)
     print("-" * len(header))
-    for r in sorted(results, key=lambda x: (x["status"] != "OK", x["host"])):
+    for r in results:
         bal = "-" if r["rbt_balance"] is None else "{}".format(r["rbt_balance"])
-        print("{:<{w}}  {:<12}  {:<8}  {:>5}  {:>8}  {}".format(
-            r["host"], r["role"], r["status"], r["did_count"], bal,
+        print("{:<{w}}  {:>4}  {:<13}  {:<8}  {:>7}  {:>8}  {}".format(
+            r["host"], r["slot"], r["role"], r["status"],
+            "{}/{}".format(r["did_count"], r["did_target"]), bal,
             "; ".join(r["notes"]), w=width))
 
     up = [r for r in results if r["reachable"]]
-    ready = [r for r in results if r["status"] == "OK"]
     down = [r for r in results if not r["reachable"]]
-    no_did = [r for r in results if r["reachable"] and r["did_count"] == 0]
+    no_did = [r for r in results if r["status"] == "NO DID"]
+    off_target = [r for r in up if r["did_count"] != r["did_target"]]
 
-    print("\nReachable : {}/{}".format(len(up), len(results)))
-    print("Ready     : {}/{}   (reachable and has a DID)".format(
-        len(ready), len(results)))
+    print("\nReachable : {}/{} node(s)".format(len(up), len(results)))
+    print("DIDs      : {} held, {} in the layout".format(
+        sum(r["did_count"] for r in up), sum(r["did_target"] for r in results)))
     if down:
         print("Down      : {}".format(", ".join(r["host"] for r in down)))
     if no_did:
         print("No DID    : {}".format(", ".join(r["host"] for r in no_did)))
+    if off_target:
+        print("Off target: {} node(s) - see NOTES".format(len(off_target)))
 
     with open(args.out, "w", encoding="utf-8") as fh:
-        json.dump({"port": args.port, "nodes": results}, fh, indent=2)
+        json.dump({"nodes": results}, fh, indent=2)
     print("\nInventory written to {}".format(args.out))
 
     # Non-zero if anything did not respond, so this can gate a later step.
-    sys.exit(0 if len(down) == 0 else 1)
+    sys.exit(0 if not down else 1)
 
 
 if __name__ == "__main__":

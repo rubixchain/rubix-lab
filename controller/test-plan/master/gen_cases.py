@@ -64,10 +64,10 @@ from case_helpers import (
 #         PASS / FAIL     - exactly what makes it pass or fail
 #
 # BEFORE RUNNING ANYTHING BY HAND
-#         HOST=192.168.1.104
-#         DID=$(curl -s http://$HOST:20000/rubix/v1/dids | python3 -c \
+#         HOST=192.168.1.107:20300   # a node, ip:port as the report prints it
+#         DID=$(curl -s http://$HOST/rubix/v1/dids | python3 -c \
 #               'import sys,json; print(json.load(sys.stdin)["result"][0])')
-#         psql -h $HOST -p 5433 -U rubix -d rubix        # password: rubixpass
+#         psql -h ${HOST%:*} -p $(( ${HOST#*:} - 14567 )) -U rubix -d rubix        # password: rubixpass
 #
 # WHAT token_denom IS, AND WHY FOUR CASES GUARD IT
 #     Every node keeps a small table, token_denom, counting how many FREE tokens

@@ -17,6 +17,10 @@ directly.
 DID_PASSWORD = "mypassword" is the product's own built-in default
 (command/command.go -privPWD flag), used throughout its integration test
 suite - not a lab-invented value. Same convention used by dids-to-excel.py.
+
+Every function takes `host`. A pool machine runs several nodes, so the runner
+passes a NODE address, "ip:api_port" (controller/fleet.py), and the `port`
+argument is then ignored. A bare IP still works and uses `port`.
 """
 
 import csv
@@ -100,6 +104,9 @@ EP_TX_BY_DID = "/rubix/v1/tx/{did}/{token_type}"
 
 
 def base_url(host, port=DEFAULT_PORT):
+    """A node address "ip:port" already names its port; a bare IP gets `port`."""
+    if ":" in str(host):
+        return "http://{}".format(host)
     return "http://{}:{}".format(host, port)
 
 
@@ -153,22 +160,26 @@ _OPS_LOCK = threading.Lock()
 #   - a parallel burst stays parallel: every call in it reads the same, already
 #     processed, previous transaction
 #   - the next case on the same DIDs waits for the previous case's last one
-# If the fullnode database cannot be read, or it keeps not answering, pacing
-# switches itself off and says so, rather than slowing every transaction.
+# There are several fullnodes, each validating every published transaction on
+# its own, so a DID waits until ALL of them are done with its last one. A
+# fullnode whose database cannot be read is dropped from pacing for the rest
+# of the run (said once); with none left, pacing switches itself off and says
+# so, rather than slowing every transaction.
 # ---------------------------------------------------------------------------
 
-FULLNODE_HOST = ""          # set by test_runner from hosts.txt (role fullnode)
+FULLNODE_HOSTS = []         # set by test_runner from hosts.txt (role fullnode)
 PACE_TIMEOUT = 60           # longest wait for one previous transaction, seconds
 PACE_MISSES = 3             # timeouts in a row before a DID stops being paced
 _LAST_TX = {}               # did -> txid of the last successful tx it took part in
 _IN_FLIGHT = {}             # did -> transactions it has started and not finished
-# "off" only when the fullnode database cannot be read at all. A SLOW fullnode
-# no longer switches pacing off for the whole run: on 2026-09-29 three slow
+# "off" only when no fullnode database can be read at all. A SLOW fullnode
+# does not switch pacing off for the whole run: on 2026-09-29 three slow
 # answers did that mid-run, and every later "with delay" run silently had no
 # delay. Now a DID that times out PACE_MISSES times in a row is left unpaced
 # until reset_pacing() (the runner calls it before each paced run), and every
 # operation records whether it really was paced.
 _PACE = {"off": False}
+_UNREADABLE = set()         # fullnodes dropped from pacing this run
 _MISSES = {}                # did -> timeouts in a row
 _UNPACED = set()            # DIDs a case has taken out of pacing (see unpaced())
 
@@ -201,21 +212,39 @@ class unpaced(object):
         return False
 
 
-def _fullnode_has(txid):
+def _fullnodes_have(txid):
+    """True once every readable fullnode has processed txid (accepted or
+    rejected - either way it is done with it)."""
     import db_client as db        # imported here: db_client is optional for most tools
-    rows = db.query(FULLNODE_HOST,
-                    "SELECT 1 FROM fullnode_transactions WHERE id = %s UNION ALL "
-                    "SELECT 1 FROM fullnode_invalid_transactions "
-                    "WHERE transaction->>'ID' = %s LIMIT 1", (txid, txid))
-    return bool(rows)
+    for fn in FULLNODE_HOSTS:
+        if fn in _UNREADABLE:
+            continue
+        try:
+            rows = db.query(fn,
+                            "SELECT 1 FROM fullnode_transactions WHERE id = %s UNION ALL "
+                            "SELECT 1 FROM fullnode_invalid_transactions "
+                            "WHERE transaction->>'ID' = %s LIMIT 1", (txid, txid))
+        except Exception as e:
+            with _OPS_LOCK:
+                if fn not in _UNREADABLE:
+                    _UNREADABLE.add(fn)
+                    print("  [pacing] fullnode {} database not readable ({}: {}) - not waited "
+                          "on for the rest of the run".format(fn, type(e).__name__, e))
+                if all(f in _UNREADABLE for f in FULLNODE_HOSTS):
+                    _PACE["off"] = True
+            continue
+        if not rows:
+            return False
+    return True
 
 
 def _pace(did):
-    """Wait until the fullnode has processed `did`'s last transaction.
+    """Wait until the fullnodes have processed `did`'s last transaction.
     Returns (seconds waited, pacing state): "" (not a paced call), "paced",
     "timed out" (waited PACE_TIMEOUT and went anyway) or "gave up" (this DID
-    timed out PACE_MISSES times in a row in this run - sent without waiting)."""
-    if not FULLNODE_HOST or _PACE["off"] or not did or did in _UNPACED:
+    timed out PACE_MISSES times in a row in this run, or no fullnode can be
+    read - sent without waiting)."""
+    if not FULLNODE_HOSTS or _PACE["off"] or not did or did in _UNPACED:
         return 0.0, ""
     txid = _LAST_TX.get(did)
     if not txid:
@@ -224,15 +253,11 @@ def _pace(did):
         return 0.0, "gave up"
     started = time.time()
     while time.time() - started < PACE_TIMEOUT:
-        try:
-            if _fullnode_has(txid):
-                _MISSES[did] = 0
-                return round(time.time() - started, 2), "paced"
-        except Exception as e:
-            _PACE["off"] = True
-            print("  [pacing] fullnode database not readable ({}: {}) - pacing off".format(
-                type(e).__name__, e))
-            return round(time.time() - started, 2), "gave up"
+        if _fullnodes_have(txid):
+            if _PACE["off"]:
+                return round(time.time() - started, 2), "gave up"
+            _MISSES[did] = 0
+            return round(time.time() - started, 2), "paced"
         time.sleep(0.5)
     _MISSES[did] = _MISSES.get(did, 0) + 1
     return round(time.time() - started, 2), "timed out"
@@ -287,7 +312,7 @@ def signed_action(host, action_path, body, port=DEFAULT_PORT, timeout=SIGNATURE_
             joining = _IN_FLIGHT.get(initiator, 0) > 0
         if not joining:
             waited, pacing = _pace(initiator)
-        elif initiator not in _UNPACED and FULLNODE_HOST:
+        elif initiator not in _UNPACED and FULLNODE_HOSTS and not _PACE["off"]:
             pacing = "paced"        # part of a burst whose first call waited
         with _OPS_LOCK:
             _IN_FLIGHT[initiator] = _IN_FLIGHT.get(initiator, 0) + 1
@@ -705,9 +730,9 @@ def get_rbt_held(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
 # quorum. So fleet quorums never pledge for funding, and funding never touches
 # a wallet some other lane is measuring.
 #
-# The faucet runs on the CONTROLLER machine as two nodes:
-#     port 20000  the faucet DID          - holds the RBT and sends it
-#     port 20010  the faucet quorum DID   - signs every faucet transfer
+# The faucet is two nodes, each on its own machine (hosts.txt roles):
+#     faucet         the faucet DID        - holds the RBT and sends it
+#     faucet-quorum  the faucet quorum DID - signs every faucet transfer
 # Both are set up by hand (quorum added and quorum setup done); the lab only
 # transfers. Each node's DID is read from the node itself, so nothing needs
 # configuring. The faucet node must have EXACTLY ONE quorum registered, the
@@ -719,17 +744,19 @@ def get_rbt_held(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
 # DIDs are never discarded. A DID keeps whatever it holds from one cycle to the
 # next and is topped up only by its shortfall.
 #
-# Overrides, only if the setup ever changes:
-#   RUBIX_FAUCET_HOST          controller address (test_runner uses the host
-#                              tagged 'controller' in hosts.txt; else .103)
+# test_runner sets the two hosts from hosts.txt (use_fleet_roles). Overrides,
+# only if the setup ever changes:
+#   RUBIX_FAUCET_HOST          faucet DID's machine
+#   RUBIX_FAUCET_QUORUM_HOST   faucet quorum's machine
 #   RUBIX_FAUCET_PORT          faucet DID's node (default 20000)
-#   RUBIX_FAUCET_QUORUM_PORT   faucet quorum's node (default 20010)
+#   RUBIX_FAUCET_QUORUM_PORT   faucet quorum's node (default 20000)
 #   RUBIX_FAUCET_CHUNK         largest single faucet transfer, RBT (default 1000)
 # ---------------------------------------------------------------------------
 
-FAUCET_HOST = os.environ.get("RUBIX_FAUCET_HOST", "192.168.1.103")
+FAUCET_HOST = os.environ.get("RUBIX_FAUCET_HOST", "")
+FAUCET_QUORUM_HOST = os.environ.get("RUBIX_FAUCET_QUORUM_HOST", "")
 FAUCET_PORT = int(os.environ.get("RUBIX_FAUCET_PORT", "20000"))
-FAUCET_QUORUM_PORT = int(os.environ.get("RUBIX_FAUCET_QUORUM_PORT", "20010"))
+FAUCET_QUORUM_PORT = int(os.environ.get("RUBIX_FAUCET_QUORUM_PORT", "20000"))
 # Read from the two faucet nodes by faucet_ready().
 FAUCET_DID = ""
 FAUCET_QUORUM_DID = ""
@@ -764,13 +791,30 @@ def _same_did(listed, did):
     return listed == did or str(listed).split(".")[-1] == did
 
 
-def _only_did(port, what, timeout):
-    ok, dids, note = get_dids(FAUCET_HOST, port, timeout)
+def use_fleet_roles(hosts):
+    """Point the faucet and the fullnode pacing at the machines hosts.txt names
+    (roles faucet, faucet-quorum, fullnode). `hosts` is fleet.load_hosts().
+    An exported RUBIX_FAUCET_HOST / RUBIX_FAUCET_QUORUM_HOST still wins."""
+    global FAUCET_HOST, FAUCET_QUORUM_HOST, FULLNODE_HOSTS
+
+    def first(role):
+        return next((h["host"] for h in hosts if h["role"] == role), "")
+    if "RUBIX_FAUCET_HOST" not in os.environ:
+        FAUCET_HOST = first("faucet")
+    if "RUBIX_FAUCET_QUORUM_HOST" not in os.environ:
+        FAUCET_QUORUM_HOST = first("faucet-quorum")
+    FULLNODE_HOSTS = [h["host"] for h in hosts if h["role"] == "fullnode"]
+
+
+def _only_did(host, port, what, timeout):
+    if not host:
+        return None, ("no {0} machine - tag one '{0}' in hosts.txt".format(what.replace(" ", "-")))
+    ok, dids, note = get_dids(host, port, timeout)
     if not ok:
-        return None, "{} node {}:{} did not answer: {}".format(what, FAUCET_HOST, port, note)
+        return None, "{} node {}:{} did not answer: {}".format(what, host, port, note)
     if len(dids) != 1:
         return None, "{} node {}:{} holds {} DIDs, expected exactly 1".format(
-            what, FAUCET_HOST, port, len(dids))
+            what, host, port, len(dids))
     return dids[0], ""
 
 
@@ -778,10 +822,10 @@ def faucet_ready(timeout=DEFAULT_TIMEOUT):
     """(ok, note). Reads both faucet DIDs from their nodes, then checks the
     faucet node has the faucet quorum as its one and only quorum."""
     global FAUCET_DID, FAUCET_QUORUM_DID
-    faucet, note = _only_did(FAUCET_PORT, "faucet", timeout)
+    faucet, note = _only_did(FAUCET_HOST, FAUCET_PORT, "faucet", timeout)
     if not faucet:
         return False, note
-    quorum, note = _only_did(FAUCET_QUORUM_PORT, "faucet quorum", timeout)
+    quorum, note = _only_did(FAUCET_QUORUM_HOST, FAUCET_QUORUM_PORT, "faucet quorum", timeout)
     if not quorum:
         return False, note
     FAUCET_DID, FAUCET_QUORUM_DID = faucet, quorum
@@ -790,9 +834,10 @@ def faucet_ready(timeout=DEFAULT_TIMEOUT):
         return False, "faucet node {}:{} did not answer: {}".format(FAUCET_HOST, FAUCET_PORT, note)
     if len(quorums) != 1 or not _same_did(quorums[0], FAUCET_QUORUM_DID):
         return False, ("faucet node {}:{} must have exactly one quorum registered, the "
-                       "faucet quorum {}... (port {}); it has {}".format(
+                       "faucet quorum {}... ({}:{}); it has {}".format(
                            FAUCET_HOST, FAUCET_PORT, FAUCET_QUORUM_DID[:16],
-                           FAUCET_QUORUM_PORT, [str(q)[-16:] for q in quorums] or "none"))
+                           FAUCET_QUORUM_HOST, FAUCET_QUORUM_PORT,
+                           [str(q)[-16:] for q in quorums] or "none"))
     ok, detail, note = get_rbt_balance_detail(FAUCET_HOST, FAUCET_DID, FAUCET_PORT, timeout)
     if not ok or not detail:
         return False, "cannot read the faucet balance: {}".format(note)
@@ -954,23 +999,6 @@ def initiate_transaction(sender_host, initiator_did, receiver_did, rbt=None, ft=
     return signed_action(sender_host, EP_TRANSACTION, body, port, timeout)
 
 
-def load_hosts(path):
-    """Read hosts.txt. Format per line: <host> [role] ('#' comments ok)."""
-    if not os.path.exists(path):
-        sys.exit("ERROR: hosts file not found: {}".format(path))
-    hosts = []
-    with open(path, encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.split("#", 1)[0].strip()
-            if not line:
-                continue
-            parts = line.split()
-            hosts.append({"host": parts[0], "role": parts[1] if len(parts) > 1 else ""})
-    if not hosts:
-        sys.exit("ERROR: no hosts listed in {}".format(path))
-    return hosts
-
-
 def write_pdf_report(path, title, headers, rows):
     """
     Generic tabular PDF report writer, shared by every test-plan script.
@@ -1028,57 +1056,66 @@ def write_pdf_report(path, title, headers, rows):
     doc.build(elements)
 
 
-VERSION_RE = None  # compiled lazily; see get_node_version
-
-
-def get_node_version(host, ssh_user="rubix", remote_dir="~/Desktop/rubix", timeout=8):
-    """Read one node's Rubix build over SSH.
+def collect_versions(nodes, ssh_user="rubix", workers=20):
+    """Each node's Rubix build, read over SSH -> {node address: "1.0.4 @ 658cb33f"
+    or "UNKNOWN (why)"}. `nodes` carry "host", "machine" and "slot" (fleet.py).
 
     There is NO version API - checked every route in server/server.go. The
-    only source is `./rubixgoplatform -v`, which prints and exits without
-    touching the running node, so it is safe while the service is live.
-    Same mechanism as controller/node-versions.py.
+    only source is `./rubixgoplatform -v` in the node's own folder
+    (~/rubix-lab/nodes/node<slot>), which prints and exits without touching
+    the running node. One SSH call per machine; same mechanism as
+    controller/node-versions.py.
 
     This matters for the mixed-fleet cases (GEN): sender, receiver and quorum
     can legitimately be on DIFFERENT builds, and a result is meaningless
     unless the report says which build each role was actually running.
-
-    Returns (version_or_None, note).
     """
-    global VERSION_RE
-    if VERSION_RE is None:
-        import re
-        VERSION_RE = re.compile(r"Rubix Core Version\s*:\s*(\S+)")
+    import re
     import subprocess
-    cmd = [
-        "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
-        "-o", "ConnectTimeout={}".format(timeout),
-        "{}@{}".format(ssh_user, host),
-        "cd {} && ./rubixgoplatform -v".format(remote_dir),
-    ]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
-    except subprocess.TimeoutExpired:
-        return None, "ssh timeout"
-    except FileNotFoundError:
-        return None, "ssh not available on this controller"
-    if proc.returncode != 0:
-        err = (proc.stderr or "").strip().splitlines()
-        return None, "ssh failed: {}".format(err[-1] if err else proc.returncode)
-    m = VERSION_RE.search(proc.stdout)
-    return (m.group(1), "") if m else (None, "version line not found")
-
-
-def collect_versions(hosts, ssh_user="rubix", remote_dir="~/Desktop/rubix", workers=20):
-    """Versions for many hosts at once -> {host: version_or_error_string}."""
     from concurrent.futures import ThreadPoolExecutor
 
-    def one(h):
-        v, note = get_node_version(h, ssh_user, remote_dir)
-        return h, (v or "UNKNOWN ({})".format(note))
+    by_machine = {}
+    for n in nodes:
+        by_machine.setdefault(n["machine"], []).append(n)
 
-    with ThreadPoolExecutor(max_workers=min(workers, max(1, len(hosts)))) as ex:
-        return dict(ex.map(one, hosts))
+    def one(machine):
+        group = by_machine[machine]
+        script = "; ".join(
+            'echo "== {s}"; (cd ~/rubix-lab/nodes/node{s} && ./rubixgoplatform -v) 2>&1'.format(
+                s=n["slot"]) for n in group)
+        cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+               "-o", "ConnectTimeout=8", "{}@{}".format(ssh_user, machine), script]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=15 + 5 * len(group))
+            out = proc.stdout if proc.returncode != 255 else ""
+            why = "ssh failed" if proc.returncode == 255 else "version line not found"
+        except subprocess.TimeoutExpired:
+            out, why = "", "ssh timeout"
+        except FileNotFoundError:
+            out, why = "", "ssh not available on this controller"
+        chunks, current = {}, None
+        for line in out.splitlines():
+            m = re.match(r"== (\d+)$", line)
+            if m:
+                current = int(m.group(1))
+                chunks[current] = ""
+            elif current is not None:
+                chunks[current] += line + "\n"
+        found = {}
+        for n in group:
+            text = chunks.get(n["slot"], "")
+            v = re.search(r"Rubix Core Version\s*:\s*(\S+)", text)
+            c = re.search(r"Current Commit\s*:\s*(\S+)", text)
+            found[n["host"]] = ("{} @ {}".format(v.group(1), c.group(1)[:8] if c else "?")
+                                if v else "UNKNOWN ({})".format(why))
+        return found
+
+    versions = {}
+    with ThreadPoolExecutor(max_workers=min(workers, max(1, len(by_machine)))) as ex:
+        for found in ex.map(one, by_machine):
+            versions.update(found)
+    return versions
 
 
 def close_enough(a, b, tol=0.0015):
