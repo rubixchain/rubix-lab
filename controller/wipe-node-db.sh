@@ -186,9 +186,12 @@ if [ "$MODE" = "legacy" ]; then
     rm -rf "$profile" && echo "  deleted $profile (old node: config, DIDs, IPFS repo)"
   fi
   if [ -d "$old" ]; then
-    for f in rubixgoplatform ipfs localnetswarm.key testnetswarm.key node-restart.log log.txt .ipfs; do
-      [ -e "$old/$f" ] && rm -rf "$old/$f" && echo "  deleted $old/$f"
+    # Regular files only: a folder with one of these names is something else -
+    # e.g. a rubixgoplatform source clone, which is how .120 had it.
+    for f in rubixgoplatform ipfs localnetswarm.key testnetswarm.key node-restart.log log.txt; do
+      [ -f "$old/$f" ] && rm -f "$old/$f" && echo "  deleted $old/$f"
     done
+    [ -f "$old/.ipfs/config" ] && rm -rf "$old/.ipfs" && echo "  deleted $old/.ipfs"
     rest="$(ls -A "$old" 2>/dev/null)"
     if [ -z "$rest" ]; then
       rmdir "$old" && echo "  deleted the now-empty $old"
