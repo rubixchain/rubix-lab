@@ -33,8 +33,9 @@ systems/                 goes ON each lab machine
   SETUP-RUNBOOK.md       phase-by-phase environment setup
   LAB-QUICKREF.txt       the same setup as commands only, in order
   node-layout.txt        the nodes a pool machine runs and their DID counts
+  bootstrap-nodes.txt    the fixed bootstrap list: the four fullnodes
   install/               setup.sh, config.toml.template, systemd template unit
-  prerequisite/          rubixgoplatform, ipfs, localnetswarm.key
+  prerequisite/          rubixgoplatform, ipfs, testnetswarm.key
 
 nodes/                   gitignored runtime: one folder per node (node0..node8)
 reports/                 gitignored output: reports/pdf/ and reports/json/

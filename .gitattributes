@@ -7,6 +7,7 @@
 *.service text eol=lf
 *.template text eol=lf
 systems/node-layout.txt text eol=lf
+systems/bootstrap-nodes.txt text eol=lf
 
 # Note on the binaries in prerequisite/ (rubixgoplatform, ipfs):
 # these are committed normally, NOT via Git LFS. LFS bandwidth on GitHub is

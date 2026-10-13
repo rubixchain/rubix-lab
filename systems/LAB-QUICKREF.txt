@@ -1,8 +1,10 @@
 Rubix Lab — quick reference: commands only, in order
 =====================================================
 The rebuild, top to bottom. Details/troubleshooting: SETUP-RUNBOOK.md
-(the phase letters match). Everything runs on the CONTROLLER (.120) unless
-it says "on the machine".
+(the phase letters match). Everything runs on the CONTROLLER unless it says
+"on the machine". Paths below are the standard ones (~/rubix-lab,
+~/Desktop/rubixgoplatform); on .120 they are ~/Desktop/rubix/rubix-lab and
+~/Desktop/rubix/rubixgoplatform.
 
 A. Roles: controller/hosts.txt (fullnode .101-.104, faucet .105,
    faucet-quorum .106, controller .120, explorer .123, the rest pool)
@@ -21,7 +23,7 @@ git clone https://github.com/rubixchain/rubixgoplatform ~/Desktop/rubixgoplatfor
 cd ~/rubix-lab/controller
 ./setup-ssh.sh
 
-C. Docker Engine — on each machine that runs a node (already there on the old fleet)
+C. Docker Engine — on each machine that runs a node
 ----------------------------------------
 sudo apt update
 sudo apt install -y docker.io
@@ -29,25 +31,26 @@ sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
 # log out and back in, then:  docker run --rm hello-world
 
-D. Flush the old single-node install (once)
+D. Clear out the old installs (once)
 ----------------------------------------
 cd ~/rubix-lab/controller
 ./wipe-node-db.sh --legacy --include-fixed           # dry run
 ./wipe-node-db.sh --legacy --include-fixed --yes     # type 'wipe'
-# .103: stop the old second node (faucet quorum, port 20010) by hand if the wipe names it
-# .102: stop the explorer there (it moves to .123) - the fullnode needs 20000/4002/5433
 # on .120 and .123 (no node any more), on the machine:
 #   sudo systemctl disable rubixgoplatform && sudo rm /etc/systemd/system/rubixgoplatform.service
+# then the two scans in SETUP-RUNBOOK D2 (old containers, old folders/keys)
+# and D3 (strays on the lab key); keep .103's old reports in ~/old_reports
 
-E. Install the nodes (one machine at a time, sudo password each)
+E. Custom build, fullnodes + bootstrap list, faucet pair
 ----------------------------------------
-./install-nodes.sh --host 192.168.1.101 --first
+cd ~/Desktop/rubixgoplatform && git fetch origin && git checkout vaishnav/temp-custom-testnet && git pull --ff-only origin vaishnav/temp-custom-testnet && make compile-linux
+cp ~/Desktop/rubixgoplatform/linux/rubixgoplatform ~/rubix-lab/systems/prerequisite/rubixgoplatform
+cd ~/rubix-lab/controller
 ./install-nodes.sh --role fullnode
+# write the 4 peer IDs into systems/bootstrap-nodes.txt (command in SETUP-RUNBOOK E1), commit, push
+./install-nodes.sh --role fullnode --force
+for h in 101 102 103 104; do ./restart-nodes.sh --host 192.168.1.$h --force; done
 ./install-nodes.sh --role faucet --role faucet-quorum
-./install-nodes.sh --host 192.168.1.107              # pilot - run the runbook E3 checks
-./install-nodes.sh --role pool
-./preflight-check.sh --include-fixed
-python3 check-nodes.py --include-fixed
 
 F. Faucet DIDs -> allowlist build -> mint
 ----------------------------------------
@@ -55,15 +58,19 @@ python3 dids-to-excel.py --host 192.168.1.105        # prints the faucet DID
 python3 dids-to-excel.py --host 192.168.1.106        # prints the faucet quorum DID
 # put both in CustomNetAllowedMinters (core/minterallowlist/mint_access_control.go)
 # on vaishnav/temp-custom-testnet, keep Level 60001 and the ranges, commit, push
-cd exec-update && ./update-exec.sh vaishnav/temp-custom-testnet --all --include-fixed
-cd .. && python3 node-versions.py --include-fixed    # "Uniform" on the new commit
-# mint the faucet tokens by hand; faucet quorum = the ONLY quorum on the faucet
+cd exec-update && ./update-exec.sh vaishnav/temp-custom-testnet 192.168.1.101 192.168.1.102 192.168.1.103 192.168.1.104 192.168.1.105 192.168.1.106
+cp ~/Desktop/rubixgoplatform/linux/rubixgoplatform ~/rubix-lab/systems/prerequisite/rubixgoplatform
+cd .. && python3 node-versions.py --include-fixed
+# mint the faucet tokens; faucet quorum = the ONLY quorum on the faucet
 # node; quorum setup on the faucet-quorum node
 
-G. Pool DIDs
+G. Pilot, pool, pool DIDs
 ----------------------------------------
+./install-nodes.sh --host 192.168.1.107              # then the 3 checks in SETUP-RUNBOOK G1
+./install-nodes.sh --role pool
+./preflight-check.sh --include-fixed
+python3 check-nodes.py --include-fixed
 python3 dids-to-excel.py                             # re-run until 988 of 988
-python3 check-nodes.py
 
 H. Smoke test
 ----------------------------------------

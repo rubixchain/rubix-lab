@@ -8,8 +8,8 @@
 #
 #   1. A fixed role - a permanent identity for that machine:
 #        fullnode       one node at port 20000, run with -fullnode, no DID.
-#                       List every fullnode; the first one is the bootstrap
-#                       seed and is installed first, with an empty list.
+#                       The fullnodes are the bootstrap peers: their peer IDs
+#                       go into systems/bootstrap-nodes.txt.
 #        faucet         one node at port 20000 holding the faucet DID
 #        faucet-quorum  one node at port 20000 holding the faucet quorum DID
 #        explorer       the explorer - runs no node

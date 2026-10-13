@@ -15,8 +15,8 @@ It is **install only** — it does not create DIDs, set up quorums, peer nodes
 or run tests. That comes later, driven from the controller.
 
 Normally you do not run it by hand: `controller/install-nodes.sh` copies
-`systems/` to the machine and runs it over SSH with the right role and
-bootstrap list. Running it on the machine yourself works the same.
+`systems/` to the machine and runs it over SSH with the right role. Running it
+on the machine yourself works the same.
 
 ## What one node looks like
 
@@ -46,32 +46,37 @@ DID private keys do not belong in git. The repo must sit at `~/rubix-lab` on
 every machine: the controller tools find every node at
 `~/rubix-lab/nodes/node<N>`. `setup.sh` refuses to run from anywhere else.
 
-## Network: testnet mode, the lab's own key
+## Network: Rubix's testnet setup, on the lab's own key
 
-`config.toml` sets `network_mode = "testnet"` and the swarm key is copied in as
-`testnetswarm.key` (it is `../prerequisite/localnetswarm.key`, same key). A
-testnet node with a swarm key Rubix does not operate is a *custom testnet*
+The lab imitates Rubix's default testnet on a network of its own:
+
+| | Rubix testnet | This lab |
+|---|---|---|
+| `network_mode` | `testnet` | `testnet` |
+| swarm key | Rubix's, as `testnetswarm.key` | `../prerequisite/testnetswarm.key` — the lab's own |
+| bootstrap list | fixed, shipped with the node | fixed: the four lab fullnodes, [../bootstrap-nodes.txt](../bootstrap-nodes.txt) |
+| allowed minters | built-in list | `CustomNetAllowedMinters` in the build — the faucet DIDs |
+
+A testnet node with a swarm key Rubix does not operate is a *custom testnet*
 (`core/network_identity.go`): it checks minters against
-`CustomNetAllowedMinters` in the build it runs.
+`CustomNetAllowedMinters` in the build it runs, so every node must run the
+`vaishnav/temp-custom-testnet` build that lists the current faucet DIDs.
 
-## Bootstrap order: the first fullnode, then everything else
+## Bootstrap list
 
-`testnet_bootstrap_nodes` needs peer IDs to point at, which exist only once a
-node has started. The fullnodes are the seeds:
-
-1. The first fullnode, with an empty list:
-   `BOOTSTRAP_NODES='[]' ./setup.sh fullnode`
-   (from the controller: `./install-nodes.sh --host 192.168.1.101 --first`)
-2. Every other machine points at every fullnode that is already up — what
-   `install-nodes.sh` builds from their APIs, e.g.
-   `BOOTSTRAP_NODES='["/ip4/192.168.1.101/tcp/4002/p2p/12D3KooW..."]' ./setup.sh fullnode`
+`setup.sh` writes every line of `../bootstrap-nodes.txt` except the machine's
+own into `config.toml` as `testnet_bootstrap_nodes`, and brings an existing
+`config.toml` in line with the file on a re-run. The peer IDs exist only once
+the fullnodes have started, so the file is filled after they are installed
+(runbook Phase E1); then `install-nodes.sh --role fullnode --force` gives the
+fullnodes each other, and every machine installed later gets the full list.
 
 ## Running it by hand
 
 ```
 cd ~/rubix-lab/systems/install
-BOOTSTRAP_NODES='[...]' ./setup.sh pool
-SLOTS="0 1" BOOTSTRAP_NODES='[...]' ./setup.sh pool    # only some slots
+./setup.sh pool
+SLOTS="0 1" ./setup.sh pool    # only some slots
 ```
 
 Requires Docker Engine (user in the `docker` group) and sudo, which it asks
@@ -80,7 +85,8 @@ active — the firewall rules.
 
 Safe to re-run: `config.toml`, binaries and containers that exist are kept
 (re-running never puts the starting binary back over a deployed one), only
-what is missing is created, and running nodes are left running.
+what is missing is created, the bootstrap list follows `../bootstrap-nodes.txt`,
+and running nodes are left running — restart them to pick up a new list.
 
 It refuses while the old single-node install is still on the machine
 (container `node`/`rubix-node-db`, or a running `rubixgoplatform.service`) —
@@ -92,8 +98,8 @@ done it removes the old unit file itself.
 1. Checks Docker, `envsubst`, the swarm key and the two binaries.
 2. Per node: creates the folder, copies the binaries (only if missing) and the
    swarm key, writes `config.toml` (only if missing; an existing one must have
-   the expected `node_index` and testnet mode), clears an incomplete `.ipfs/`,
-   and starts its Postgres container.
+   the expected `node_index` and testnet mode, and only its bootstrap line is
+   updated), clears an incomplete `.ipfs/`, and starts its Postgres container.
 3. Waits for every Postgres to be ready.
 4. Installs the template unit and a sudoers grant
    (`/etc/sudoers.d/rubix-lab-nodes`) letting the controller start, stop and

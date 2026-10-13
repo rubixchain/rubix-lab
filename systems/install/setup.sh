@@ -17,18 +17,22 @@
 #   rubix-pgdata-<N>, --restart always
 #   systemd unit rubixgoplatform@<N>, Restart=always, enabled at boot
 #
-# Network: testnet mode with the lab's own swarm key - a custom testnet, which
+# Network: Rubix's testnet setup on the lab's own swarm key - testnet mode,
+# ../prerequisite/testnetswarm.key, and a fixed bootstrap list of the lab's
+# fullnodes (../bootstrap-nodes.txt), the way the default testnet ships a fixed
+# list. A swarm key Rubix does not operate makes it a custom testnet, which
 # checks minters against CustomNetAllowedMinters (core/network_identity.go).
 #
 # Safe to re-run: config.toml, containers and binaries that exist are kept
 # (exec-update swaps binaries in place, and a re-run must not undo that); only
-# what is missing is created. Running nodes are left running.
+# what is missing is created, and an existing config.toml gets the current
+# bootstrap list. Running nodes are left running - restart them to apply it.
 #
 # Usage:
-#   BOOTSTRAP_NODES='[]' ./setup.sh fullnode         # the FIRST fullnode only
-#   BOOTSTRAP_NODES='["/ip4/192.168.1.101/tcp/4002/p2p/12D3KooW..."]' ./setup.sh fullnode
-#   BOOTSTRAP_NODES='[<every fullnode>]' ./setup.sh pool
-#   SLOTS="0 1" BOOTSTRAP_NODES='[...]' ./setup.sh pool   # just these slots
+#   ./setup.sh pool                    # every node in ../node-layout.txt
+#   ./setup.sh fullnode
+#   SLOTS="0 1" ./setup.sh pool        # just these slots
+#   BOOTSTRAP_NODES='[...]' ./setup.sh pool   # override ../bootstrap-nodes.txt
 #
 # Does NOT create DIDs, set up quorums or fund anything - that is the
 # controller's job (dids-to-excel.py, test_runner.py).
@@ -38,7 +42,7 @@ set -euo pipefail
 ROLE="${1:-}"
 case "$ROLE" in
   pool|fullnode|faucet|faucet-quorum) ;;
-  *) echo "Usage: BOOTSTRAP_NODES='[...]' $0 pool|fullnode|faucet|faucet-quorum"; exit 1 ;;
+  *) echo "Usage: $0 pool|fullnode|faucet|faucet-quorum"; exit 1 ;;
 esac
 
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # systems/install
@@ -65,19 +69,27 @@ if [ "$REPO_ROOT" != "$HOME/rubix-lab" ]; then
   exit 1
 fi
 
-# The lab fullnodes this machine joins through. Required on purpose: an empty
-# list is right only for the very first fullnode, and a node that joins
-# nothing looks healthy locally while the rest of the lab cannot see it.
+# The bootstrap list: every peer in ../bootstrap-nodes.txt except this
+# machine's own (a fullnode does not dial itself), as the JSON list
+# config.toml takes. BOOTSTRAP_NODES in the environment overrides the file.
 if [ -z "${BOOTSTRAP_NODES+set}" ]; then
-  echo "ERROR: set BOOTSTRAP_NODES - the lab fullnodes this machine joins through, e.g."
-  echo "  BOOTSTRAP_NODES='[\"/ip4/192.168.1.101/tcp/4002/p2p/12D3KooW...\"]' $0 $ROLE"
-  echo "Only the first fullnode uses '[]'. controller/install-nodes.sh fills it in for you."
-  exit 1
+  own_ips=" $(hostname -I 2>/dev/null) "
+  entries=()
+  if [ -f "$SYSTEMS_DIR/bootstrap-nodes.txt" ]; then
+    while read -r addr; do
+      [ -n "$addr" ] || continue
+      ip="$(sed -n 's#^/ip4/\([^/]*\)/.*#\1#p' <<<"$addr")"
+      case "$own_ips" in *" $ip "*) continue ;; esac
+      entries+=("\"$addr\"")
+    done < <(sed 's/#.*//; s/[[:space:]]//g' "$SYSTEMS_DIR/bootstrap-nodes.txt")
+  fi
+  BOOTSTRAP_NODES="[$(IFS=,; echo "${entries[*]-}")]"
 fi
 case "$BOOTSTRAP_NODES" in
   \[*\]) ;;
   *) echo "ERROR: BOOTSTRAP_NODES must be a list in brackets, e.g. '[\"/ip4/...\"]'"; exit 1 ;;
 esac
+echo "Bootstrap peers: $BOOTSTRAP_NODES"
 
 # ---------------------------------------------------------------------------
 # Which nodes: "slot node_index" per line
@@ -114,7 +126,7 @@ if ! command -v envsubst >/dev/null 2>&1; then
   sudo apt-get update -y && sudo apt-get install -y gettext-base
 fi
 
-[ -f "$PREREQ_DIR/localnetswarm.key" ] || { echo "ERROR: prerequisite/localnetswarm.key missing. This is the shared key that makes all lab nodes one private network — it must come from the repo, never be regenerated per machine."; exit 1; }
+[ -f "$PREREQ_DIR/testnetswarm.key" ] || { echo "ERROR: prerequisite/testnetswarm.key missing. This is the shared key that makes all lab nodes one private network — it must come from the repo, never be regenerated per machine."; exit 1; }
 
 # --- rubixgoplatform binary: use the committed one, else download a release ---
 # Either way it is only the starting binary: the build under test arrives with
@@ -195,9 +207,8 @@ for row in "${ROWS[@]}"; do
   [ -f "$NODE_DIR/ipfs" ] || cp "$PREREQ_DIR/ipfs" "$NODE_DIR/ipfs"
   chmod +x "$NODE_DIR/rubixgoplatform" "$NODE_DIR/ipfs"
   # In testnet mode the node copies ./testnetswarm.key into its IPFS repo
-  # (core/ipfs.go). Same key as prerequisite/localnetswarm.key - only the name
-  # the product looks for differs.
-  cp "$PREREQ_DIR/localnetswarm.key" "$NODE_DIR/testnetswarm.key"
+  # (core/ipfs.go) - the lab's key, under the name Rubix's testnet uses.
+  cp "$PREREQ_DIR/testnetswarm.key" "$NODE_DIR/testnetswarm.key"
 
   CFG="$NODE_DIR/config.toml"
   if [ -f "$CFG" ]; then
@@ -208,7 +219,16 @@ for row in "${ROWS[@]}"; do
       echo "       $INDEX / testnet. Refusing to touch it - check by hand."
       exit 1
     fi
-    echo "   config.toml present, kept"
+    # The bootstrap list is fleet-wide (../bootstrap-nodes.txt), so an existing
+    # config follows it; everything else in the file is left alone.
+    want_line="testnet_bootstrap_nodes = $BOOTSTRAP_NODES"
+    if [ "$(grep -m1 '^testnet_bootstrap_nodes' "$CFG")" != "$want_line" ]; then
+      awk -v line="$want_line" '/^testnet_bootstrap_nodes/ {print line; next} {print}' "$CFG" > "$CFG.new"
+      mv "$CFG.new" "$CFG"
+      echo "   config.toml present, bootstrap list updated (restart the node to use it)"
+    else
+      echo "   config.toml present, kept"
+    fi
   else
     NODE_INDEX="$INDEX" DB_PORT="$DB_PORT" BOOTSTRAP_NODES="$BOOTSTRAP_NODES" \
       envsubst '${NODE_INDEX} ${DB_PORT} ${BOOTSTRAP_NODES}' \

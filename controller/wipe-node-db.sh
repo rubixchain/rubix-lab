@@ -288,7 +288,7 @@ if [ "${#FAILED[@]}" -gt 0 ]; then
 fi
 echo
 if [ "$LEGACY" -eq 1 ]; then
-  echo "Next: ./install-nodes.sh (first fullnode with --first, see SETUP-RUNBOOK.md Phase B)."
+  echo "Next: ./install-nodes.sh (fullnodes first, see SETUP-RUNBOOK.md Phase E)."
 else
   echo "Every wiped node is stopped. Bring them back (a cold start after a wipe is slow):"
   echo "  ./restart-nodes.sh --attempts 30"

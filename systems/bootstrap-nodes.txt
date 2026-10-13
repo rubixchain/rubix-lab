@@ -1,0 +1,7 @@
+# The lab's bootstrap peers - the four fullnodes, like the fixed list Rubix's
+# own testnet ships. setup.sh writes every line (except the machine's own) into
+# each node's config.toml as testnet_bootstrap_nodes.
+#
+# One multiaddr per line: /ip4/<fullnode ip>/tcp/4002/p2p/<its peer ID>
+# Fill it once the fullnodes are installed (SETUP-RUNBOOK Phase E1). While it
+# is empty, nodes get an empty list.

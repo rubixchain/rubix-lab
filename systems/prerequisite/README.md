@@ -7,7 +7,7 @@ Everything a machine needs to run its Rubix lab nodes, in one place.
 
 | File | Committed? | Notes |
 |---|---|---|
-| `localnetswarm.key` | **Yes** | Shared secret. Every node needs the *identical* file to join the same private network. Never regenerate it per machine. The fleet runs in testnet mode, so `setup.sh` puts it in each node folder as `testnetswarm.key` — the name the product reads in that mode. Same key either way. |
+| `testnetswarm.key` | **Yes** | The lab's own swarm key. Every node needs the *identical* file to join the same private network. Never regenerate it per machine. The fleet runs Rubix's testnet setup on this key instead of Rubix's, which makes it a custom testnet; `setup.sh` copies it into each node folder under this name, the one the product reads in testnet mode. (Until 2026-10 it was called `localnetswarm.key` - same key.) |
 | `rubixgoplatform` | Your choice | The node binary. See below. |
 | `ipfs` | Your choice | IPFS/kubo binary. See below. |
 | `kubo_v0.19.1_linux-amd64.tar.gz` | Optional | Committing the tarball instead of the extracted binary saves about 65MB. `setup.sh` extracts it automatically. |
