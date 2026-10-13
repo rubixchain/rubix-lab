@@ -223,16 +223,35 @@ for row in "${ROWS[@]}"; do
     rm -rf "$NODE_DIR/.ipfs"
   fi
 
+  # Another container already publishing this port is an old install the
+  # legacy wipe did not know by name (it removes only `node`/`rubix-node-db`).
+  holder="$(docker ps --format '{{.Names}} {{.Ports}}' | grep -E ":${DB_PORT}->" | awk '{print $1}' | grep -vx "$CONTAINER" | head -1 || true)"
+  if [ -n "$holder" ]; then
+    echo "ERROR: port $DB_PORT is already taken by container '$holder' - an old install?"
+    echo "       If it is old:  docker rm -f $holder   (and its volume: docker inspect $holder)"
+    echo "       Then run this again."
+    exit 1
+  fi
   if [ -n "$(docker ps -aq -f "name=^${CONTAINER}$")" ]; then
-    docker start "$CONTAINER" >/dev/null 2>&1 || true
+    if ! docker start "$CONTAINER" >/dev/null; then
+      echo "ERROR: Postgres container $CONTAINER exists but will not start (message above)."
+      echo "       If it was left by a failed run:  docker rm -f $CONTAINER   then run this again."
+      exit 1
+    fi
     echo "   Postgres container $CONTAINER present, kept"
   else
-    docker run --name "$CONTAINER" \
+    if ! docker run --name "$CONTAINER" \
       -e POSTGRES_PASSWORD=rubixpass -e POSTGRES_USER=rubix -e POSTGRES_DB=rubix \
       -p "${DB_PORT}:5432" \
       -v "rubix-pgdata-${SLOT}:/var/lib/postgresql" \
       --restart always \
-      -d postgres:18 >/dev/null
+      -d postgres:18 >/dev/null; then
+      # docker run creates the container before it fails to start it; remove
+      # it, or a re-run would find it and wait for a database that never comes.
+      docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+      echo "ERROR: could not start $CONTAINER on port $DB_PORT (message above)."
+      exit 1
+    fi
     echo "   Postgres container $CONTAINER started on $DB_PORT"
   fi
 done

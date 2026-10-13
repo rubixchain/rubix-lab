@@ -69,7 +69,7 @@ H. Smoke test
 ----------------------------------------
 cd ~/rubix-lab/controller/test-plan/full-test
 python3 smoke_test.py
-psql -h 192.168.1.101 -p 5433 -U rubix -d rubix -c "SELECT count(*) FROM fullnode_transactions"   # each of .101-.104
+for h in 101 102 103 104; do python3 -c "import psycopg2; c = psycopg2.connect(host='192.168.1.$h', port=5433, dbname='rubix', user='rubix', password='rubixpass'); cur = c.cursor(); cur.execute('SELECT count(*) FROM fullnode_transactions'); print('.$h', cur.fetchone()[0])"; done
 
 Day to day
 ----------------------------------------

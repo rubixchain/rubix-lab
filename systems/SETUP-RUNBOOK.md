@@ -306,11 +306,11 @@ cd test-plan/full-test
 python3 smoke_test.py          # 3 quorums, 14 sender/receiver pairs, spread over machines
 ```
 
-Then confirm every fullnode recorded the transactions — on each of .101-.104:
+Then confirm every fullnode recorded the transactions (python3-psycopg2 is
+already on the controller; psql is not):
 ```
-psql -h 192.168.1.101 -p 5433 -U rubix -d rubix -c "SELECT count(*) FROM fullnode_transactions"
-```
-(password `rubixpass`). Then bring up the explorer on .123 (moved from .102)
+for h in 101 102 103 104; do python3 -c "import psycopg2; c = psycopg2.connect(host='192.168.1.$h', port=5433, dbname='rubix', user='rubix', password='rubixpass'); cur = c.cursor(); cur.execute('SELECT count(*) FROM fullnode_transactions'); print('.$h', cur.fetchone()[0])"; done
+``` Then bring up the explorer on .123 (moved from .102)
 and confirm it shows them too.
 
 **Check:** the smoke test passes, all four fullnodes have rows, and the
