@@ -72,9 +72,19 @@ sudo apt update
 sudo apt install -y git python3 python3-psycopg2 python3-reportlab python3-openpyxl \
                     curl rsync build-essential
 ```
-plus **Go 1.22 or newer** for building the product (`go.mod` says 1.22).
-Ubuntu 24.04's `golang-go` is 1.22; on 22.04 use `sudo snap install go --classic`.
-Check with `go version`.
+plus **Go for building the product: 1.22 (what `go.mod` asks for) up to
+1.26 — not newer.** A binary built with a newer Go cannot create DIDs:
+`DID: invalid private key created, test signature failed, err: ecdsa: hash
+length does not match hash function`. The product signs the raw message
+`"test"` as if it were a SHA-256 hash (`BIPSign`, `crypto/bip39.go`), which
+newer Go refuses (seen on .120, 2026-10-14). Pin the build's Go version,
+whatever Go is installed (it downloads that version once):
+```
+go env -w GOTOOLCHAIN=go1.22.12
+go version                      # prints go1.22.12
+```
+`go version ~/Desktop/rubixgoplatform/linux/rubixgoplatform` shows which Go
+built a binary.
 
 ### B2. This repo and the product repo
 
