@@ -7,7 +7,7 @@ Everything a machine needs to run its Rubix lab nodes, in one place.
 
 | File | Committed? | Notes |
 |---|---|---|
-| `testnetswarm.key` | **Yes** | The lab's own swarm key. Every node needs the *identical* file to join the same private network. Never regenerate it per machine. The fleet runs Rubix's testnet setup on this key instead of Rubix's, which makes it a custom testnet; `setup.sh` copies it into each node folder under this name, the one the product reads in testnet mode. (Until 2026-10 it was called `localnetswarm.key` - same key.) |
+| `testnetswarm.key` | **Yes** | The lab's own swarm key. Every node needs the *identical* file to join the same private network. Never regenerate it per machine. The fleet runs Rubix's testnet setup on this key instead of Rubix's, which makes it a custom testnet; `setup.sh` copies it into each node folder under this name, the one the product reads in testnet mode. (Until 2026-10-13 it was called `localnetswarm.key`; on 2026-10-14 it was replaced by a new key - see the note below.) |
 | `rubixgoplatform` | Your choice | The node binary. See below. |
 | `ipfs` | Your choice | IPFS/kubo binary. See below. |
 | `kubo_v0.19.1_linux-amd64.tar.gz` | Optional | Committing the tarball instead of the extracted binary saves about 65MB. `setup.sh` extracts it automatically. |
@@ -76,5 +76,18 @@ This key is what keeps the lab network private and separate from CI, testnet and
 mainnet. It is deliberately different from the one in the rubixgoplatform test
 harness. Keep it in this repo (which is private) and do not publish it.
 
-Changing it means every node must be rebuilt — they would no longer be able to
-find each other.
+Changing it means every node must get the new file and restart — a node on the
+old key can no longer connect to one on the new key. That is also the way to
+shut a machine out: on 2026-10-14 the key was replaced because nodes on .143
+(a machine outside the lab, out of reach) and an old IPFS daemon on .102 held
+the previous key and kept joining the rebuilt fleet. A private IPFS network
+refuses every peer without the same key, so they can find the lab nodes on
+the LAN but not connect.
+
+Make a new one (all three lines, LF endings):
+```
+{ printf '/key/swarm/psk/1.0.0/\n/base16/\n'; openssl rand -hex 32; } > testnetswarm.key
+```
+then commit it, `install-nodes.sh --force` every machine (it copies the key
+into each node folder) and restart every node — each start copies the key into
+the node's IPFS repo.

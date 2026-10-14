@@ -185,9 +185,12 @@ deleting its old folders.
 ### D3. Strays on the lab key
 
 Every node on the lab key finds the others on the LAN by itself, so any
-machine still running IPFS or a node with that key joins the new network
-(on 2026-10-13: a node on .143 and an extra IPFS daemon on .102 port 4001).
-Find them in a fullnode's peer list and stop them:
+machine still running IPFS or a node with that key joins the new network.
+On 2026-10-13 a fullnode's peer list showed a node on .143 (outside the lab,
+out of reach) and an old IPFS daemon on .102 port 4001. So the rebuild runs on
+a **new** `prerequisite/testnetswarm.key` (2026-10-14): nothing still holding
+the old key can connect, whether or not anyone can reach it. Old daemons on
+lab machines are still stopped, as leftovers. A fullnode's peer list:
 ```
 ssh rubix@192.168.1.101 'IPFS_PATH=$HOME/rubix-lab/nodes/node0/.ipfs $HOME/rubix-lab/nodes/node0/ipfs swarm peers'
 ```
@@ -266,7 +269,16 @@ the new ones.
 
 On branch `vaishnav/temp-custom-testnet`, replace the two DIDs in
 `CustomNetAllowedMinters` — keep `Level: 60001` and the ranges: the faucet DID
-`1`–`2150000`, the faucet quorum `2150001`–`4300000`. Commit and push.
+`1`–`2150000`, the faucet quorum `2150001`–`4300000`. Commit (push when you
+can; `update-exec.sh` builds a local commit too). On the controller, reading
+both DIDs from their nodes (the two old DIDs are the ones in the 658cb33f list):
+```
+cd ~/rubix-lab/controller/test-plan/full-test
+F=$(python3 -c 'import rubix_client as rc; print(rc._only_did("192.168.1.105", 20000, "faucet", 8)[0] or "")')
+Q=$(python3 -c 'import rubix_client as rc; print(rc._only_did("192.168.1.106", 20000, "faucet quorum", 8)[0] or "")')
+cd ~/Desktop/rubixgoplatform && [ ${#F} -eq 59 ] && [ ${#Q} -eq 59 ] && sed -i "s/bafybmib5743qlxfoho35dmnk4b4nvte6e2yqrejhgtgzkwnh5woozlpdum/$F/; s/bafybmidrq3arfhz5eigcnodusamddztsdbfln375bnw4adfvddwio4coyi/$Q/" core/minterallowlist/mint_access_control.go && grep -A3 "^var CustomNetAllowedMinters" core/minterallowlist/mint_access_control.go
+git commit -m "Custom testnet allowlist: lab faucet DIDs" core/minterallowlist/mint_access_control.go
+```
 
 ### F3. Deploy that build to the installed nodes, and make it the install binary
 
@@ -280,11 +292,20 @@ The six installed nodes show the new commit (pool rows fail until Phase G).
 
 ### F4. Mint and wire the faucet
 
-Mint the faucet DID's tokens within its range and the faucet quorum's within
-its range (level 60001) — the faucet quorum generously: every payout stays
-pledged on it until the receiver spends it. Add the faucet quorum DID as the
-**only** quorum on the faucet node, and run quorum setup for it on the
-faucet-quorum node. The lab never mints anything else (CLAUDE.md "Funding rule").
+```
+cd ~/rubix-lab/controller
+nohup python3 -u faucet-setup.py > ~/faucet-setup.log 2>&1 &
+tail -f ~/faucet-setup.log
+```
+`faucet-setup.py` mints 200,000 RBT for each DID inside its range (level
+60001), both at once in batches of 5,000 — the faucet quorum as much as the
+faucet, because every payout stays pledged on it until the receiver spends it.
+Then it runs quorum setup on the faucet-quorum node and makes the faucet
+quorum the **only** quorum on the faucet node. Each batch prints its rate, so
+the first line tells you how long the rest takes. If it stops, run it again:
+it continues from the next token number. Run it again too after either faucet
+node restarts (quorum setup is held in memory). The lab never mints anything
+else (CLAUDE.md "Funding rule").
 
 **Check:** Phase H's smoke test starts with the faucet line
 `Faucet: ... faucet holds N RBT free` — anything else is printed as the reason.
@@ -395,6 +416,68 @@ python3 check-nodes.py --include-fixed
 - A node down → `./restart-nodes.sh` (restarts only nodes that are down)
 - DIDs below target → `python3 dids-to-excel.py`
 - CLOCK `FAIL` → `sudo timedatectl set-ntp true` on that machine
+
+---
+
+## Bringing a machine back, or adding one
+
+A machine left out of the rebuild still has whatever it ran before. .142 and
+.143 were not working on 2026-10-14 and still hold the old single node, which
+starts at boot. On the old swarm key it cannot connect to the fleet, so
+powering one on is harmless; it joins only through these steps. Written for
+.142; for any other machine the steps are the same with its own address.
+
+1. **On the machine:** Ubuntu, user `rubix`, its usual IP (A3). After an
+   Ubuntu reinstall also `sudo apt install -y openssh-server` and Docker
+   Engine (Phase C).
+2. **Back into `hosts.txt`** (no role = pool machine), then check it is listed:
+   ```
+   cd ~/rubix-lab/controller
+   sed -i -E 's/^#[[:space:]]*(192\.168\.1\.142)([[:space:]].*)?$/\1/' hosts.txt
+   python3 fleet.py hosts --host 192.168.1.142
+   ```
+   Make the same change in any other copy of `hosts.txt` you keep.
+3. **SSH key** — asks the machine's login password once. The first line drops
+   an old host key (an Ubuntu reinstall changes it); answer `yes` to the new one:
+   ```
+   ssh-keygen -R 192.168.1.142
+   ssh-copy-id rubix@192.168.1.142
+   ```
+4. **Remove the old install** (dry run first; the second asks you to type `wipe`):
+   ```
+   ./wipe-node-db.sh --legacy --host 192.168.1.142
+   ./wipe-node-db.sh --legacy --host 192.168.1.142 --yes
+   ssh rubix@192.168.1.142 'find ~ -maxdepth 4 \( -name localnet -o -name testnet -o -name .ipfs -o -name "*swarm.key" -o -iname "faucet*" \) 2>/dev/null; docker ps -a --format "{{.Names}}  {{.Image}}  {{.Status}}"; ss -ltn | grep -E ":(20000|4001|4002) "'
+   ```
+   The last command must print nothing. Anything it lists is from the old
+   setup: remove it on the machine and run it again.
+5. **The build the fleet runs** becomes the install binary — copied from a
+   running pool node, so the new machine matches whatever was deployed last:
+   ```
+   scp rubix@192.168.1.107:rubix-lab/nodes/node0/rubixgoplatform ~/rubix-lab/systems/prerequisite/rubixgoplatform
+   ```
+6. **Install** — asks the machine's sudo password once:
+   ```
+   ./install-nodes.sh --host 192.168.1.142
+   ```
+7. **Check:**
+   ```
+   ./preflight-check.sh --host 192.168.1.142
+   python3 node-versions.py --host 192.168.1.142 --host 192.168.1.107
+   ssh rubix@192.168.1.142 'n=$HOME/rubix-lab/nodes/node0; sha256sum $n/.ipfs/swarm.key | cut -c1-12; grep testnet_bootstrap_nodes $n/config.toml; grep -m1 "Minter allowlist" $n/log.txt; IPFS_PATH=$n/.ipfs $n/ipfs swarm peers | head -5'
+   ```
+   9 of 9 nodes up; the same commit as .107; the key's first 12 characters
+   equal `sha256sum ~/rubix-lab/systems/prerequisite/testnetswarm.key` on the
+   controller; the bootstrap line lists the four fullnodes;
+   `Minter allowlist: custom testnet`; peers listed.
+8. **DIDs** — re-run until the machine has 38:
+   ```
+   python3 dids-to-excel.py --host 192.168.1.142
+   python3 check-nodes.py --host 192.168.1.142
+   ```
+
+Nothing else: the runner reads `hosts.txt`, finds the new nodes by itself and
+funds their DIDs from the faucet as cases need them.
 
 ---
 

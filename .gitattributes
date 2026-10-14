@@ -8,6 +8,8 @@
 *.template text eol=lf
 systems/node-layout.txt text eol=lf
 systems/bootstrap-nodes.txt text eol=lf
+# The swarm key: IPFS parses it line by line, every node needs the same bytes.
+systems/prerequisite/testnetswarm.key text eol=lf
 
 # Note on the binaries in prerequisite/ (rubixgoplatform, ipfs):
 # these are committed normally, NOT via Git LFS. LFS bandwidth on GitHub is
