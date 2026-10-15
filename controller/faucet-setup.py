@@ -95,10 +95,13 @@ def main():
         pair[name] = (host, did)
         print("{:<14} {}  {}".format(name, host, did))
 
-    ok, quorums, note = rc.get_quorums(rc.FAUCET_HOST)
-    if not ok:
-        sys.exit("ERROR: faucet node did not answer: {}".format(note))
-    if quorums:
+    # The quorum list decides whether minting is over, so an error must stop
+    # here: an empty list answers status true with [] (core GetAllQuorum).
+    ok, payload = rc.http_json("GET", rc.base_url(rc.FAUCET_HOST) + rc.EP_QUORUM_LIST,
+                               rc.DEFAULT_TIMEOUT)
+    if not ok or not isinstance(payload, dict) or not payload.get("status"):
+        sys.exit("ERROR: cannot read the faucet node's quorum list: {}".format(payload))
+    if payload.get("result"):
         print("The faucet node already has a quorum, so minting is done - not minting.")
     else:
         results = {}
