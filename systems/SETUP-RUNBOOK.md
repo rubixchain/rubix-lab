@@ -12,9 +12,9 @@ bootstrap peers, and the lab's faucet DIDs as the allowed minters, compiled
 into the `vaishnav/temp-custom-testnet` build every node runs.
 
 Commands run on the **controller** unless a step says otherwise, from
-`~/rubix-lab/controller` (on .120 the repo sits at `~/Desktop/rubix/rubix-lab`
-and the product repo at `~/Desktop/rubix/rubixgoplatform` — use those paths
-there). Every controller tool reads `controller/hosts.txt` through
+`~/Desktop/rubix/rubix-lab/controller`; the product repo is at
+`~/Desktop/rubix/rubixgoplatform`. Every machine keeps the lab in the same
+place, `~/Desktop/rubix/rubix-lab`. Every controller tool reads `controller/hosts.txt` through
 `controller/fleet.py`.
 
 ---
@@ -47,8 +47,9 @@ from the pool nodes. Down machines stay commented out with a reason and date.
 
 38 DIDs per machine. With today's 26 pool machines: 234 nodes, 988 DIDs. The
 fullnode, faucet and faucet-quorum nodes are slot 0: port 20000. Every node
-lives in `~/rubix-lab/nodes/node<slot>` (home folder) and runs as systemd unit
-`rubixgoplatform@<slot>`.
+lives in `~/Desktop/rubix/rubix-lab/nodes/node<slot>` and runs as systemd unit
+`rubixgoplatform@<slot>`. Live logs: `controller/node-logs.sh` (README.md,
+"Where a node is, and how to see its live log").
 
 ### A3. Standardise access
 
@@ -83,15 +84,15 @@ whatever Go is installed (it downloads that version once):
 go env -w GOTOOLCHAIN=go1.22.12
 go version                      # prints go1.22.12
 ```
-`go version ~/Desktop/rubixgoplatform/linux/rubixgoplatform` shows which Go
+`go version ~/Desktop/rubix/rubixgoplatform/linux/rubixgoplatform` shows which Go
 built a binary.
 
 ### B2. This repo and the product repo
 
 ```
-git clone <rubix-lab repo> ~/rubix-lab
-chmod +x ~/rubix-lab/controller/*.sh ~/rubix-lab/controller/exec-update/*.sh
-git clone https://github.com/rubixchain/rubixgoplatform ~/Desktop/rubixgoplatform
+git clone <rubix-lab repo> ~/Desktop/rubix/rubix-lab
+chmod +x ~/Desktop/rubix/rubix-lab/controller/*.sh ~/Desktop/rubix/rubix-lab/controller/exec-update/*.sh
+git clone https://github.com/rubixchain/rubixgoplatform ~/Desktop/rubix/rubixgoplatform
 ```
 `controller/hosts.txt` is gitignored (real lab IPs), so a fresh clone does
 not have it: copy it over, or write it from `hosts.txt.example` with the roles
@@ -101,7 +102,7 @@ in A1. If the product repo lives elsewhere, set `REPO_DIR` in
 ### B3. Passwordless SSH to every machine
 
 ```
-cd ~/rubix-lab/controller
+cd ~/Desktop/rubix/rubix-lab/controller
 ./setup-ssh.sh
 ```
 Asks each machine's login password once. See `controller/VERSION-CHECK.txt`.
@@ -164,7 +165,7 @@ only wipe: the fresh fleet then runs on without being wiped again.
 ### D1. The old single node on every machine
 
 ```
-cd ~/rubix-lab/controller
+cd ~/Desktop/rubix/rubix-lab/controller
 ./wipe-node-db.sh --legacy --include-fixed          # dry run: what it would do, per machine
 ./wipe-node-db.sh --legacy --include-fixed --yes    # type 'wipe' to confirm
 ```
@@ -202,7 +203,7 @@ a **new** `prerequisite/testnetswarm.key` (2026-10-14): nothing still holding
 the old key can connect, whether or not anyone can reach it. Old daemons on
 lab machines are still stopped, as leftovers. A fullnode's peer list:
 ```
-ssh rubix@192.168.1.101 'IPFS_PATH=$HOME/rubix-lab/nodes/node0/.ipfs $HOME/rubix-lab/nodes/node0/ipfs swarm peers'
+ssh rubix@192.168.1.101 'IPFS_PATH=$HOME/Desktop/rubix/rubix-lab/nodes/node0/.ipfs $HOME/Desktop/rubix/rubix-lab/nodes/node0/ipfs swarm peers'
 ```
 
 **Check:** both scans print nothing, and a fullnode's peer list holds only
@@ -222,29 +223,29 @@ asks for its sudo password once. See `systems/install/README.md`.
 no custom-testnet code. Build the lab's branch once and put it there on the
 controller, so every node starts on it:
 ```
-cd ~/Desktop/rubixgoplatform
+cd ~/Desktop/rubix/rubixgoplatform
 git fetch origin
 git checkout vaishnav/temp-custom-testnet
 git pull --ff-only origin vaishnav/temp-custom-testnet
 make compile-linux
-cp ~/Desktop/rubixgoplatform/linux/rubixgoplatform ~/rubix-lab/systems/prerequisite/rubixgoplatform
+cp ~/Desktop/rubix/rubixgoplatform/linux/rubixgoplatform ~/Desktop/rubix/rubix-lab/systems/prerequisite/rubixgoplatform
 ```
 Git on the controller then shows that file as modified - expected.
 
 ### E1. The fullnodes, then the bootstrap list
 
 ```
-cd ~/rubix-lab/controller
+cd ~/Desktop/rubix/rubix-lab/controller
 ./install-nodes.sh --role fullnode
 ```
 Then write their peer IDs into `systems/bootstrap-nodes.txt`:
 ```
-cd ~/rubix-lab && { grep '^#' systems/bootstrap-nodes.txt; for h in 101 102 103 104; do p=$(curl -s --max-time 5 http://192.168.1.$h:20000/rubix/v1/node/peer_id | python3 -c 'import json,sys; print(json.load(sys.stdin)["message"])' 2>/dev/null); case "$p" in 12D3Koo*) echo "/ip4/192.168.1.$h/tcp/4002/p2p/$p" ;; *) echo "ERROR: .$h gave no peer ID" >&2 ;; esac; done; } > systems/bootstrap-nodes.new && mv systems/bootstrap-nodes.new systems/bootstrap-nodes.txt && cat systems/bootstrap-nodes.txt
+cd ~/Desktop/rubix/rubix-lab && { grep '^#' systems/bootstrap-nodes.txt; for h in 101 102 103 104; do p=$(curl -s --max-time 5 http://192.168.1.$h:20000/rubix/v1/node/peer_id | python3 -c 'import json,sys; print(json.load(sys.stdin)["message"])' 2>/dev/null); case "$p" in 12D3Koo*) echo "/ip4/192.168.1.$h/tcp/4002/p2p/$p" ;; *) echo "ERROR: .$h gave no peer ID" >&2 ;; esac; done; } > systems/bootstrap-nodes.new && mv systems/bootstrap-nodes.new systems/bootstrap-nodes.txt && cat systems/bootstrap-nodes.txt
 ```
 Commit and push `systems/bootstrap-nodes.txt`, then give the fullnodes each
 other and restart them:
 ```
-cd ~/rubix-lab/controller
+cd ~/Desktop/rubix/rubix-lab/controller
 ./install-nodes.sh --role fullnode --force
 for h in 101 102 103 104; do ./restart-nodes.sh --host 192.168.1.$h --force; done
 ```
@@ -283,27 +284,27 @@ On branch `vaishnav/temp-custom-testnet`, replace the two DIDs in
 can; `update-exec.sh` builds a local commit too). On the controller, reading
 both DIDs from their nodes (the two old DIDs are the ones in the 658cb33f list):
 ```
-cd ~/rubix-lab/controller/test-plan/full-test
+cd ~/Desktop/rubix/rubix-lab/controller/test-plan/full-test
 F=$(python3 -c 'import rubix_client as rc; print(rc._only_did("192.168.1.105", 20000, "faucet", 8)[0] or "")')
 Q=$(python3 -c 'import rubix_client as rc; print(rc._only_did("192.168.1.106", 20000, "faucet quorum", 8)[0] or "")')
-cd ~/Desktop/rubixgoplatform && [ ${#F} -eq 59 ] && [ ${#Q} -eq 59 ] && sed -i "s/bafybmib5743qlxfoho35dmnk4b4nvte6e2yqrejhgtgzkwnh5woozlpdum/$F/; s/bafybmidrq3arfhz5eigcnodusamddztsdbfln375bnw4adfvddwio4coyi/$Q/" core/minterallowlist/mint_access_control.go && grep -A3 "^var CustomNetAllowedMinters" core/minterallowlist/mint_access_control.go
+cd ~/Desktop/rubix/rubixgoplatform && [ ${#F} -eq 59 ] && [ ${#Q} -eq 59 ] && sed -i "s/bafybmib5743qlxfoho35dmnk4b4nvte6e2yqrejhgtgzkwnh5woozlpdum/$F/; s/bafybmidrq3arfhz5eigcnodusamddztsdbfln375bnw4adfvddwio4coyi/$Q/" core/minterallowlist/mint_access_control.go && grep -A3 "^var CustomNetAllowedMinters" core/minterallowlist/mint_access_control.go
 git commit -m "Custom testnet allowlist: lab faucet DIDs" core/minterallowlist/mint_access_control.go
 ```
 
 ### F3. Deploy that build to the installed nodes, and make it the install binary
 
 ```
-cd ~/rubix-lab/controller/exec-update
+cd ~/Desktop/rubix/rubix-lab/controller/exec-update
 ./update-exec.sh vaishnav/temp-custom-testnet 192.168.1.101 192.168.1.102 192.168.1.103 192.168.1.104 192.168.1.105 192.168.1.106
-cp ~/Desktop/rubixgoplatform/linux/rubixgoplatform ~/rubix-lab/systems/prerequisite/rubixgoplatform
-cd ~/rubix-lab/controller && python3 node-versions.py --include-fixed
+cp ~/Desktop/rubix/rubixgoplatform/linux/rubixgoplatform ~/Desktop/rubix/rubix-lab/systems/prerequisite/rubixgoplatform
+cd ~/Desktop/rubix/rubix-lab/controller && python3 node-versions.py --include-fixed
 ```
 The six installed nodes show the new commit (pool rows fail until Phase G).
 
 ### F4. Mint and wire the faucet
 
 ```
-cd ~/rubix-lab/controller
+cd ~/Desktop/rubix/rubix-lab/controller
 nohup python3 -u faucet-setup.py > ~/faucet-setup.log 2>&1 &
 tail -f ~/faucet-setup.log
 ```
@@ -343,7 +344,7 @@ Then check, before installing the rest:
    is stale — and an IPFS auto-restart never updates it. On .107:
    ```
    pgrep -fc "[i]pfs daemon"
-   for p in $(pgrep -f "[i]pfs daemon"); do [ "$(readlink /proc/$p/cwd)" = "$HOME/rubix-lab/nodes/node3" ] && kill "$p" && echo "killed node 3's IPFS (pid $p)"; done
+   for p in $(pgrep -f "[i]pfs daemon"); do [ "$(readlink /proc/$p/cwd)" = "$HOME/Desktop/rubix/rubix-lab/nodes/node3" ] && kill "$p" && echo "killed node 3's IPFS (pid $p)"; done
    pgrep -fc "[i]pfs daemon"
    ```
    The first count is 9; after node 3 restarts its IPFS (its `log.txt` says
@@ -387,7 +388,7 @@ and named, never retried; look at it by hand and run the tool again. It writes
 ## Phase H — Smoke test
 
 ```
-cd ~/rubix-lab/controller/test-plan/full-test
+cd ~/Desktop/rubix/rubix-lab/controller/test-plan/full-test
 python3 smoke_test.py          # 3 quorums, 14 sender/receiver pairs, spread over machines
 ```
 
@@ -442,7 +443,7 @@ powering one on is harmless; it joins only through these steps. Written for
    Engine (Phase C).
 2. **Back into `hosts.txt`** (no role = pool machine), then check it is listed:
    ```
-   cd ~/rubix-lab/controller
+   cd ~/Desktop/rubix/rubix-lab/controller
    sed -i -E 's/^#[[:space:]]*(192\.168\.1\.142)([[:space:]].*)?$/\1/' hosts.txt
    python3 fleet.py hosts --host 192.168.1.142
    ```
@@ -464,7 +465,7 @@ powering one on is harmless; it joins only through these steps. Written for
 5. **The build the fleet runs** becomes the install binary — copied from a
    running pool node, so the new machine matches whatever was deployed last:
    ```
-   scp rubix@192.168.1.107:rubix-lab/nodes/node0/rubixgoplatform ~/rubix-lab/systems/prerequisite/rubixgoplatform
+   scp rubix@192.168.1.107:Desktop/rubix/rubix-lab/nodes/node0/rubixgoplatform ~/Desktop/rubix/rubix-lab/systems/prerequisite/rubixgoplatform
    ```
 6. **Install** — asks the machine's sudo password once:
    ```
@@ -474,10 +475,10 @@ powering one on is harmless; it joins only through these steps. Written for
    ```
    ./preflight-check.sh --host 192.168.1.142
    python3 node-versions.py --host 192.168.1.142 --host 192.168.1.107
-   ssh rubix@192.168.1.142 'n=$HOME/rubix-lab/nodes/node0; sha256sum $n/.ipfs/swarm.key | cut -c1-12; grep testnet_bootstrap_nodes $n/config.toml; grep -m1 "Minter allowlist" $n/log.txt; IPFS_PATH=$n/.ipfs $n/ipfs swarm peers | head -5'
+   ssh rubix@192.168.1.142 'n=$HOME/Desktop/rubix/rubix-lab/nodes/node0; sha256sum $n/.ipfs/swarm.key | cut -c1-12; grep testnet_bootstrap_nodes $n/config.toml; grep -m1 "Minter allowlist" $n/log.txt; IPFS_PATH=$n/.ipfs $n/ipfs swarm peers | head -5'
    ```
    9 of 9 nodes up; the same commit as .107; the key's first 12 characters
-   equal `sha256sum ~/rubix-lab/systems/prerequisite/testnetswarm.key` on the
+   equal `sha256sum ~/Desktop/rubix/rubix-lab/systems/prerequisite/testnetswarm.key` on the
    controller; the bootstrap line lists the four fullnodes;
    `Minter allowlist: custom testnet`; peers listed.
 8. **DIDs** — re-run until the machine has 38:

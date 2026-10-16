@@ -1062,7 +1062,7 @@ def collect_versions(nodes, ssh_user="rubix", workers=20):
 
     There is NO version API - checked every route in server/server.go. The
     only source is `./rubixgoplatform -v` in the node's own folder
-    (~/rubix-lab/nodes/node<slot>), which prints and exits without touching
+    (~/Desktop/rubix/rubix-lab/nodes/node<slot>), which prints and exits without touching
     the running node. One SSH call per machine; same mechanism as
     controller/node-versions.py.
 
@@ -1081,7 +1081,7 @@ def collect_versions(nodes, ssh_user="rubix", workers=20):
     def one(machine):
         group = by_machine[machine]
         script = "; ".join(
-            'echo "== {s}"; (cd ~/rubix-lab/nodes/node{s} && ./rubixgoplatform -v) 2>&1'.format(
+            'echo "== {s}"; (cd ~/Desktop/rubix/rubix-lab/nodes/node{s} && ./rubixgoplatform -v) 2>&1'.format(
                 s=n["slot"]) for n in group)
         cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
                "-o", "ConnectTimeout=8", "{}@{}".format(ssh_user, machine), script]

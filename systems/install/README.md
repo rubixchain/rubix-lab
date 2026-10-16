@@ -25,7 +25,7 @@ single-node roles):
 
 | Thing | Value |
 |---|---|
-| Folder | `~/rubix-lab/nodes/node<N>/` — binary, `ipfs`, swarm key, `config.toml`, data, `log.txt` |
+| Folder | `~/Desktop/rubix/rubix-lab/nodes/node<N>/` — binary, `ipfs`, swarm key, `config.toml`, data, `log.txt` |
 | systemd unit | `rubixgoplatform@<N>` (template [rubixgoplatform@.service](rubixgoplatform@.service)), `Restart=always`, enabled at boot |
 | API port | 20000 + node_index |
 | Swarm port | 4002 + node_index |
@@ -42,9 +42,11 @@ set, `core/ipfs_recovery.go:247`). Nine nodes sharing one working directory
 would all restart onto the same IPFS repo.
 
 `nodes/` is gitignored — binaries, generated config with real lab IPs, and
-DID private keys do not belong in git. The repo must sit at `~/rubix-lab` on
+DID private keys do not belong in git. The repo must sit at `~/Desktop/rubix/rubix-lab` on
 every machine: the controller tools find every node at
-`~/rubix-lab/nodes/node<N>`. `setup.sh` refuses to run from anywhere else.
+`~/Desktop/rubix/rubix-lab/nodes/node<N>`. `setup.sh` refuses to run from anywhere else,
+and refuses while a machine still has nodes in the old `~/rubix-lab/nodes`
+(move them with `controller/move-nodes-to-desktop.sh` first).
 
 ## Network: Rubix's testnet setup, on the lab's own key
 
@@ -74,7 +76,7 @@ fullnodes each other, and every machine installed later gets the full list.
 ## Running it by hand
 
 ```
-cd ~/rubix-lab/systems/install
+cd ~/Desktop/rubix/rubix-lab/systems/install
 ./setup.sh pool
 SLOTS="0 1" ./setup.sh pool    # only some slots
 ```
@@ -113,7 +115,7 @@ done it removes the old unit file itself.
 ```
 curl -s http://localhost:20300/rubix/v1/node/ping      # node 3
 journalctl -u rubixgoplatform@3 -f
-tail -f ~/rubix-lab/nodes/node3/log.txt
+tail -f ~/Desktop/rubix/rubix-lab/nodes/node3/log.txt
 ```
 From the controller: `./preflight-check.sh` and `python3 check-nodes.py`.
 

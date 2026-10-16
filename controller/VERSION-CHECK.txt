@@ -15,7 +15,7 @@ There's a script that does this for you — setup-ssh.sh. It makes the key
 (if you don't have one yet) and copies it to every machine listed in
 controller/hosts.txt (fullnodes, faucet, explorer and pool alike):
 
-    cd ~/rubix-lab/controller
+    cd ~/Desktop/rubix/rubix-lab/controller
     ./setup-ssh.sh
 
 hosts.txt must already list the fleet with its roles — do NOT regenerate it
@@ -36,11 +36,11 @@ Needs Part 1 done first. Also needs openpyxl (one-time):
     sudo apt install -y python3-openpyxl
 
 Then, from the controller:
-    cd ~/rubix-lab/controller
+    cd ~/Desktop/rubix/rubix-lab/controller
     python3 node-versions.py                    # every pool node
     python3 node-versions.py --include-fixed    # plus fullnodes and faucet nodes
 
-Every node has its own copy of the binary (~/rubix-lab/nodes/node<slot>/),
+Every node has its own copy of the binary (~/Desktop/rubix/rubix-lab/nodes/node<slot>/),
 so each one is read: one SSH call per machine runs `./rubixgoplatform -v` in
 every node folder (it just prints the version and exits — doesn't touch the
 running node). It prints one row per node with the version and the commit,

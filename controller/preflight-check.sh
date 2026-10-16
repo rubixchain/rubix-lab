@@ -93,7 +93,7 @@ echo "clock=$(v timedatectl show -p NTPSynchronized --value)"
 for s in "$@"; do
   echo "unit.$s=$(v systemctl is-enabled "rubixgoplatform@$s")/$(v systemctl is-active "rubixgoplatform@$s")"
   echo "pg.$s=$(v docker inspect -f '{{.State.Running}}/{{.HostConfig.RestartPolicy.Name}}' "rubix-db-$s")"
-  if [ -x ~/rubix-lab/nodes/node$s/rubixgoplatform ]; then echo "bin.$s=yes"; else echo "bin.$s=no"; fi
+  if [ -x ~/Desktop/rubix/rubix-lab/nodes/node$s/rubixgoplatform ]; then echo "bin.$s=yes"; else echo "bin.$s=no"; fi
 done
 # `sudo -n -l <cmd>` asks "am I allowed to run this?" WITHOUT running it; -n
 # fails instead of prompting. It must be a command the grant covers.
@@ -114,7 +114,7 @@ REMOTE
     for s in "${slots[@]}"; do
       if [ "$(val "unit.$s")" = "enabled/active" ]; then u=$((u + 1)); else details+=("node $s unit: $(val "unit.$s")"); fi
       if [ "$(val "pg.$s")" = "true/always" ]; then p=$((p + 1)); else details+=("node $s Postgres rubix-db-$s: $(val "pg.$s" || true)"); fi
-      if [ "$(val "bin.$s")" = "yes" ]; then b=$((b + 1)); else details+=("node $s: no binary in ~/rubix-lab/nodes/node$s"); fi
+      if [ "$(val "bin.$s")" = "yes" ]; then b=$((b + 1)); else details+=("node $s: no binary in ~/Desktop/rubix/rubix-lab/nodes/node$s"); fi
     done
     units="$u/$n"; pg="$p/$n"; bin="$b/$n"
     [ "$docker_ok" = ok ] || details+=("docker not enabled+active: sudo systemctl enable --now docker")

@@ -7,7 +7,7 @@ Requires=docker.service
 [Service]
 Type=simple
 User={{USER}}
-# One instance per node: rubixgoplatform@<slot> runs ~/rubix-lab/nodes/node<slot>.
+# One instance per node: rubixgoplatform@<slot> runs ~/Desktop/rubix/rubix-lab/nodes/node<slot>.
 # That folder is the working directory AND the -p profile. The product runs
 # ./ipfs from the working directory and, when it restarts IPFS on its own,
 # points IPFS_PATH at ./.ipfs (core/ipfs_recovery.go:247 - NodeConfigDir is

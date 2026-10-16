@@ -2,7 +2,7 @@
 # controller/hosts.txt. Read on the machine by systems/install/setup.sh and on
 # the controller by controller/fleet.py, so both always agree.
 #
-#   slot        which node on the machine: folder ~/rubix-lab/nodes/node<slot>,
+#   slot        which node on the machine: folder ~/Desktop/rubix/rubix-lab/nodes/node<slot>,
 #               systemd unit rubixgoplatform@<slot>, Postgres container
 #               rubix-db-<slot>
 #   node_index  written into the node's config.toml. The product derives every

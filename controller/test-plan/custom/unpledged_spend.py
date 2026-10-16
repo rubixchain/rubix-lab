@@ -78,7 +78,7 @@ WHAT IT CHANGES ON THE LAB - read before running
     read. Do not run it during a catalogue run - it rewires 4 nodes' quorums.
 
 RUN (on the controller)
-    cd ~/rubix-lab/controller/test-plan/custom
+    cd ~/Desktop/rubix/rubix-lab/controller/test-plan/custom
     python3 unpledged_spend.py                       # shows the plan, asks first
     python3 unpledged_spend.py --sizes 10,50 --quorum 192.168.1.141:20000 --yes
 """

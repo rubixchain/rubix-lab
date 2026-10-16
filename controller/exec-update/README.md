@@ -18,11 +18,11 @@ flow — stop, copy, swap, start — is SSH end to end.
 
 Two different repos are involved, don't mix them up: the **product repo**
 (`rubixgoplatform`, cloned on the controller for *building*) and **this
-`rubix-lab` repo** (on every lab machine at `~/rubix-lab`, holding each node's
+`rubix-lab` repo** (on every lab machine at `~/Desktop/rubix/rubix-lab`, holding each node's
 folder `nodes/node<slot>/` — see [../../systems/install/README.md](../../systems/install/README.md)).
 
 1. Clone `rubixgoplatform` on the controller (default
-   `~/Desktop/rubixgoplatform`; set `REPO_DIR` in `exec-update.env` for
+   `~/Desktop/rubix/rubixgoplatform`; set `REPO_DIR` in `exec-update.env` for
    anywhere else).
 2. Install `Go 1.22` + `build-essential` on the controller (needed for
    `make compile-linux`).

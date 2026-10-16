@@ -7,7 +7,7 @@
 # from the controller to every machine. The passwordless sudo for stopping
 # and starting the nodes comes with systems/install/setup.sh.
 #
-# Every node has its own copy of the binary, in ~/rubix-lab/nodes/node<slot>/
+# Every node has its own copy of the binary, in ~/Desktop/rubix/rubix-lab/nodes/node<slot>/
 # on its machine (setup.sh's layout; controller/fleet.py lists the slots), and
 # runs as systemd unit rubixgoplatform@<slot>. Per machine this stops every
 # node, copies the binary over once, swaps it into each node folder, starts
@@ -31,7 +31,7 @@
 # Environment overrides (or exec-update.env, see the example):
 #   PREBUILT_BINARY=/path/to/bin   skip the build and ship this binary instead
 #                                  (for a controller with no Go toolchain)
-#   REPO_DIR=~/Desktop/rubixgoplatform   the checkout to build from
+#   REPO_DIR=~/Desktop/rubix/rubixgoplatform   the checkout to build from
 #   JOBS=1                         deploy one machine at a time (default: all at
 #                                  once) - useful when watching a failure
 #
@@ -89,14 +89,14 @@ if [ -f "$ENV_FILE" ]; then
   echo "Settings loaded from $ENV_FILE"
 fi
 # The single-node fleet needed REMOTE_BIN_REL to find its binary. Every node
-# now lives at ~/rubix-lab/nodes/node<slot>, so a leftover value would only
-# mislead - say so instead of silently ignoring it.
+# now lives at ~/Desktop/rubix/rubix-lab/nodes/node<slot>, so a leftover value
+# would only mislead - say so instead of silently ignoring it.
 if [ -n "${REMOTE_BIN_REL:-}${NODE_NAME:-}" ]; then
   echo "NOTE: REMOTE_BIN_REL / NODE_NAME are no longer used (nodes live in"
-  echo "      ~/rubix-lab/nodes/node<slot>); remove them from exec-update.env."
+  echo "      ~/Desktop/rubix/rubix-lab/nodes/node<slot>); remove them from exec-update.env."
 fi
 # Product repo clone, for BUILDING (controller-local).
-REPO_DIR="${REPO_DIR:-$HOME/Desktop/rubixgoplatform}"
+REPO_DIR="${REPO_DIR:-$HOME/Desktop/rubix/rubixgoplatform}"
 SSH_USER="${SSH_USER:-$(whoami)}"
 
 ALL=0; INCLUDE_FIXED=0; TARGET_ARGS=()
@@ -216,7 +216,7 @@ deploy_one() {
   # means the machine was never installed - copying would put a binary where
   # no unit runs it, and the summary would still say OK.
   if ! missing="$(ssh_run "$TARGET" "${slots[@]}" 2>"$WORKDIR/$TARGET.err" <<'REMOTE'
-for s in "$@"; do [ -f ~/rubix-lab/nodes/node$s/rubixgoplatform ] || echo "$s"; done
+for s in "$@"; do [ -f ~/Desktop/rubix/rubix-lab/nodes/node$s/rubixgoplatform ] || echo "$s"; done
 REMOTE
   )"; then
     echo "-- WARNING: cannot reach ${SSH_USER}@${TARGET} over SSH - nodes untouched"
@@ -224,7 +224,7 @@ REMOTE
     return 2
   fi
   if [ -n "$missing" ]; then
-    echo "-- WARNING: no binary for node(s) $(echo $missing) in ~/rubix-lab/nodes - refusing to deploy."
+    echo "-- WARNING: no binary for node(s) $(echo $missing) in ~/Desktop/rubix/rubix-lab/nodes - refusing to deploy."
     echo "            Install the machine first: ./install-nodes.sh --host ${TARGET}"
     return 3
   fi
@@ -238,7 +238,7 @@ REMOTE
   fi
 
   echo "-- copying binary"
-  if ! scp -q "$BINARY" "${SSH_USER}@${TARGET}:rubix-lab/nodes/rubixgoplatform.new"; then
+  if ! scp -q "$BINARY" "${SSH_USER}@${TARGET}:Desktop/rubix/rubix-lab/nodes/rubixgoplatform.new"; then
     echo "-- ERROR: copy failed. Nodes are STOPPED with their old binary intact."
     echo "          Start them with: cd .. && ./restart-nodes.sh --host ${TARGET}"
     return 1
@@ -247,7 +247,7 @@ REMOTE
   # so no node ever sees a half-written binary.
   if ! ssh_run "$TARGET" "${slots[@]}" <<'REMOTE'
 set -e
-cd ~/rubix-lab/nodes
+cd ~/Desktop/rubix/rubix-lab/nodes
 for s in "$@"; do
   cp rubixgoplatform.new "node$s/rubixgoplatform.new"
   chmod +x "node$s/rubixgoplatform.new"

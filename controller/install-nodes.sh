@@ -2,7 +2,7 @@
 # Rubix lab — install the nodes on lab machines, from the controller.
 #
 # Per machine: copies systems/ (setup.sh, the binaries, the swarm key,
-# node-layout.txt) to ~/rubix-lab/systems/ there, then runs setup.sh over
+# node-layout.txt) to ~/Desktop/rubix/rubix-lab/systems/ there, then runs setup.sh over
 # `ssh -t` for the machine's role in hosts.txt. No git clone is needed on the
 # machines. Explorer and controller machines run no node and are skipped.
 #
@@ -29,6 +29,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 HOSTS_FILE="$HERE/hosts.txt"
 SSH_USER="rubix"
+# The lab folder on every machine, relative to its home (fleet.py LAB_DIR).
+LAB="Desktop/rubix/rubix-lab"
 ROLES=()
 SINGLE_HOST=""
 SLOTS=""
@@ -105,16 +107,16 @@ for t in "${TARGETS[@]}"; do
     SKIPPED+=("$ip"); echo; continue
   fi
 
-  echo "  copying systems/ to ~/rubix-lab/systems/ ..."
+  echo "  copying systems/ to ~/${LAB}/systems/ ..."
   copied=0
-  if ssh -o BatchMode=yes -o ConnectTimeout=8 "${SSH_USER}@${ip}" 'mkdir -p ~/rubix-lab'; then
+  if ssh -o BatchMode=yes -o ConnectTimeout=8 "${SSH_USER}@${ip}" "mkdir -p ~/${LAB}"; then
     # rsync sends only what changed (the binaries are ~100MB); scp if either
     # side lacks it.
     if command -v rsync >/dev/null 2>&1 \
        && ssh -o BatchMode=yes "${SSH_USER}@${ip}" 'command -v rsync' >/dev/null 2>&1; then
-      rsync -a "$REPO/systems/" "${SSH_USER}@${ip}:rubix-lab/systems/" && copied=1
+      rsync -a "$REPO/systems/" "${SSH_USER}@${ip}:${LAB}/systems/" && copied=1
     else
-      scp -rq "$REPO/systems" "${SSH_USER}@${ip}:rubix-lab/" && copied=1
+      scp -rq "$REPO/systems" "${SSH_USER}@${ip}:${LAB}/" && copied=1
     fi
   fi
   if [ "$copied" -ne 1 ]; then
@@ -123,7 +125,7 @@ for t in "${TARGETS[@]}"; do
   fi
 
   if ssh -t -o ConnectTimeout=8 "${SSH_USER}@${ip}" \
-       "cd ~/rubix-lab/systems/install && chmod +x setup.sh && SLOTS='${SLOTS}' ./setup.sh ${role}"; then
+       "cd ~/${LAB}/systems/install && chmod +x setup.sh && SLOTS='${SLOTS}' ./setup.sh ${role}"; then
     OK+=("$ip")
   else
     FAILED+=("$ip")

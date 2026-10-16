@@ -3,7 +3,7 @@
 #
 # DESTRUCTIVE AND IRREVERSIBLE. Two modes:
 #
-# Default - the nodes setup.sh installs (~/rubix-lab/nodes/node<slot>), per node:
+# Default - the nodes setup.sh installs (~/Desktop/rubix/rubix-lab/nodes/node<slot>), per node:
 #   1. stop its unit rubixgoplatform@<slot>
 #   2. delete its Postgres container rubix-db-<slot> + volume rubix-pgdata-<slot>
 #      (wallet, tokens, quorum registrations, transaction history)
@@ -92,7 +92,7 @@ what_happens() {   # $1 = ip
   else
     for s in ${SLOTS_OF[$1]}; do
       echo "  would: node $s - stop rubixgoplatform@$s; docker rm -f rubix-db-$s + volume rubix-pgdata-$s;"
-      echo "         rm -rf ~/rubix-lab/nodes/node$s/{testnet,localnet,mainnet}; recreate an empty rubix-db-$s"
+      echo "         rm -rf ~/Desktop/rubix/rubix-lab/nodes/node$s/{testnet,localnet,mainnet}; recreate an empty rubix-db-$s"
     done
   fi
 }
@@ -148,7 +148,8 @@ fresh_db() {   # $1 = container, $2 = volume, $3 = port
 
 if [ "$MODE" = "legacy" ]; then
   if [ -e /etc/systemd/system/rubixgoplatform@.service ] \
-     || compgen -G "$HOME/rubix-lab/nodes/node[0-9]*" >/dev/null; then
+     || compgen -G "$HOME/rubix-lab/nodes/node[0-9]*" >/dev/null \
+     || compgen -G "$HOME/Desktop/rubix/rubix-lab/nodes/node[0-9]*" >/dev/null; then
     echo "  ERROR: this machine already has the multi-node layout - --legacy is only for the"
     echo "         old single-node install. Use the default mode for the new nodes."
     exit 1
@@ -224,7 +225,8 @@ for s in "$@"; do
   fi
   docker rm -f "rubix-db-$slot" >/dev/null 2>&1 || true
   docker volume rm "rubix-pgdata-$slot" >/dev/null 2>&1 || true
-  rm -rf ~/rubix-lab/nodes/node$slot/testnet ~/rubix-lab/nodes/node$slot/localnet ~/rubix-lab/nodes/node$slot/mainnet
+  n=~/Desktop/rubix/rubix-lab/nodes/node$slot
+  rm -rf "$n/testnet" "$n/localnet" "$n/mainnet"
   if fresh_db "rubix-db-$slot" "rubix-pgdata-$slot" "$port"; then
     echo "  node $slot: wiped, empty database on $port, node stopped"
   else

@@ -2,25 +2,25 @@ Rubix Lab — quick reference: commands only, in order
 =====================================================
 The rebuild, top to bottom. Details/troubleshooting: SETUP-RUNBOOK.md
 (the phase letters match). Everything runs on the CONTROLLER unless it says
-"on the machine". Paths below are the standard ones (~/rubix-lab,
-~/Desktop/rubixgoplatform); on .120 they are ~/Desktop/rubix/rubix-lab and
-~/Desktop/rubix/rubixgoplatform.
+"on the machine". Every machine keeps the lab in ~/Desktop/rubix/rubix-lab
+(nodes in ~/Desktop/rubix/rubix-lab/nodes/node<slot>); the controller's product
+checkout is ~/Desktop/rubix/rubixgoplatform.
 
 A. Roles: controller/hosts.txt (fullnode .101-.104, faucet .105,
    faucet-quorum .106, controller .120, explorer .123, the rest pool)
 ----------------------------------------
-python3 ~/rubix-lab/controller/fleet.py hosts --include-fixed
+python3 ~/Desktop/rubix/rubix-lab/controller/fleet.py hosts --include-fixed
 
 B. Controller setup (once)
 ----------------------------------------
 sudo apt update
 sudo apt install -y git python3 python3-psycopg2 python3-reportlab python3-openpyxl curl rsync build-essential
 sudo snap install go --classic          # only if `go version` is older than 1.22
-git clone <rubix-lab repo> ~/rubix-lab
-chmod +x ~/rubix-lab/controller/*.sh ~/rubix-lab/controller/exec-update/*.sh
-git clone https://github.com/rubixchain/rubixgoplatform ~/Desktop/rubixgoplatform
+git clone <rubix-lab repo> ~/Desktop/rubix/rubix-lab
+chmod +x ~/Desktop/rubix/rubix-lab/controller/*.sh ~/Desktop/rubix/rubix-lab/controller/exec-update/*.sh
+git clone https://github.com/rubixchain/rubixgoplatform ~/Desktop/rubix/rubixgoplatform
 # copy controller/hosts.txt over (it is gitignored)
-cd ~/rubix-lab/controller
+cd ~/Desktop/rubix/rubix-lab/controller
 ./setup-ssh.sh
 
 C. Docker Engine — on each machine that runs a node
@@ -33,7 +33,7 @@ sudo usermod -aG docker $USER
 
 D. Clear out the old installs (once)
 ----------------------------------------
-cd ~/rubix-lab/controller
+cd ~/Desktop/rubix/rubix-lab/controller
 ./wipe-node-db.sh --legacy --include-fixed           # dry run
 ./wipe-node-db.sh --legacy --include-fixed --yes     # type 'wipe'
 # on .120 and .123 (no node any more), on the machine:
@@ -43,9 +43,9 @@ cd ~/rubix-lab/controller
 
 E. Custom build, fullnodes + bootstrap list, faucet pair
 ----------------------------------------
-cd ~/Desktop/rubixgoplatform && git fetch origin && git checkout vaishnav/temp-custom-testnet && git pull --ff-only origin vaishnav/temp-custom-testnet && make compile-linux
-cp ~/Desktop/rubixgoplatform/linux/rubixgoplatform ~/rubix-lab/systems/prerequisite/rubixgoplatform
-cd ~/rubix-lab/controller
+cd ~/Desktop/rubix/rubixgoplatform && git fetch origin && git checkout vaishnav/temp-custom-testnet && git pull --ff-only origin vaishnav/temp-custom-testnet && make compile-linux
+cp ~/Desktop/rubix/rubixgoplatform/linux/rubixgoplatform ~/Desktop/rubix/rubix-lab/systems/prerequisite/rubixgoplatform
+cd ~/Desktop/rubix/rubix-lab/controller
 ./install-nodes.sh --role fullnode
 # write the 4 peer IDs into systems/bootstrap-nodes.txt (command in SETUP-RUNBOOK E1), commit, push
 ./install-nodes.sh --role fullnode --force
@@ -60,7 +60,7 @@ python3 dids-to-excel.py --host 192.168.1.106        # prints the faucet quorum 
 # on vaishnav/temp-custom-testnet, keep Level 60001 and the ranges, commit
 # (command in SETUP-RUNBOOK F2)
 cd exec-update && ./update-exec.sh vaishnav/temp-custom-testnet 192.168.1.101 192.168.1.102 192.168.1.103 192.168.1.104 192.168.1.105 192.168.1.106
-cp ~/Desktop/rubixgoplatform/linux/rubixgoplatform ~/rubix-lab/systems/prerequisite/rubixgoplatform
+cp ~/Desktop/rubix/rubixgoplatform/linux/rubixgoplatform ~/Desktop/rubix/rubix-lab/systems/prerequisite/rubixgoplatform
 cd .. && python3 node-versions.py --include-fixed
 nohup python3 -u faucet-setup.py > ~/faucet-setup.log 2>&1 & # mint + wire the faucet
 tail -f ~/faucet-setup.log                                     # ends "Faucet: faucet holds ... RBT free"
@@ -75,7 +75,7 @@ python3 dids-to-excel.py                             # re-run until 988 of 988
 
 H. Smoke test
 ----------------------------------------
-cd ~/rubix-lab/controller/test-plan/full-test
+cd ~/Desktop/rubix/rubix-lab/controller/test-plan/full-test
 python3 smoke_test.py
 for h in 101 102 103 104; do python3 -c "import psycopg2; c = psycopg2.connect(host='192.168.1.$h', port=5433, dbname='rubix', user='rubix', password='rubixpass'); cur = c.cursor(); cur.execute('SELECT count(*) FROM fullnode_transactions'); print('.$h', cur.fetchone()[0])"; done
 
@@ -83,7 +83,7 @@ A machine back (e.g. .142) or a new one — SETUP-RUNBOOK "Bringing a machine ba
 ----------------------------------------
 # on the machine first: Ubuntu, user rubix, its IP; after a reinstall also
 # openssh-server and Docker Engine (C)
-cd ~/rubix-lab/controller
+cd ~/Desktop/rubix/rubix-lab/controller
 sed -i -E 's/^#[[:space:]]*(192\.168\.1\.142)([[:space:]].*)?$/\1/' hosts.txt
 python3 fleet.py hosts --host 192.168.1.142
 ssh-keygen -R 192.168.1.142
@@ -91,7 +91,7 @@ ssh-copy-id rubix@192.168.1.142
 ./wipe-node-db.sh --legacy --host 192.168.1.142               # dry run
 ./wipe-node-db.sh --legacy --host 192.168.1.142 --yes         # type 'wipe'
 # then the old-folder scan in the runbook (must print nothing)
-scp rubix@192.168.1.107:rubix-lab/nodes/node0/rubixgoplatform ~/rubix-lab/systems/prerequisite/rubixgoplatform
+scp rubix@192.168.1.107:Desktop/rubix/rubix-lab/nodes/node0/rubixgoplatform ~/Desktop/rubix/rubix-lab/systems/prerequisite/rubixgoplatform
 ./install-nodes.sh --host 192.168.1.142
 ./preflight-check.sh --host 192.168.1.142
 python3 node-versions.py --host 192.168.1.142 --host 192.168.1.107
@@ -99,14 +99,20 @@ python3 dids-to-excel.py --host 192.168.1.142                 # until 38 DIDs
 
 Day to day
 ----------------------------------------
-cd ~/rubix-lab/controller
+cd ~/Desktop/rubix/rubix-lab/controller
 ./preflight-check.sh --include-fixed        # readiness table, one row per machine
 python3 check-nodes.py                      # one row per node
 ./restart-nodes.sh                          # restarts only nodes that are down
 ./restart-nodes.sh --host <ip> --slot 3     # one node (add --force to bounce a running one)
 cd exec-update && ./update-exec.sh <branch> --all --include-fixed   # deploy a build everywhere
 
+Live logs, from the controller (each line labelled ip:port; Ctrl+C stops):
+./node-logs.sh --host 192.168.1.102                # one machine
+./node-logs.sh --host 192.168.1.107 --slot 3       # one node
+./node-logs.sh --role fullnode                     # the four fullnodes
+./node-logs.sh --include-fixed --errors            # [ERROR]/[WARN] from every node
+
 On a machine:
 journalctl -u rubixgoplatform@3 -f          # node 3's service log
-tail -f ~/rubix-lab/nodes/node3/log.txt     # node 3's own log
+tail -f ~/Desktop/rubix/rubix-lab/nodes/node3/log.txt     # node 3's own log
 curl -s http://localhost:20300/rubix/v1/node/ping

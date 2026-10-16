@@ -21,8 +21,11 @@ controller/              run FROM the controller
   dids-to-excel.py       create + register each node's DIDs, export to Excel
   node-versions.py       every node's build and commit, over SSH
   preflight-check.sh     fleet readiness table (docker, clock, units, sudo, API)
+  node-logs.sh           follow the live log of one node, some, or the whole fleet
   setup-ssh.sh           one-time passwordless SSH to every machine
   restart-nodes.sh       restart nodes fleet-wide (parallel)
+  move-nodes-to-desktop.sh  one-time move of a machine's nodes from ~/rubix-lab
+  faucet-setup.py        mint the two faucet DIDs' tokens, wire the faucet quorum
   wipe-node-db.sh        destructive DB + DID reset (parallel)
   exec-update/           build a branch and deploy it to every node
   test-plan/             the test catalogue and its runners
@@ -45,9 +48,51 @@ reports/                 gitignored output: reports/pdf/ and reports/json/
 (the live binaries, generated `config.toml` with real lab IPs, DID private
 keys), not source, and `exec-update` deploys into it by that path.
 
-Every machine has this repo at the same path, `~/rubix-lab` — the controller
-copies `systems/` there (`install-nodes.sh`), and every tool finds node *N* at
-`~/rubix-lab/nodes/node<N>`.
+Every machine has this repo at the same path, `~/Desktop/rubix/rubix-lab` —
+the controller keeps its git clone there and copies `systems/` there on every
+other machine (`install-nodes.sh`), and every tool finds node *N* at
+`~/Desktop/rubix/rubix-lab/nodes/node<N>`. (Until 2026-10-16 it was
+`~/rubix-lab`; `controller/move-nodes-to-desktop.sh` moved the fleet.)
+
+## Where a node is, and how to see its live log
+
+A node is a folder, a systemd unit and a database:
+
+| | Where | Example: node 3 on .107 |
+|---|---|---|
+| Folder | `~/Desktop/rubix/rubix-lab/nodes/node<slot>/` on its machine | `~/Desktop/rubix/rubix-lab/nodes/node3/` |
+| Its own log | `log.txt` in that folder | `.../node3/log.txt` |
+| Service (start/stop/restart) | `rubixgoplatform@<slot>` | `rubixgoplatform@3` |
+| Database | Docker container `rubix-db-<slot>`, port 5433 + node_index | `rubix-db-3`, port 5733 |
+| API | port 20000 + node_index | `http://192.168.1.107:20300` |
+
+The fullnodes and the two faucet machines run one node each: slot 0, port
+20000, folder `nodes/node0`. A pool machine runs slots 0–8 (ports 20000,
+20100 … 20800). Inside a node folder: `rubixgoplatform` (the binary), `ipfs`,
+`testnetswarm.key`, `config.toml`, `log.txt`, `testnet/` (the DID keys) and
+`.ipfs/` (the peer ID; hidden, `ls -A`).
+
+**Live logs from the controller** — every line is labelled with the node it
+came from (`ip:port | ...`), Ctrl+C stops:
+```
+cd ~/Desktop/rubix/rubix-lab/controller
+./node-logs.sh --host 192.168.1.102                 # one machine (a fullnode)
+./node-logs.sh --host 192.168.1.107 --slot 3        # one node of a pool machine
+./node-logs.sh --role fullnode                      # the four fullnodes together
+./node-logs.sh --role faucet --role faucet-quorum   # the faucet pair
+./node-logs.sh --include-fixed                      # every node in the fleet
+./node-logs.sh --include-fixed --errors             # only [ERROR] and [WARN] lines, fleet-wide
+./node-logs.sh --role fullnode --grep "rubix_txn"   # only lines containing a pattern
+./node-logs.sh --host 192.168.1.105 --lines 200     # start with the last 200 lines
+```
+Without `--lines` it starts with each node's last 20 lines when following up
+to 9 nodes, and with new lines only for more.
+
+**On the machine itself** (e.g. sitting at .102):
+```
+tail -f ~/Desktop/rubix/rubix-lab/nodes/node0/log.txt    # the node's own log
+journalctl -u rubixgoplatform@0 -f                       # the service: starts, crashes, restarts
+```
 
 ## How the repo is used
 
@@ -74,8 +119,8 @@ Quorums, senders and receivers are chosen per test case from the pool nodes.
   reason and the test run is invalid.
 - **Never regenerate the swarm key per machine.** It is the shared secret that
   makes all nodes one network.
-- **Every node lives in `~/rubix-lab/nodes/node<slot>` and its ports follow its
-  `node_index`** (`systems/node-layout.txt`). That folder is both the node's
-  working directory and its profile. No per-machine variation.
+- **Every node lives in `~/Desktop/rubix/rubix-lab/nodes/node<slot>` and its
+  ports follow its `node_index`** (`systems/node-layout.txt`). That folder is
+  both the node's working directory and its profile. No per-machine variation.
 - **`nodes/` is never committed.** It holds binaries, generated config with real
   lab IPs, and DID private keys.

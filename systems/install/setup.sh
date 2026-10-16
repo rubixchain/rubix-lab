@@ -10,9 +10,10 @@
 #   faucet-quorum  one node - it will hold the faucet quorum DID
 #
 # Per node (slot N; node_index from the layout, 0 for the single-node roles):
-#   ~/rubix-lab/nodes/node<N>/   binary, ipfs, swarm key, config.toml and data.
-#                                The folder is both the working directory and
-#                                the -p profile (see rubixgoplatform@.service).
+#   ~/Desktop/rubix/rubix-lab/nodes/node<N>/   binary, ipfs, swarm key,
+#                                config.toml and data. The folder is both the
+#                                working directory and the -p profile (see
+#                                rubixgoplatform@.service).
 #   Postgres container rubix-db-<N> on port 5433 + node_index, own volume
 #   rubix-pgdata-<N>, --restart always
 #   systemd unit rubixgoplatform@<N>, Restart=always, enabled at boot
@@ -47,12 +48,12 @@ esac
 
 BUNDLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # systems/install
 SYSTEMS_DIR="$(cd "$BUNDLE_DIR/.." && pwd)"                  # systems/
-REPO_ROOT="$(cd "$SYSTEMS_DIR/.." && pwd)"                   # ~/rubix-lab
+REPO_ROOT="$(cd "$SYSTEMS_DIR/.." && pwd)"                   # ~/Desktop/rubix/rubix-lab
 PREREQ_DIR="$SYSTEMS_DIR/prerequisite"
 LAYOUT="$SYSTEMS_DIR/node-layout.txt"
 # nodes/ stays at the REPO ROOT, not under systems/: it is gitignored runtime
 # state (binaries, config with lab IPs, DID keys), and the controller tools
-# find every node at ~/rubix-lab/nodes/node<slot>.
+# find every node at ~/Desktop/rubix/rubix-lab/nodes/node<slot>.
 NODES_DIR="$REPO_ROOT/nodes"
 KUBO_VERSION="${KUBO_VERSION:-v0.19.1}"
 API_BASE=20000      # constants.RubixServerPort
@@ -63,9 +64,17 @@ EXTRA_ARGS=""
 
 echo "== Rubix lab node setup: $ROLE =="
 
-if [ "$REPO_ROOT" != "$HOME/rubix-lab" ]; then
+if [ "$REPO_ROOT" != "$HOME/Desktop/rubix/rubix-lab" ]; then
   echo "ERROR: this copy of the repo is at $REPO_ROOT. Every controller tool looks for"
-  echo "       the nodes under ~/rubix-lab/nodes - put the repo at ~/rubix-lab."
+  echo "       the nodes under ~/Desktop/rubix/rubix-lab/nodes - put the repo there."
+  exit 1
+fi
+# Until 2026-10-16 the nodes lived in ~/rubix-lab/nodes. Installing here while
+# they are still there would create empty node folders next to their existing
+# databases - DIDs in Postgres whose keys stayed behind in the old folder.
+if compgen -G "$HOME/rubix-lab/nodes/node[0-9]*" >/dev/null; then
+  echo "ERROR: this machine still has its nodes in ~/rubix-lab/nodes. Move them first,"
+  echo "       from the controller: ./move-nodes-to-desktop.sh --host <this machine>"
   exit 1
 fi
 
@@ -369,7 +378,7 @@ done
 if [ "$FAILED" -gt 0 ]; then
   echo ""
   echo "$FAILED node(s) not answering yet. Logs:  journalctl -u rubixgoplatform@<slot> -n 100"
-  echo "or the node's own log:                    ~/rubix-lab/nodes/node<slot>/log.txt"
+  echo "or the node's own log:                    ~/Desktop/rubix/rubix-lab/nodes/node<slot>/log.txt"
   exit 1
 fi
 echo ""

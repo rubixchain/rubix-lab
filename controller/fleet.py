@@ -21,7 +21,8 @@ Roles in hosts.txt, one per machine:
     explorer       no node
     controller     no node
 
-On a machine, slot N lives in ~/rubix-lab/nodes/node<N>/ and runs as systemd
+On a machine, slot N lives in ~/Desktop/rubix/rubix-lab/nodes/node<N>/ (the
+lab folder sits where the controller keeps its repo) and runs as systemd
 unit rubixgoplatform@<N>, with Postgres container rubix-db-<N> (volume
 rubix-pgdata-<N>). systems/install/setup.sh builds exactly that.
 
@@ -47,8 +48,10 @@ API_BASE = 20000        # constants.RubixServerPort
 SWARM_BASE = 4002       # constants.SwarmPort
 DB_BASE = 5433          # constants.PostgresBasePort
 
-# Where the nodes live on every machine, relative to its home directory.
-NODES_DIR = "rubix-lab/nodes"
+# Where the lab folder and its nodes live on every machine, relative to its
+# home directory (until 2026-10-16 it was ~/rubix-lab - move-nodes-to-desktop.sh).
+LAB_DIR = "Desktop/rubix/rubix-lab"
+NODES_DIR = LAB_DIR + "/nodes"
 
 # Roles that run one node at slot 0, node_index 0 -> how many DIDs it holds.
 SINGLE_NODE_ROLES = {"fullnode": 0, "faucet": 1, "faucet-quorum": 1}

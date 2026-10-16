@@ -11,7 +11,7 @@ which just prints:
 and exits immediately -- it does not touch the running node or its port, so
 it's safe to run over SSH while the node is live.
 
-Every node has its own copy of the binary (~/rubix-lab/nodes/node<slot>/), so
+Every node has its own copy of the binary (~/Desktop/rubix/rubix-lab/nodes/node<slot>/), so
 each one is read: after a deploy they should all match, and the commit is
 what proves the build that matters (e.g. the one with the new faucet DIDs in
 its minter allowlist) actually landed. One SSH call per machine.
