@@ -157,7 +157,9 @@ while read -r ip role; do
   esac
   if [ "$restart" -eq 1 ]; then
     echo "  starting the nodes from the new folder (asks this machine's sudo password once)..."
-    if "$HERE/install-nodes.sh" --host "$ip" --force --hosts "$HOSTS_FILE" --user "$SSH_USER"; then
+    # </dev/tty: this loop reads the machine list on stdin, and setup.sh's sudo
+    # needs the real terminal (ssh -t) to ask for the password.
+    if "$HERE/install-nodes.sh" --host "$ip" --force --hosts "$HOSTS_FILE" --user "$SSH_USER" </dev/tty; then
       MOVED+=("$ip")
       case "$role" in faucet|faucet-quorum) FAUCET_MOVED=1 ;; esac
     else

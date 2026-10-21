@@ -79,13 +79,18 @@ if [ -z "$LINES" ]; then
   if [ "$count" -le 9 ]; then LINES=20; else LINES=0; fi
 fi
 
+# Ubuntu's awk is mawk, which reads a pipe in large blocks and so would sit on
+# a live log's lines; -W interactive makes it read and print line by line.
+AWK=(awk)
+awk -W version 2>/dev/null | grep -qi mawk && AWK=(awk -W interactive)
+
 trap 'kill $(jobs -p) 2>/dev/null; exit 0' INT TERM
 echo "Following $count node(s) on ${#ORDER[@]} machine(s)${PATTERN:+, lines matching: $PATTERN} - Ctrl+C to stop."
 
 for ip in "${ORDER[@]}"; do
   ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=30 "${SSH_USER}@${ip}" \
     "cd ~/Desktop/rubix/rubix-lab/nodes && exec tail -n ${LINES} -F${FILES[$ip]} 2>&1" </dev/null \
-  | awk -v ip="$ip" -v map="${PORTS[$ip]}" -v pat="$PATTERN" '
+  | "${AWK[@]}" -v ip="$ip" -v map="${PORTS[$ip]}" -v pat="$PATTERN" '
       BEGIN {
         n = split(map, kv, " ")
         for (i = 1; i <= n; i++) { split(kv[i], a, "="); port[a[1]] = a[2] }
