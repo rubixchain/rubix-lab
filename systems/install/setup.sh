@@ -346,6 +346,13 @@ for row in "${ROWS[@]}"; do
   sudo systemctl enable --now "rubixgoplatform@$SLOT"
 done
 
+# The node console (../console): this machine's nodes and their live logs,
+# opened on its screen at every login. User-level, no sudo.
+if [ -f "$SYSTEMS_DIR/console/rubix-console.sh" ]; then
+  chmod +x "$SYSTEMS_DIR/console/rubix-console.sh"
+  "$SYSTEMS_DIR/console/rubix-console.sh" --install || true
+fi
+
 # ---------------------------------------------------------------------------
 # Check: every node's API port accepts connections. A first start initialises
 # IPFS and the database, so it is slower than a restart (~15s).

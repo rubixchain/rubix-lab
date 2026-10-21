@@ -22,6 +22,8 @@ controller/              run FROM the controller
   node-versions.py       every node's build and commit, over SSH
   preflight-check.sh     fleet readiness table (docker, clock, units, sudo, API)
   node-logs.sh           follow the live log of one node, some, or the whole fleet
+  fleet-console.sh       pick a machine, see its nodes, switch between their live logs
+  install-console.sh     put the node console on the machines (no sudo)
   setup-ssh.sh           one-time passwordless SSH to every machine
   restart-nodes.sh       restart nodes fleet-wide (parallel)
   move-nodes-to-desktop.sh  one-time move of a machine's nodes from ~/rubix-lab
@@ -38,6 +40,7 @@ systems/                 goes ON each lab machine
   node-layout.txt        the nodes a pool machine runs and their DID counts
   bootstrap-nodes.txt    the fixed bootstrap list: the four fullnodes
   install/               setup.sh, config.toml.template, systemd template unit
+  console/               rubix-console.sh - a machine's nodes and their live logs, on its screen
   prerequisite/          rubixgoplatform, ipfs, testnetswarm.key
 
 nodes/                   gitignored runtime: one folder per node (node0..node8)
@@ -93,6 +96,43 @@ to 9 nodes, and with new lines only for more.
 tail -f ~/Desktop/rubix/rubix-lab/nodes/node0/log.txt    # the node's own log
 journalctl -u rubixgoplatform@0 -f                       # the service: starts, crashes, restarts
 ```
+
+## The node console - switching between a machine's nodes
+
+Every machine with nodes has a console: a status table of its nodes, and
+each node's live log one key away. Same keys wherever you open it:
+
+| Key | Shows |
+|---|---|
+| (start) | status table, refreshed every 5s: slot, port, service, API, DIDs, peers, log size, last log line |
+| `0`–`8` | that node's live log |
+| `j` | the same node's service events (start, crash, restart) |
+| `s` | back to the status table |
+| `q` | leave - the nodes keep running, they are services, not this window |
+
+**At the machine:** it opens on the screen by itself at login, maximised,
+titled "Rubix nodes". Closed it? Open "Rubix nodes" from the app menu, or run
+`~/Desktop/rubix/rubix-lab/systems/console/rubix-console.sh`.
+
+**From the controller** - pick any machine from a list, `q` brings you back
+to the list:
+```
+cd ~/Desktop/rubix/rubix-lab/controller
+./fleet-console.sh                          # the list of machines
+./fleet-console.sh --host 192.168.1.107     # straight to one
+ssh rubix@192.168.1.107 '~/Desktop/rubix/rubix-lab/systems/console/rubix-console.sh --status'   # the table once, no keys
+```
+Use `./node-logs.sh` instead to watch many nodes at once or filter errors
+fleet-wide (see above).
+
+**Putting it on the machines** (no sudo; new installs get it from `setup.sh`):
+```
+./install-console.sh --include-fixed --close-old
+```
+`--close-old` closes the terminal windows left from the old single-node setup
+(idle shells, and `journalctl -u rubixgoplatform.service -f` windows following
+a service that no longer exists); a window running anything else is kept and
+listed. The controller and explorer are never touched.
 
 ## Everyday commands on a fleet machine
 
