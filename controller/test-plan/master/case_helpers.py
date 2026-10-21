@@ -1,15 +1,18 @@
-"""case_helpers.py - what more than one asset module uses: funding and
-quorum preconditions, transfer and balance helpers, shared constants.
+"""case_helpers.py - what more than one case module uses: firing transfers at
+the same moment and timing them, summarising a burst, the saved limits, and
+the node's own refusal reasons.
 
 Every RBT comes from the faucet (rc.fund_did); nothing here mints RBT.
 """
 
 from concurrent.futures import ThreadPoolExecutor
+import datetime
 import json
 import os
 import random
 import string
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -78,6 +81,139 @@ def refusal_summary(messages, top=3, limit=160):
         counts[r] = counts.get(r, 0) + 1
     ranked = sorted(counts.items(), key=lambda kv: -kv[1])
     return "; ".join("{}x {}".format(n, r) for r, n in ranked[:top])
+
+
+# ---------------------------------------------------------------------------
+# Firing operations at the same moment, and what came back
+# ---------------------------------------------------------------------------
+
+# Long enough to see the product's own limits: a quorum gives up on a signer
+# after 10 minutes (IndividualQuorumTimeout, core/quorum_initiator.go:44), so a
+# shorter client timeout would report our patience, not the product's.
+TRANSFER_TIMEOUT = 900
+
+
+def burst(jobs, timeout=TRANSFER_TIMEOUT):
+    """Run every job at the same moment and time each one.
+
+    A job is a dict for rc.initiate_transaction: host, did (initiator), to
+    (receiver DID) and any of rbt / ft / nft / smart_contract / memo. All
+    threads wait on one barrier and start together, so "50 at once" really is
+    50 at once rather than 50 started over the time it takes to spawn them.
+    Returns one dict per job, in order: ok, msg, secs, txid.
+    """
+    if not jobs:
+        return []
+    gate = threading.Barrier(len(jobs))
+
+    def one(job):
+        try:
+            gate.wait(timeout=60)
+        except threading.BrokenBarrierError:
+            pass
+        t0 = time.time()
+        extra = dict((k, job[k]) for k in ("rbt", "ft", "nft", "smart_contract", "memo") if k in job)
+        try:
+            ok, msg, result = rc.initiate_transaction(job["host"], job["did"], job["to"],
+                                                      timeout=timeout, **extra)
+        except Exception as e:
+            ok, msg, result = False, "{}: {}".format(type(e).__name__, e), None
+        txid = result.get("transactionID") if isinstance(result, dict) else None
+        return {"ok": bool(ok), "msg": str(msg or ""), "secs": round(time.time() - t0, 2),
+                "txid": txid}
+
+    with ThreadPoolExecutor(max_workers=len(jobs)) as ex:
+        return list(ex.map(one, jobs))
+
+
+def run_parallel(fn, items, workers=None):
+    """fn(item) for every item at once; results in order. For the asset
+    operations, which are not plain transfers."""
+    items = list(items)
+    if not items:
+        return []
+    with ThreadPoolExecutor(max_workers=workers or min(64, len(items))) as ex:
+        return list(ex.map(fn, items))
+
+
+def percentile(values, p):
+    """The p-th percentile (0-100) of `values`, nearest-rank; 0.0 when empty."""
+    vals = sorted(values)
+    if not vals:
+        return 0.0
+    k = max(0, min(len(vals) - 1, int(round(p / 100.0 * len(vals) + 0.5)) - 1))
+    return vals[k]
+
+
+def summarize(results):
+    """{n, ok, failed, p50, p95, max, reasons} for burst() results. Times are of
+    the transfers that went through; reasons group the refusals by the node's
+    own words."""
+    ok = [r for r in results if r["ok"]]
+    secs = [r["secs"] for r in ok]
+    return {"n": len(results), "ok": len(ok), "failed": len(results) - len(ok),
+            "p50": percentile(secs, 50), "p95": percentile(secs, 95),
+            "max": max(secs) if secs else 0.0,
+            "reasons": refusal_summary([r["msg"] for r in results if not r["ok"]])}
+
+
+def ring(entries):
+    """[(entry i, entry i+1)], the last paying the first: every DID sends one
+    transfer and receives one, so balances stay level across ladder rungs."""
+    n = len(entries)
+    return [(entries[i], entries[(i + 1) % n]) for i in range(n)] if n > 1 else []
+
+
+def ladder(text, ceiling):
+    """'10,20,50' -> [10, 20, 50], cut at `ceiling` (what the unit could get)."""
+    rungs = sorted(set(int(x) for x in str(text).split(",") if x.strip()))
+    return [r for r in rungs if r <= ceiling]
+
+
+# ---------------------------------------------------------------------------
+# Limits one case measures and later cases size themselves by
+#
+# QCAP-01 finds how many transfers one quorum signs at once; the node- and
+# fleet-level cases then give themselves enough quorums that the quorum is
+# never what they hit. Kept on the controller between runs, like the ledger.
+# ---------------------------------------------------------------------------
+
+LIMITS_PATH = os.path.join(HERE, "..", "full-test", "lab-limits.json")
+
+
+def load_limits():
+    try:
+        with open(LIMITS_PATH, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (IOError, OSError, ValueError):
+        return {}
+
+
+def save_limit(key, value, detail=None):
+    data = load_limits()
+    data[key] = {"value": value, "at": datetime.datetime.now().isoformat(timespec="seconds"),
+                 "detail": detail}
+    try:
+        with open(LIMITS_PATH, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+    except (IOError, OSError):
+        pass
+
+
+def quorum_capacity(default):
+    """How many concurrent transfers one quorum signs in full - QCAP-01's last
+    measurement, or `default` before it has run."""
+    entry = load_limits().get("quorum_senders") or {}
+    try:
+        return max(1, int(entry.get("value") or default))
+    except (TypeError, ValueError):
+        return default
+
+
+def quorums_for(n_senders, default_capacity):
+    """Quorums needed so that no quorum carries more than its measured capacity."""
+    cap = quorum_capacity(default_capacity)
+    return max(1, -(-n_senders // cap))
 
 
 def _sc_new_contract(ctx, entry):

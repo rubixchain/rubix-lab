@@ -607,6 +607,16 @@ def transaction_exists(host, tx_id, port=DB_PORT):
     return bool(rows)
 
 
+def transactions_present(host, tx_ids, port=DB_PORT):
+    """The subset of tx_ids that have a row in this node's transactions table -
+    one query for many, where transaction_exists would take one each."""
+    ids = [t for t in tx_ids if t]
+    if not ids:
+        return set()
+    rows = query(host, "SELECT id FROM transactions WHERE id = ANY(%s)", (ids,), port)
+    return set(t for (t,) in rows)
+
+
 def transaction_participants(host, tx_id, port=DB_PORT):
     """(initiator, owner) read from the transaction's own info JSON.
 

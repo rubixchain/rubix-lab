@@ -78,10 +78,21 @@ def _capture(host, did):
         return None
 
 
+def _capture_all(parts):
+    """{did: snapshot} for every participant, read in parallel - a ladder
+    case has 200 of them, and one after another took minutes per side."""
+    from concurrent.futures import ThreadPoolExecutor
+    entries = [e for _r, e in parts]
+    if not entries:
+        return {}
+    with ThreadPoolExecutor(max_workers=min(32, len(entries))) as ex:
+        snaps = list(ex.map(lambda e: _capture(e["host"], e["did"]), entries))
+    return dict((e["did"], s) for e, s in zip(entries, snaps))
+
+
 def begin(unit):
     state = {"op_index": len(rc.OPS), "before": {}, "started": time.time()}
-    for _role, e in participants(unit):
-        state["before"][e["did"]] = _capture(e["host"], e["did"])
+    state["before"] = _capture_all(participants(unit))
     return state
 
 
@@ -104,13 +115,19 @@ def _wait_for_rows(ops, host_of):
         want[op["txid"]] = dict((h, False) for h in hosts)
     deadline = time.time() + SETTLE_SECONDS
     while True:
+        # One query per node for all of its missing transactions, not one per
+        # transaction: a ladder case makes hundreds.
+        missing = {}
         for txid, hosts in want.items():
-            for h in hosts:
-                if not hosts[h]:
-                    try:
-                        hosts[h] = db.transaction_exists(h, txid)
-                    except Exception:
-                        pass
+            for h, found in hosts.items():
+                if not found:
+                    missing.setdefault(h, []).append(txid)
+        for h, ids in missing.items():
+            try:
+                for txid in db.transactions_present(h, ids):
+                    want[txid][h] = True
+            except Exception:
+                pass
         if all(all(v.values()) for v in want.values()) or time.time() > deadline:
             return want
         time.sleep(2)
@@ -259,7 +276,7 @@ def finish(tid, unit, state, result):
         return done()
 
     found = _wait_for_rows(ops, host_of)
-    after = dict((e["did"], _capture(e["host"], e["did"])) for _r, e in parts)
+    after = _capture_all(parts)
 
     unreadable = sorted(set(role_of[d] for d in dids
                             if state["before"].get(d) is None or after.get(d) is None))

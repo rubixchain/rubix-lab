@@ -105,7 +105,8 @@ in A1. If the product repo lives elsewhere, set `REPO_DIR` in
 cd ~/Desktop/rubix/rubix-lab/controller
 ./setup-ssh.sh
 ```
-Asks each machine's login password once. See `controller/VERSION-CHECK.txt`.
+Asks each machine's login password once; safe to re-run after adding machines
+to `hosts.txt` (machines that already have the key are skipped).
 
 **Check:** `setup-ssh.sh` ends with every machine `OK`.
 

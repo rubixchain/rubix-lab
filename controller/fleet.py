@@ -49,7 +49,7 @@ SWARM_BASE = 4002       # constants.SwarmPort
 DB_BASE = 5433          # constants.PostgresBasePort
 
 # Where the lab folder and its nodes live on every machine, relative to its
-# home directory (until 2026-10-16 it was ~/rubix-lab - move-nodes-to-desktop.sh).
+# home directory (until 2026-10-21 it was ~/rubix-lab).
 LAB_DIR = "Desktop/rubix/rubix-lab"
 NODES_DIR = LAB_DIR + "/nodes"
 

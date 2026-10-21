@@ -2,9 +2,10 @@
 """
 test_runner.py - runs the lab suite on the fleet.
 
-The cases live in master/ (one module per asset); this file is everything
-around them: which DIDs take part in each case, getting them ready, running
-the case, checking the wallets afterwards, and writing the report.
+The cases live in master/ (one module per stage or group, see
+master/master_cases.py); this file is everything around them: which DIDs take
+part in each case, getting them ready, running the case, checking the wallets
+afterwards, and writing the report.
 
 Flow:
     1. Load the cases (master/master_cases.py) and what each one NEEDS:
@@ -30,10 +31,15 @@ Three outcomes:
     FAIL    ran and did NOT match: a finding
     SKIP    not attempted, with the reason. Never counted as a pass.
 
+The suite runs in stages, in catalogue order: the opening fleet audit, then
+capacity (QCAP-01 measures how many transfers one quorum signs at once and
+saves it to lab-limits.json, which later cases size their quorums by) and the
+asset stock, then the limit cases, then failures, then the closing audit.
+
 Usage:
     python3 test_runner.py                                   # every case
-    python3 test_runner.py --only 'RBT-*'                    # one asset
-    python3 test_runner.py --only RBT-N-01,SC-C-27
+    python3 test_runner.py --only 'QCAP-*'                   # one group
+    python3 test_runner.py --only AUDIT-START,QCAP-01
 """
 
 import argparse
@@ -159,10 +165,8 @@ SUITES_DIR = os.path.join(HERE, "..", "suites")
 # Which module owns each Test ID prefix, so a suite file can list cases without
 # also having to name the modules they live in. Every asset now lives in the
 # master script.
-PREFIX_MODULE = {
-    "RBT": "master", "FT": "master", "NFT": "master",
-    "SC": "master", "CRS": "master", "GEN": "master",
-}
+PREFIX_MODULE = dict((p, "master") for p in (
+    "AUDIT", "QCAP", "WALLET", "FT", "NFT", "SC", "RACE", "LOAD", "CHAIN", "COMBO", "FAIL"))
 
 
 def load_suite(name):
@@ -257,7 +261,9 @@ def resolve_ci(tid, master, case_info):
 #                its quorum, which is cheapest against the poorest one
 #   same_node    every DID from ONE node (sender, receiver and quorum on the
 #                same machine); needs a node holding that many DIDs
-#   exclusive    run with nothing else running (the fleet-wide sweeps)
+#   exclusive    run with nothing else running, at its place in the catalogue:
+#                units before it finish first, units after it wait for it
+#   first        run before everything else, alone (the opening fleet audit)
 #   last         run after every other unit has finished
 # ---------------------------------------------------------------------------
 
@@ -270,7 +276,7 @@ NO_DELAY_RERUN = set()
 
 UNIT_DEFAULTS = {"senders": 1, "receivers": 1, "quorums": 1, "fund": 0,
                  "quorum_fund": None, "quorum_pick": "richest",
-                 "same_node": False, "exclusive": False, "last": False}
+                 "same_node": False, "exclusive": False, "first": False, "last": False}
 
 # Added to a unit's `fund`. Being generous costs one faucet transfer; being
 # short costs a failure that says nothing about the product.
@@ -297,7 +303,7 @@ class Unit(object):
 
     @property
     def exclusive(self):
-        return bool(self.spec["exclusive"]) or self.wants_all
+        return bool(self.spec["exclusive"]) or bool(self.spec["first"]) or self.wants_all
 
     @property
     def needs_nodes(self):
@@ -339,10 +345,11 @@ def build_units(module, order):
     if undeclared:
         sys.exit("ERROR: no NEEDS entry for {} - declare what each case needs in its "
                  "asset module".format(", ".join(undeclared)))
-    # Catalogue order within each phase: ordinary units, then the ones that
-    # need the fleet to themselves, then the "last" ones, then last+exclusive
-    # (the fleet-wide sweeps see the fleet after everything else).
-    units.sort(key=lambda u: (bool(u.spec["last"]), u.exclusive, pos[u.cases[0]]))
+    # "first" units, then catalogue order, then the "last" ones. An exclusive
+    # unit keeps its place: the suite runs in stages (capacity measured first,
+    # then the cases sized by it), so it waits for the units before it and the
+    # units after it wait for it - run_units enforces both.
+    units.sort(key=lambda u: (not u.spec["first"], bool(u.spec["last"]), pos[u.cases[0]]))
     return units
 
 
@@ -640,6 +647,8 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
     with ThreadPoolExecutor(max_workers=workers) as ex:
         while pending or running:
             for unit in list(pending):
+                if any(u.exclusive for u in running.values()):
+                    break               # an exclusive unit runs with nothing beside it
                 if unit.spec["last"] and any(not u.spec["last"]
                                              for u in pending + list(running.values())):
                     break               # "last" waits for every ordinary unit
@@ -989,24 +998,27 @@ def main():
     p.add_argument("--rbt-amount", type=float, default=1)
     p.add_argument("--ft-count", type=int, default=10)
     p.add_argument("--ft-token-count", type=int, default=1)
-    # Scale knobs. Each defaults to the catalogue's own size (None = use it);
-    # lower one only for a quick pass. The value actually used is stated in
-    # the case's report row, so a reduced run is never mistaken for the full one.
-    p.add_argument("--repeat-count", type=int, default=None,
-                   help="RBT-P-04 repetitions of 0.001 (default 1000)")
-    p.add_argument("--value-ceiling", type=int, default=None,
-                   help="RBT-V-11 highest rung of the value ladder (default 5000)")
-    p.add_argument("--wallet-ceiling", type=int, default=None,
-                   help="RBT-B-08 largest wallet in tokens (default 5000)")
-    p.add_argument("--tiny-tokens", type=int, default=None,
-                   help="RBT-W-03 number of part tokens built (default 2000)")
-    p.add_argument("--chain-hops", type=int, default=None,
-                   help="RBT-B-07 hops as chain history grows (default 100)")
-    p.add_argument("--burst-count", type=int, default=None,
-                   help="RBT-B-01 back-to-back transfers (default 200)")
+    # Scale knobs. Defaults are the catalogue's sizes; lower one only for a
+    # quick pass. The value actually used is stated in the case's report row,
+    # so a reduced run is never mistaken for the full one.
+    p.add_argument("--quorum-ladder", default="10,20,50,70,90,100,150,200",
+                   help="QCAP-01: concurrent senders through one quorum, rung by rung")
+    p.add_argument("--ladder-stop", type=float, default=50.0,
+                   help="stop climbing a ladder once a rung's pass rate falls below this "
+                        "percent (default 50)")
+    p.add_argument("--ladder-settle", type=int, default=15,
+                   help="seconds between ladder rungs, so credits and unpledges land")
+    p.add_argument("--whole-wallet", type=int, default=3000,
+                   help="WALLET-01: whole tokens in the big wallet (default 3000)")
+    p.add_argument("--parts-target", type=int, default=600,
+                   help="WALLET-01: part tokens the fragmented wallet collects (default 600)")
+    p.add_argument("--asset-hops", type=int, default=6,
+                   help="FT-01 / NFT-01 / SC-01: hops each asset makes (default 6)")
     p.add_argument("--scale", type=float, default=1.0,
-                   help="multiplier for the volume of the SC-X-*/FT-X-* stress cases "
-                        "(default 1.0 = the documented figures)")
+                   help="multiplier for the asset cases' volume (default 1.0)")
+    p.add_argument("--fleet-total", type=float, default=400000.0,
+                   help="AUDIT: RBT the faucet minted, which the whole fleet must always "
+                        "hold (default 400000 - 200,000 each for the faucet DID and quorum)")
     p.add_argument("--version-label", default="",
                    help="manual fleet build label. Only used without --collect-versions.")
     p.add_argument("--collect-versions", action="store_true",
@@ -1149,12 +1161,10 @@ def main():
                                     " - not waited on (database unreadable): " +
                                     ", ".join(sorted(rc._UNREADABLE)))),
             ("Fullnodes", ", ".join(case_evidence.FULLNODE_HOSTS) or "not checked"),
-            ("Scale knobs", "repeat {} | value ceiling {} | wallet ceiling {} | "
-                            "tiny tokens {} | chain hops {} | burst {} "
-                            "(default = catalogue size)".format(
-                                *[getattr(args, k) or "default" for k in (
-                                    "repeat_count", "value_ceiling", "wallet_ceiling",
-                                    "tiny_tokens", "chain_hops", "burst_count")])),
+            ("Scale knobs", "quorum ladder {} | stop below {}% | whole wallet {} | "
+                            "parts target {} | asset hops {} | scale {}".format(
+                                args.quorum_ladder, args.ladder_stop, args.whole_wallet,
+                                args.parts_target, args.asset_hops, args.scale)),
         ],
     }
     if args.only:

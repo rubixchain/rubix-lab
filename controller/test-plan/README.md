@@ -1,132 +1,90 @@
 # Rubix Lab — Test Cases
 
-The lab runs only cases that need what it has and the product's CI does not:
-many nodes, concurrency, high value, large wallets, long chains, node kills and
-database corruption. Anything `rubixgoplatform/test/integration` already
-covers, and single-call checks, are left to the product.
+The lab runs only what needs what it has and the product's CI does not. The
+CI runs `go test -race` and a **3-node localnet** integration suite
+(`rubixgoplatform/test/integration`: one of each asset flow between two nodes,
+two DIDs on one node, FT from parts, persistence, six negative cases). The lab
+runs the same product on 234 nodes across 26 machines, so its cases are about
+**capacity, concurrency, state growth and failure at that scale**. Basic and
+single-operation checks are left to the CI.
 
     cd full-test
     python3 validate_cases.py --cases master     # offline check, no fleet
     python3 test_runner.py                       # every case
-    python3 test_runner.py --only 'SC-*'         # one asset
+    python3 test_runner.py --only 'QCAP-*'       # one group
+    nohup python3 -u test_runner.py --collect-versions > ~/runner.log 2>&1 &   # a full run in the background
 
-## Layout
+## The suite, in run order
+
+| Stage | Test ID | What it does | Records / must hold |
+|---|---|---|---|
+| 0 | AUDIT-START | Reads every node's database: every DID in the pool and the faucet pair | total held = 400,000 RBT; nothing locked or stuck; every token owned by one DID; counters match the real tokens; no token without chain history |
+| 1 | QCAP-01 | Senders on different machines all transfer at once through **one** quorum: 10 → 20 → 50 → 70 → 90 → 100 → 150 → 200 | p50 / p95 / max time and refusal reasons per rung; **the highest rung that went through in full is saved** (`full-test/lab-limits.json`) and sizes the quorums of later cases |
+| 1 | WALLET-PREP | Builds a big wallet (thousands of whole tokens, from the faucet) and a fragmented one (change sent by 30 wallets at once, round after round) | both reach their size; cost per token and per round |
+| 1 | WALLET-01 | Sends 1 / 100 / 1,000 RBT from the big wallet, ten 50s at once, and fractional amounts paid in parts from the fragmented one | every amount the wallet covers goes through and is credited |
+| 1 | FT-01 | Every owner at once: two FT series (one at the 1,000-per-RBT cap), a re-mint under the same name, 6 hops, a fan-out to 5 wallets at once, two series in one transaction | every holder of every series shows exactly what it should |
+| 1 | NFT-01 | Every owner at once: 2 NFTs, 3 children, executes (one by a subscriber on another node), 6 owner changes | children listed; chain equal on owner and subscriber; each NFT with its last owner only |
+| 1 | SC-01 | Contracts from every owner at once, 4 subscribers each joining at depths 1/3/4/6 while executes continue | every subscriber's chain matches the owner's |
+| 4 | AUDIT-END | The audit again, compared with AUDIT-START | total unchanged; nothing locked, stuck or doubled |
+
+The stage-2 limit cases (pledge boundary, quorum as sender, double spend from
+one sender, node- and machine-level concurrency, the fleet-wide sender
+ladder, chains, combined transfers) and the stage-3 failure case are added
+next, each sized by what QCAP-01 measured.
 
 | File | What it holds |
 |---|---|
 | `master/master-catalogue.csv` | One row per case, in run order. Opens in Excel. |
-| `master/master_cases.py` | No cases. Loads the asset modules and merges them into one suite. |
-| `master/rbt_cases.py` | RBT (33 cases) |
-| `master/ft_cases.py` | FT (7) |
-| `master/sc_cases.py` | Smart contracts (28) |
-| `master/crs_cases.py` | Cross-asset (1) |
-| `master/gen_cases.py` | General: fleet-wide integrity, drift, locks (10) |
-| `master/case_helpers.py` | Shared by more than one asset module |
+| `master/master_cases.py` | No cases. Loads the case modules, in stage order, into one suite. |
+| `master/audit_cases.py` | AUDIT-START, AUDIT-END |
+| `master/quorum_cases.py` | QCAP-01 |
+| `master/wallet_cases.py` | WALLET-PREP, WALLET-01 (one unit: the second spends what the first builds) |
+| `master/asset_cases.py` | FT-01, NFT-01, SC-01 (one unit: the stock stays for later cases) |
+| `master/case_helpers.py` | Shared: firing transfers at the same moment and timing them, saved limits, refusal reasons |
 | `full-test/test_runner.py` | Runs the suite: picks participants per case, prepares them, runs, reports |
 | `full-test/rubix_client.py` | API client, including faucet funding |
+| `custom/unpledged_spend.py` | A separate probe for the ex-quorum spend bug |
 
 Every row in the catalogue has code, and every case has a row. To add a case:
-write it in its asset module, add it to that module's `CASES`, `ORDER` and
-`NEEDS`, and add a catalogue row.
+write `fn(ctx, ci)` in its module, add it to `CASES`, `ORDER` and `NEEDS`, and
+add a catalogue row.
 
 ## How a run works
 
-1. **Load the cases** and each one's `NEEDS`: senders, receivers, quorums, and
-   the RBT they should hold. Cases that must share DIDs (SC-S-01..05 all watch
-   one contract) are one *unit*.
-2. **Find the fleet**: every node of every pool machine (`controller/fleet.py`
-   reads `hosts.txt` and `systems/node-layout.txt` - nine nodes per machine,
-   each addressed `ip:port`) and every DID on it. DIDs are fixed - a node with
-   none is left out, never given one. Nodes hold 1, 5 or 10 DIDs.
-3. **Check the faucet**: the faucet DID's node (`faucet` machine) and the
-   faucet quorum's node (`faucet-quorum` machine), both on port 20000. Both
-   DIDs are read from the nodes; the faucet node must have exactly one quorum,
-   the faucet quorum.
-4. **Run units as nodes free up.** For each unit, in catalogue order:
-   - wait until enough nodes are free (nodes, not DIDs, are what is busy: the
-     quorum a transfer uses is set per node);
-   - pick DIDs: quorums, then senders holding the most RBT, then receivers
-     holding the least - each on a different machine while free machines are
-     left, so a unit's traffic crosses the network;
-   - set up the quorums, reset each participant node's quorum list to just
-     its quorum (so which quorum signs is certain), and faucet any shortfall;
-   - run its cases, checking the wallets' database rows before and after each.
-
-   Units whose nodes don't overlap run at the same time: many small cases run
-   side by side, a case needing most of the fleet runs nearly alone. `exclusive`
-   units (the fleet-wide sweeps) and `senders: "all"` units run with nothing
-   else running. `last` units (DB corruption, drift and lock baselines) start
-   after everything else has finished.
-5. **Report** in catalogue order, with the participants each unit used, plus
-   the fleet ledger (fleet + faucet, compared with the last run).
-
-A case that asks for more nodes than the pool has is skipped with the reason
-(`RBT-Q-06` needs 46 - only a partly installed fleet is that small now).
-
-## Columns
-
-| Column | Meaning |
-|---|---|
-| Test ID | `ASSET-GROUP-NN`, e.g. `RBT-V-11` = RBT, Transfer Value, case 11 |
-| Asset | RBT / FT / SC / Cross-Asset / General |
-| Op Group | Operation being tested |
-| Test Case | Plain-language description of what to do |
-| Setup Method | How it is driven — see below |
-| Quorum Setup | Single = one quorum throughout; Multi = senders spread over the fleet's quorums; N/A |
-| Expected Result | What should happen. For ladders this is *"record the limit"*, not pass/fail |
-| Also Check In Same Run | Extra things verified from the same run, so it is not repeated |
-| Priority | P0 blocking / P1 core |
-| Code Ref | Product source the rule comes from |
-| Implemented In | The module holding the case's code |
-
-### Setup methods
-
-| Method | Meaning |
-|---|---|
-| `API` | Normal API calls |
-| `API-RACE` | Several calls fired at the same moment |
-| `MULTI-NODE` | Needs several nodes in specific roles (e.g. subscribers joining at different depths) |
-| `NODE-KILL` | Stop a node, quorum or database mid-operation |
-| `DB-SEED` | Edit the database directly to force a broken state. Runs last |
-
-Double-spend is `API-RACE` (a real race through the API), not `DB-SEED`.
-
-**DB-SEED is a failable case, not a cleanup job.** The case corrupts a row and
-then runs a real operation on top. If Rubix does not catch the corruption, the
-case FAILS and the fix belongs in core. There is no database backup or restore.
+1. **Load the cases** and each one's `NEEDS`: senders, receivers, quorums, the
+   RBT they should hold, and flags (`first`, `exclusive`, `last`). Cases that
+   must share DIDs are one *unit*.
+2. **Find the fleet**: every node of every pool machine (`controller/fleet.py`,
+   addressed `ip:port`) and every DID on it. DIDs are fixed - a node with none
+   is left out, never given one.
+3. **Check the faucet**: its node must have exactly one quorum, the faucet quorum.
+4. **Run units in catalogue order, as nodes free up.** For each unit: pick DIDs
+   (quorums, then senders holding the most, then receivers holding the least,
+   each on a different machine while free machines are left); set up the
+   quorums; reset each participant node's quorum list to just its quorum (so
+   which quorum signs is certain); faucet any shortfall; run its cases.
+   - Units whose nodes don't overlap run side by side.
+   - An `exclusive` unit keeps its place: units before it finish first, and
+     nothing starts while it runs (so QCAP-01 measures one quorum with no other
+     traffic, and every later case can use its result).
+   - `first` runs before everything, `last` after everything.
+5. **Report** in catalogue order, plus the fleet ledger.
 
 ## Funding
 
 Every RBT a test DID holds comes from the **faucet DID**, by transfer, signed
-by the **faucet quorum**. Nothing mints RBT. The faucet and its quorum hold 2L
-RBT each, so no case needs 10,000 RBT or more; the value and wallet ladders stop
-at 5,000. FT minting is tested normally.
-
-DIDs are never discarded: each keeps what it holds between cycles and is topped
-up only by its shortfall.
-
-A quorum must pledge at least the value it signs (`core/consensus/checks.go`),
-so the runner tops up the quorum that will actually sign before a large
-transfer. **No case should fail for pledge shortage** — if one does, the run is
-invalid.
-
-## One quorum per transaction
-
-Every use of `quorumAddresses` in `core/transaction.go` is `quorumAddresses[0]`:
-one quorum signs each transaction, always — the first one registered on the
-sender's node. So capacity is measured through a single quorum (`RBT-Q-02` →
-`RBT-Q-07`: how many nodes can share one quorum before time degrades). Chains
-where the quorum changes at each hop (`*-CH-01`) test a token validated by a
-different quorum at every hop.
-
-`GetAllQuorums()` has no `ORDER BY` (`core/wallet/quorum.go`), so "first
-registered" is Postgres row order, not a guarantee.
+by the **faucet quorum**. Nothing mints RBT. The faucet and its quorum hold
+200,000 RBT each. DIDs are never discarded: each keeps what it holds between
+cycles and is topped up only by its shortfall. Quorums are funded for the most
+they could have pledged at once - a pledge is held until the receiver spends
+onward (`core/callback.go`). **No case should fail for pledge shortage**; if
+one does, the run is invalid.
 
 ## Database check and evidence - every case
 
-Every case, whatever it asserts itself, is also checked against the nodes'
-databases (`full-test/case_evidence.py`). Before the case the runner reads the
-wallet rows of all its participants, quorums included; after it:
+Every case is also checked against the nodes' databases
+(`full-test/case_evidence.py`): before and after, for all its participants,
+quorums included.
 
 | Check | What must hold |
 |---|---|
@@ -135,56 +93,25 @@ wallet rows of all its participants, quorums included; after it:
 | `no_locks` | no RBT left Locked that was not Locked before |
 | `rows_valid` | every new token has a chain row and a legal value; `token_denom` moved with the free rows |
 
-Also reported for every case, **without deciding the verdict** (fullnodes
-observe, they are not part of a transfer): `fullnode` - how many of the case's
-transactions EACH fullnode accepted (`fullnode_transactions`) and rejected
-(`fullnode_invalid_transactions`, with the reason). Every fullnode receives
-every published transaction and validates it on its own, so they can reach
-different verdicts on the same transaction - reported as a disagreement. The
-end of the run lists every rejection grouped by reason, with the fullnodes
-that gave it.
+Also reported, without deciding the verdict: `fullnode` - how many of the
+case's transactions each fullnode accepted and rejected (with the reason), and
+disagreements between fullnodes.
 
-A fullnode validates with several workers in parallel and gives a transaction
-3 attempts ~6s apart. Two transactions on the same token close together can be
-checked out of order and rejected with a previous-transaction mismatch - that
-is a fullnode finding. **Every case that makes transfers runs twice - without
-delay, then with delay** - and the fullnodes' verdict on each transfer is
-compared:
+Cases that make transfers run twice - without delay, then waiting for the
+fullnodes before each DID's next transaction - and the fullnodes' verdicts are
+compared, **except** the cases in a module's `NO_DELAY_RERUN`: capacity
+ladders, stock builders and the audits run once, because a delayed rerun would
+measure the fullnodes instead of the product, or build the stock twice.
 
-- *Without delay*: the case runs as written, the product's raw behaviour.
-- *With delay*: before any DID starts a transaction it waits until every
-  fullnode has processed that DID's last one (`rubix_client._pace`). Parallel
-  bursts stay parallel; chains on one token are paced step by step.
-
-Transfers are matched between the runs by who sent to whom, the amount and the
-order (faucet top-ups left out), and each lands in one bucket: **accepted both
-ways**; **accepted only with delay** (the fullnode falls behind when a token
-moves again too soon); **accepted only without delay** (unexpected);
-**rejected both ways** (not a timing problem - the reason is given). The case
-passes only if it passes both ways; the comparison is reported in its row and,
-per transfer with both transaction IDs, under `fullnode_comparison` in the
-evidence file. Cases that make no transfers run once.
-
-The report's notes use roles ("the sender", "receiver 2", "the quorum"), not
-IP addresses; the exact rows and IDs are in the evidence file.
-
-A case that passed its own assertion but fails any of the four checks is **FAIL**. A
-database that cannot be read is reported as such, never as a verdict. The
-runner will not start without `python3-psycopg2`.
-
-**Evidence:** each report row carries a `DB:` summary, and
-`reports/json/<run>_db-evidence.json` holds, per case: the participants, every
-transaction it made (with the transaction ID the node returned), each wallet's
-totals before and after, and each check with its detail.
+A case that passed its own assertion but fails a database check is **FAIL**.
+The runner will not start without `python3-psycopg2`. The readings go to
+`reports/json/<run>_db-evidence.json`.
 
 ## Pass / fail
 
-- Every P0 must pass.
-- Value must reconcile exactly: per case (above) and across runs in the fleet
-  ledger (fleet + faucet).
+- AUDIT-START and AUDIT-END must pass: value must reconcile exactly across the
+  whole fleet.
 - Ladders record a limit; the limit dropping between releases is the
   regression signal.
-- Thresholds are baseline-relative: the first clean run on a known-good release
-  sets the baseline; later runs flag more than 20% worse.
-- `RBT-S-02` is a known open bug and should fail in its usual way; a different
-  failure is a new finding.
+- Refusals with a known product cause are tagged as such in the report (see
+  `case_evidence.KNOWN_PRODUCT_BUGS`), so they are not mistaken for new findings.

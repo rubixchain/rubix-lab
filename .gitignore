@@ -25,8 +25,11 @@ controller/versions.xlsx
 controller/test-plan/full-test/smoke-test-roles.txt
 
 # Local mutable state, not shared history. fleet-ledger.json is the run-to-run
-# RBT ledger case_runner compares against; keep it on the controller.
+# RBT ledger case_runner compares against; lab-limits.json holds the limits a
+# run measured (QCAP-01's quorum capacity) for the next cases to size by. Both
+# stay on the controller.
 controller/test-plan/full-test/fleet-ledger.json
+controller/test-plan/full-test/lab-limits.json
 
 # Every test-plan script's report lands here (repo-root reports/), timestamped
 # per run — real fleet data, not something to commit.

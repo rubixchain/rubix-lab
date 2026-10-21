@@ -19,19 +19,19 @@ controller/              run FROM the controller
   install-nodes.sh       install the nodes on machines (copies systems/, runs setup.sh)
   check-nodes.py         reachability / DID / balance sweep, one row per node
   dids-to-excel.py       create + register each node's DIDs, export to Excel
-  node-versions.py       every node's build and commit, over SSH
+  node-versions.py       every node's build and commit, over SSH - ends "Uniform" or "MIXED",
+                         writes versions.xlsx (needs python3-openpyxl)
   preflight-check.sh     fleet readiness table (docker, clock, units, sudo, API)
   node-logs.sh           follow the live log of one node, some, or the whole fleet
   fleet-console.sh       pick a machine, see its nodes, switch between their live logs
   install-console.sh     put the node console on the machines (no sudo)
   setup-ssh.sh           one-time passwordless SSH to every machine
   restart-nodes.sh       restart nodes fleet-wide (parallel)
-  move-nodes-to-desktop.sh  one-time move of a machine's nodes from ~/rubix-lab
   faucet-setup.py        mint the two faucet DIDs' tokens, wire the faucet quorum
   wipe-node-db.sh        destructive DB + DID reset (parallel)
   exec-update/           build a branch and deploy it to every node
   test-plan/             the test catalogue and its runners
-    master/              master-catalogue.csv + one case module per asset
+    master/              master-catalogue.csv + the case modules, in stage order (see test-plan/README.md)
     full-test/           test_runner.py, validate_cases.py, smoke_test.py, clients
 
 systems/                 goes ON each lab machine
@@ -55,7 +55,7 @@ Every machine has this repo at the same path, `~/Desktop/rubix/rubix-lab` —
 the controller keeps its git clone there and copies `systems/` there on every
 other machine (`install-nodes.sh`), and every tool finds node *N* at
 `~/Desktop/rubix/rubix-lab/nodes/node<N>`. (Until 2026-10-16 it was
-`~/rubix-lab`; `controller/move-nodes-to-desktop.sh` moved the fleet.)
+`~/rubix-lab`; the fleet was moved on 2026-10-21.)
 
 ## Where a node is, and how to see its live log
 

@@ -73,8 +73,9 @@ fi
 # they are still there would create empty node folders next to their existing
 # databases - DIDs in Postgres whose keys stayed behind in the old folder.
 if compgen -G "$HOME/rubix-lab/nodes/node[0-9]*" >/dev/null; then
-  echo "ERROR: this machine still has its nodes in ~/rubix-lab/nodes. Move them first,"
-  echo "       from the controller: ./move-nodes-to-desktop.sh --host <this machine>"
+  echo "ERROR: this machine still has its nodes in ~/rubix-lab/nodes. Move them first:"
+  echo "       stop every rubixgoplatform@<slot>, then  mv ~/rubix-lab ~/Desktop/rubix/rubix-lab"
+  echo "       and run install-nodes.sh --host <this machine> --force from the controller."
   exit 1
 fi
 

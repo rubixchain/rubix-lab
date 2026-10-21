@@ -46,7 +46,8 @@ DID private keys do not belong in git. The repo must sit at `~/Desktop/rubix/rub
 every machine: the controller tools find every node at
 `~/Desktop/rubix/rubix-lab/nodes/node<N>`. `setup.sh` refuses to run from anywhere else,
 and refuses while a machine still has nodes in the old `~/rubix-lab/nodes`
-(move them with `controller/move-nodes-to-desktop.sh` first).
+(stop its nodes, `mv ~/rubix-lab ~/Desktop/rubix/rubix-lab`, then
+`install-nodes.sh --host <ip> --force`).
 
 ## Network: Rubix's testnet setup, on the lab's own key
 
