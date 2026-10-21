@@ -149,7 +149,9 @@ for p in 20000 20100 20200 20300 20400 20500 20600 20700 20800; do echo "$p $(cu
 docker ps --filter name=rubix-db --format '{{.Names}}  {{.Status}}  {{.Ports}}'   # the nodes' databases
 ```
 In the port loop `200` = answering, `000` = not answering (a fullnode or faucet
-machine only has 20000).
+machine only has 20000). Some machines have no `curl` (`curl: command not
+found`, e.g. .118): `sudo apt install -y curl`, or use the console above,
+which needs only `python3`.
 
 **Watch a node live** - Ctrl+C stops watching, the node keeps running
 ```

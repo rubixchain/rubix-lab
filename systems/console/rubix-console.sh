@@ -59,19 +59,53 @@ fi
 
 if [ -t 1 ]; then RED=$'\033[31m'; GREEN=$'\033[32m'; DIM=$'\033[2m'; OFF=$'\033[0m'; else RED=""; GREEN=""; DIM=""; OFF=""; fi
 
+# API, DIDs and peers of every node in one python3 run (python3 is on every
+# Ubuntu install; curl is not). One line per node: "slot up|down dids peers".
+# node/peer_id is the liveness check: node/ping pings ANOTHER peer and logs
+# an ERROR when called bare (server/basic.go:49).
+probe_nodes() {
+  local args=() s
+  for s in "${SLOTS[@]}"; do args+=("$s:${INDEX[$s]}"); done
+  python3 - "${args[@]}" <<'PY' 2>/dev/null
+import json, sys, urllib.request
+
+def get(url, post=False):
+    try:
+        req = urllib.request.Request(url, data=b"" if post else None)
+        with urllib.request.urlopen(req, timeout=2) as r:
+            return json.loads(r.read() or b"null")
+    except Exception:
+        return None
+
+for arg in sys.argv[1:]:
+    slot, index = arg.split(":")
+    api = "http://127.0.0.1:%d" % (20000 + int(index))
+    if get(api + "/rubix/v1/node/peer_id") is None:
+        print(slot, "down", "-", "-")
+        continue
+    d = get(api + "/rubix/v1/dids")
+    p = get("http://127.0.0.1:%d/api/v0/swarm/peers" % (5002 + int(index)), post=True)
+    dids = len(d.get("result") or []) if isinstance(d, dict) else "-"
+    peers = len(p.get("Peers") or []) if isinstance(p, dict) else "-"
+    print(slot, "up", dids, peers)
+PY
+}
+
 status_table() {
   local cols s i api up dids peers svc size last
+  local -A P_UP=() P_DIDS=() P_PEERS=()
   cols="$(tput cols 2>/dev/null || echo 120)"
+  while read -r s up dids peers; do
+    [ -n "$s" ] || continue
+    P_UP[$s]="$up"; P_DIDS[$s]="$dids"; P_PEERS[$s]="$peers"
+  done < <(probe_nodes)
   printf 'Rubix nodes on %s (%s)   %s\n\n' "$(hostname)" "$(hostname -I 2>/dev/null | cut -d' ' -f1)" "$(date '+%Y-%m-%d %H:%M:%S')"
   printf '%-5s %-6s %-9s %-4s %-5s %-6s %-6s %s\n' SLOT PORT SERVICE API DIDS PEERS LOG "LAST LOG LINE"
   for s in "${SLOTS[@]}"; do
     i="${INDEX[$s]}"; api=$((20000 + i))
     svc="$(systemctl is-active "rubixgoplatform@$s" 2>/dev/null)"
-    up="$(curl -s -m 1 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$api/rubix/v1/node/peer_id")"
-    if [ "$up" = "200" ]; then
-      up="${GREEN}up${OFF}  "
-      dids="$(curl -s -m 2 "http://127.0.0.1:$api/rubix/v1/dids" | grep -o '"bafybmi' | wc -l)"
-      peers="$(curl -s -m 2 -X POST "http://127.0.0.1:$((5002 + i))/api/v0/swarm/peers" | grep -o '"Peer"' | wc -l)"
+    if [ "${P_UP[$s]:-down}" = "up" ]; then
+      up="${GREEN}up${OFF}  "; dids="${P_DIDS[$s]}"; peers="${P_PEERS[$s]}"
     else
       up="${RED}DOWN${OFF}"; dids="-"; peers="-"
     fi
