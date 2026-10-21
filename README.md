@@ -94,6 +94,57 @@ tail -f ~/Desktop/rubix/rubix-lab/nodes/node0/log.txt    # the node's own log
 journalctl -u rubixgoplatform@0 -f                       # the service: starts, crashes, restarts
 ```
 
+## Everyday commands on a fleet machine
+
+Sitting at any lab machine (or `ssh rubix@<ip>` from the controller). The nodes
+run as services in the background - they do not need a terminal open, and
+closing one does not stop a node. On the fullnodes and the faucet pair only
+slot 0 exists.
+
+**Which nodes run here, and are they up**
+```
+systemctl list-units 'rubixgoplatform@*' --all --no-pager    # one line per node: active / failed / inactive
+systemctl status rubixgoplatform@3 --no-pager                 # one node: state, since when, last log lines
+for p in 20000 20100 20200 20300 20400 20500 20600 20700 20800; do echo "$p $(curl -s -m 2 -o /dev/null -w '%{http_code}' http://localhost:$p/rubix/v1/node/ping)"; done
+docker ps --filter name=rubix-db --format '{{.Names}}  {{.Status}}  {{.Ports}}'   # the nodes' databases
+```
+In the port loop `200` = answering, `000` = not answering (a fullnode or faucet
+machine only has 20000).
+
+**Watch a node live** - Ctrl+C stops watching, the node keeps running
+```
+tail -f ~/Desktop/rubix/rubix-lab/nodes/node3/log.txt        # node 3's own log
+journalctl -u rubixgoplatform@3 -f                            # node 3's service events
+journalctl -u 'rubixgoplatform@*' -f                          # service events of every node on this machine
+```
+To switch to another node, Ctrl+C and run the command again with its slot.
+
+**Start, stop, restart** (no password needed - setup.sh installed a grant for exactly these)
+```
+sudo systemctl restart rubixgoplatform@3
+sudo systemctl stop rubixgoplatform@3
+sudo systemctl start rubixgoplatform@3
+```
+`Restart=always`: a node that crashes comes back by itself within ~5s; only
+`systemctl stop` keeps it down.
+
+**A node's identity and peers**
+```
+curl -s http://localhost:20300/rubix/v1/dids; echo                 # its DIDs
+curl -s http://localhost:20300/rubix/v1/node/peer_id; echo         # its peer ID (in "message")
+cd ~/Desktop/rubix/rubix-lab/nodes/node3 && IPFS_PATH=.ipfs ./ipfs swarm peers | wc -l   # peers it is connected to
+cd ~/Desktop/rubix/rubix-lab/nodes/node3 && ./rubixgoplatform -v | grep Commit           # the build it runs
+du -sh ~/Desktop/rubix/rubix-lab/nodes/node*/log.txt                # log sizes (they only grow)
+```
+
+**Slot to port** (API / swarm / Postgres): slot 0 = 20000 / 4002 / 5433, then
++100 per slot - slot 3 = 20300 / 4302 / 5733, slot 8 = 20800 / 4802 / 6233.
+
+**From the controller instead** (`cd ~/Desktop/rubix/rubix-lab/controller`):
+`./node-logs.sh` (live logs, any nodes - see above), `./preflight-check.sh --host <ip>`
+(services, databases, binaries, sudo, API per machine), `python3 check-nodes.py --host <ip>`
+(each node's DIDs and RBT), `./restart-nodes.sh --host <ip> --slot 3 --force` (restart one node).
+
 ## How the repo is used
 
 Lab machines never commit anything. The controller is the only machine that
