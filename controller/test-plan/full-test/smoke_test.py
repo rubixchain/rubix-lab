@@ -116,8 +116,10 @@ def sweep_and_prepare(specs, timeout):
     node's first DID plays its role - and a list of exclusions. Ordered slot
     by slot across machines, so the first N are N different machines."""
     nodes, excluded = tr.discover_pool(specs, timeout)
+    # sorted(): the node lists its DIDs with no ORDER BY (core/wallet/did.go:91),
+    # so on a 5- or 10-DID node "the first" would not stay the same DID.
     ready = [{"host": n["host"], "machine": n["machine"], "slot": n["slot"],
-              "did": n["dids"][0], "dids": list(n["dids"])} for n in nodes]
+              "did": sorted(n["dids"])[0], "dids": sorted(n["dids"])} for n in nodes]
     ready.sort(key=lambda e: (e["slot"], e["machine"]))
     return ready, excluded
 
@@ -214,8 +216,11 @@ def assign_and_fund_senders(quorum_hosts, senders, args, report):
         q = quorum_hosts[i % len(quorum_hosts)]
         sender_quorum[s["host"]] = q
 
+        # Reset, not add: the quorum list is per node and read with no ORDER BY
+        # (core/wallet/quorum.go), so an entry left from an earlier run would
+        # make the signer unpredictable. remove_all + add leaves exactly this one.
         def do_add(s=s, q=q):
-            ok, msg = rc.quorum_add(s["host"], q["did"], args.port)
+            ok, msg = rc.quorum_reset(s["host"], [q["did"]], args.port)
             return ok, msg, msg
         report.record("assign-quorum-sender-{}".format(i + 1), do_add,
                        sender_host=s["host"], quorum_host=q["host"], quorum_did=q["did"])
