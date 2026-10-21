@@ -113,7 +113,7 @@ done it removes the old unit file itself.
 ## Verifying
 
 ```
-curl -s http://localhost:20300/rubix/v1/node/ping      # node 3
+curl -s http://localhost:20300/rubix/v1/node/peer_id      # node 3
 journalctl -u rubixgoplatform@3 -f
 tail -f ~/Desktop/rubix/rubix-lab/nodes/node3/log.txt
 ```

@@ -145,7 +145,7 @@ slot 0 exists.
 ```
 systemctl list-units 'rubixgoplatform@*' --all --no-pager    # one line per node: active / failed / inactive
 systemctl status rubixgoplatform@3 --no-pager                 # one node: state, since when, last log lines
-for p in 20000 20100 20200 20300 20400 20500 20600 20700 20800; do echo "$p $(curl -s -m 2 -o /dev/null -w '%{http_code}' http://localhost:$p/rubix/v1/node/ping)"; done
+for p in 20000 20100 20200 20300 20400 20500 20600 20700 20800; do echo "$p $(curl -s -m 2 -o /dev/null -w '%{http_code}' http://localhost:$p/rubix/v1/node/peer_id)"; done
 docker ps --filter name=rubix-db --format '{{.Names}}  {{.Status}}  {{.Ports}}'   # the nodes' databases
 ```
 In the port loop `200` = answering, `000` = not answering (a fullnode or faucet

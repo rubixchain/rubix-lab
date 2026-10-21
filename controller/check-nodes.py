@@ -30,8 +30,9 @@ import fleet
 
 DEFAULT_TIMEOUT = 5
 
-# All GET, confirmed against server/server.go route registration.
-EP_PING = "/rubix/v1/node/ping"
+# All GET, confirmed against server/server.go route registration. Liveness is
+# read from node/peer_id: node/ping pings ANOTHER peer and logs
+# "PeerID cannot be empty" as an ERROR when called bare (server/basic.go:49).
 EP_DIDS = "/rubix/v1/dids"
 EP_QUORUMS = "/rubix/v1/quorums"
 EP_PEER_ID = "/rubix/v1/node/peer_id"
@@ -84,7 +85,7 @@ def check_node(node, timeout):
         "notes": [],
     }
 
-    ok, payload = get_json(base, EP_PING, timeout)
+    ok, payload = get_json(base, EP_PEER_ID, timeout)
     if not ok:
         info["status"] = "DOWN"
         info["notes"].append(str(payload))

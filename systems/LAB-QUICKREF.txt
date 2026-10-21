@@ -119,4 +119,4 @@ Live logs, from the controller (each line labelled ip:port; Ctrl+C stops):
 On a machine:
 journalctl -u rubixgoplatform@3 -f          # node 3's service log
 tail -f ~/Desktop/rubix/rubix-lab/nodes/node3/log.txt     # node 3's own log
-curl -s http://localhost:20300/rubix/v1/node/ping
+curl -s http://localhost:20300/rubix/v1/node/peer_id

@@ -90,7 +90,7 @@ all_up() {   # $1 = ip: every node of this machine answers on its API port
   local ip slot index api rest
   while read -r ip slot index api rest; do
     [ -n "$ip" ] || continue
-    curl -s -o /dev/null --max-time 3 "http://${ip}:${api}/rubix/v1/node/ping" || return 1
+    curl -s -o /dev/null --max-time 3 "http://${ip}:${api}/rubix/v1/node/peer_id" || return 1
   done <<<"$(fleet nodes --host "$1")"
   return 0
 }

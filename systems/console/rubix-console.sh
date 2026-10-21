@@ -67,7 +67,7 @@ status_table() {
   for s in "${SLOTS[@]}"; do
     i="${INDEX[$s]}"; api=$((20000 + i))
     svc="$(systemctl is-active "rubixgoplatform@$s" 2>/dev/null)"
-    up="$(curl -s -m 1 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$api/rubix/v1/node/ping")"
+    up="$(curl -s -m 1 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$api/rubix/v1/node/peer_id")"
     if [ "$up" = "200" ]; then
       up="${GREEN}up${OFF}  "
       dids="$(curl -s -m 2 "http://127.0.0.1:$api/rubix/v1/dids" | grep -o '"bafybmi' | wc -l)"

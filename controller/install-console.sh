@@ -8,7 +8,8 @@
 #      setup - shells running nothing, or only a journalctl / newgrp from
 #      those days. A window running anything else stays open and is listed.
 #   4. open the console on the machine's screen now, if someone is logged in
-#      there and it is not open already
+#      there - replacing a console that was already open, so a re-run puts
+#      the new version on screen
 # The controller and explorer run no node, so they are never touched.
 #
 # Usage:
@@ -71,9 +72,12 @@ if [ "$CLOSE" = "1" ]; then
   done
 fi
 uid=$(id -u)
-if pgrep -u "$uid" -f "systems/console/rubix-console.sh" >/dev/null; then
-  echo "  console already open"
-elif [ -S "/run/user/$uid/bus" ] && pgrep -u "$uid" -x gnome-shell >/dev/null; then
+# A console already open runs the previous copy of the script: close it, so
+# the one opened below is the new copy.
+if pkill -u "$uid" -f "systems/console/rubix-console.sh"; then
+  echo "  closed the console that was open (it ran the previous version)"; sleep 1
+fi
+if [ -S "/run/user/$uid/bus" ] && pgrep -u "$uid" -x gnome-shell >/dev/null; then
   DISPLAY=:0 XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
     setsid gnome-terminal --title="Rubix nodes" --maximize -- "$SELF" >/dev/null 2>&1 </dev/null &
   echo "  console opened on the screen"
