@@ -262,6 +262,7 @@ def main():
     p.add_argument("--ft-count", type=int, default=10)
     p.add_argument("--ft-token-count", type=int, default=1)
     args = p.parse_args()
+    log_path = rc.start_log("smoke_test")
     report = Report()
 
     print("== Common: pool + reachability + DID readiness ==")
@@ -296,6 +297,7 @@ def main():
 
     print()
     report.save(rc.new_report_path("smoke_test"))
+    print("Log: {}".format(log_path))
 
 
 if __name__ == "__main__":

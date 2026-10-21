@@ -56,6 +56,65 @@ def new_report_path(script_name, ext="pdf"):
     return os.path.join(report_dir, "{}_{}.{}".format(script_name, timestamp, ext))
 
 
+class _Tee(object):
+    """A stream that writes to the terminal AND to a log file.
+
+    Output is held per thread until a line is complete and then written in
+    one piece under a shared lock: print() writes the text and the newline
+    separately, so without this two parallel units would splice their lines
+    together ("rung 10 ...rung 20 ...")."""
+
+    def __init__(self, stream, fh, lock):
+        self._stream, self._fh, self._lock = stream, fh, lock
+        self._local = threading.local()
+
+    def _emit(self, text):
+        with self._lock:
+            self._stream.write(text)
+            self._stream.flush()
+            try:
+                self._fh.write(text)
+                self._fh.flush()
+            except (IOError, OSError, ValueError):
+                pass
+
+    def write(self, data):
+        buf = getattr(self._local, "buf", "") + data
+        if "\n" in buf:
+            head, _sep, tail = buf.rpartition("\n")
+            self._local.buf = tail
+            self._emit(head + "\n")
+        else:
+            self._local.buf = buf
+        return len(data)
+
+    def flush(self):
+        buf = getattr(self._local, "buf", "")
+        if buf:
+            self._local.buf = ""
+            self._emit(buf)
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def start_log(script_name):
+    """Copy everything this run prints - stdout and stderr - to
+    reports/logs/<script>_<date-time>.log, while still showing it in the
+    terminal. Returns the log's path."""
+    repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")
+    log_dir = os.path.abspath(os.path.join(repo_root, "reports", "logs"))
+    os.makedirs(log_dir, exist_ok=True)
+    path = os.path.join(log_dir, "{}_{}.log".format(
+        script_name, datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")))
+    fh = open(path, "a", encoding="utf-8")
+    lock = threading.Lock()
+    sys.stdout = _Tee(sys.stdout, fh, lock)
+    sys.stderr = _Tee(sys.stderr, fh, lock)
+    print("Log: {}".format(path))
+    return path
+
+
 def new_report_paths(script_name, exts=("pdf", "json")):
     """Paths for every format of ONE run, sharing a single timestamp so the
     files are matched. Returns {ext: path}."""

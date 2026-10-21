@@ -12,7 +12,9 @@ single-operation checks are left to the CI.
     python3 validate_cases.py --cases master     # offline check, no fleet
     python3 test_runner.py                       # every case
     python3 test_runner.py --only 'QCAP-*'       # one group
-    nohup python3 -u test_runner.py --collect-versions > ~/runner.log 2>&1 &   # a full run in the background
+Everything a run prints is also saved, as it happens, to
+`reports/logs/test_runner_<date-time>.log` (`smoke_test_<date-time>.log` for
+the smoke test); the reports go to `reports/pdf/` and `reports/json/`.
 
 ## The suite, in run order
 

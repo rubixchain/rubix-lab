@@ -1026,6 +1026,8 @@ def main():
     p.add_argument("--ssh-user", default="rubix", help="SSH user for --collect-versions")
     args = p.parse_args()
 
+    log_path = rc.start_log("test_runner")
+
     if args.suite:
         patterns, suite_modules = load_suite(args.suite)
         if not args.only:
@@ -1235,6 +1237,7 @@ def main():
         print(line)
 
     report.save(args.report_name or args.cases.replace(",", "-"), meta, timing_ids)
+    print("Log : {}".format(log_path))
 
 
 if __name__ == "__main__":
