@@ -190,9 +190,22 @@ KNOWN_PRODUCT_BUGS = (
      "(core/consensus/checks.go:61, Epoch > time.Now()), so any clock difference "
      "between sender and quorum refuses transfers"),
     ("deadlock detected (SQLSTATE 40P01)",
-     "token_denom deadlock on concurrent deploys",
-     "concurrent contract deploys from one wallet deadlock in Postgres while updating "
-     "the denomination counter (PersistPreConsensus / post-consensus token_denom upsert)"),
+     "token_denom deadlock on concurrent splits (Go map order)",
+     "two splits or pledges at once on one DID - a quorum pledging fractional amounts "
+     "for several transfers, or one wallet deploying or minting several things - "
+     "update its token_denom rows one by one in Go map order, which is random "
+     "(core/wallet/persist_genesis_tx.go:209, post_consensus_persistence.go:716), so "
+     "Postgres finds a lock cycle and kills one. Sorting the denominations before the "
+     "updates removes it. A pledge also decrements token_denom in a second DB "
+     "transaction after the pledge itself is committed (core/pledge_v2.go:287): when "
+     "that one fails, the counter stays above the real Free tokens"),
+    ("so once again genesis transaction is not allowed",
+     "NFT/SC operation sent as a new deploy (transaction_builder.go:369)",
+     "the sending node did not hold the token in its own tokens table, so the "
+     "transaction builder treated the execute/transfer as a DEPLOY of that ID with no "
+     "previous transaction (core/transaction_builder.go:369); a quorum that has seen "
+     "the token refuses it, one that has not accepts a second genesis "
+     "(core/consensus/checks.go:836) which the fullnodes then reject"),
     ("transaction amount exceeds 3 decimal places",
      "float sum of contract values (parts.go:55)",
      "a multi-contract request is checked on the float sum of its values "

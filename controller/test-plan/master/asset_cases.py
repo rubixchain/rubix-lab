@@ -83,15 +83,17 @@ def ft_01(ctx, ci):
         return "lab-ft-{}-{}-{}".format(tag, stamp, owner["did"][-6:])
 
     # 1. Two series per owner, all owners at once: 1,000 FTs from 1 RBT (the
-    #    1,000-per-RBT cap, core/ft.go:70) and 4,000 from 4 RBT. Then 500 more
-    #    of the first series under the SAME name: the counts add up
-    #    (ON CONFLICT DO UPDATE, core/ft.go:196) rather than a second series.
+    #    1,000-per-RBT cap, core/ft.go:70) and 4,000 from 4 RBT. Then 1,000 more
+    #    of the first series under the SAME name, numbered on from 1,000
+    #    (FTNumStartIndex, core/ft.go:223): the counts add up (ON CONFLICT DO
+    #    UPDATE on fts) rather than a second series.
     def mint(owner):
         out = []
-        for tag, count, tokens in (("A", 1000, 1), ("B", 4000, 4), ("A", 500, 1)):
+        for tag, count, tokens, start in (("A", 1000, 1, 0), ("B", 4000, 4, 0),
+                                          ("A", 1000, 1, 1000)):
             (ok, msg, _r), secs = _timed(rc.mint_ft, owner["host"], owner["did"],
                                          name_of(owner, tag), count, tokens,
-                                         timeout=ch.TRANSFER_TIMEOUT)
+                                         timeout=ch.TRANSFER_TIMEOUT, start_index=start)
             out.append((tag, count, ok, msg, secs))
         return owner, out
 
@@ -227,67 +229,108 @@ def _chain_settle(getter, entry, token_id, want, attempts=30, delay=2):
     return False, n
 
 
+def _poll(check, timeout=60, delay=0.5):
+    """check() until it is true or `timeout` seconds pass: (ok, seconds waited)."""
+    t0 = time.time()
+    while True:
+        if check():
+            return True, round(time.time() - t0, 1)
+        if time.time() - t0 >= timeout:
+            return False, round(time.time() - t0, 1)
+        time.sleep(delay)
+
+
+def _caught_up(getter, entry, ref, token_id, timeout=60):
+    """Wait until `entry`'s own copy of a token's chain is as long as `ref`'s.
+
+    A node builds its next NFT/contract operation on its own copy: one that is
+    behind is refused by a quorum that has seen more ('chain mismatch after
+    sync'), and accepted by one that has not, forking the chain. A node with no
+    copy at all sends the operation as a NEW deploy of the token
+    (core/transaction_builder.go:369). Waiting first tests the operation, and
+    the wait itself is the propagation time. Returns (ok, seconds)."""
+    want = _chain_len(getter, ref, token_id) or 0
+    return _poll(lambda: (_chain_len(getter, entry, token_id) or 0) >= want, timeout)
+
+
 def nft_01(ctx, ci):
     owners, recv = ctx.senders[:OWNERS], ctx.receivers
     if not owners or len(recv) < 3:
         return SKIP, "needs NFT owners and at least 3 receivers", ""
     hops = _hops(ctx)
-    timing = {"create": [], "deploy": [], "children": [], "execute": [], "transfer": []}
+    timing = {"create": [], "deploy": [], "children": [], "execute": [], "transfer": [],
+              "subscriber catch-up": [], "arrival at new owner": []}
 
     def one(i):
         owner = owners[i]
         out = {"problems": [], "owner": owner}
 
-        def step(kind, fn, *a, **k):
+        def step(kind, who, fn, *a, **k):
             (ok, msg, result), secs = _timed(fn, *a, **k)
             timing[kind].append(secs)
             if not ok:
-                out["problems"].append("{} refused: {}".format(kind, ch.node_reason(msg)))
+                out["problems"].append("{} by {} refused: {}".format(kind, who, ch.node_reason(msg)))
             return ok, result
 
         ids = []
         for _k in range(2):
-            ok, nft_id = step("create", rc.create_nft, owner["host"], owner["did"],
+            ok, nft_id = step("create", "the owner", rc.create_nft, owner["host"], owner["did"],
                               _random_bytes(), _random_bytes())
             if not ok or not isinstance(nft_id, str):
                 return out
-            ok, _r = step("deploy", rc.nft_transaction, owner["host"], owner["did"], owner["did"],
-                          nft_id, data="NFT-01 deploy", timeout=ch.TRANSFER_TIMEOUT)
+            ok, _r = step("deploy", "the owner", rc.nft_transaction, owner["host"], owner["did"],
+                          owner["did"], nft_id, data="NFT-01 deploy", timeout=ch.TRANSFER_TIMEOUT)
             if not ok:
                 return out
             ids.append(nft_id)
         parent, mover = ids
         out["parent"], out["mover"] = parent, mover
 
-        ok, result = step("children", rc.mint_nft_children, owner["host"], owner["did"], parent, 3,
-                          timeout=ch.TRANSFER_TIMEOUT)
+        ok, result = step("children", "the owner", rc.mint_nft_children, owner["host"],
+                          owner["did"], parent, 3, timeout=ch.TRANSFER_TIMEOUT)
         out["children_minted"] = len(rc.minted_children(result)) if ok else 0
         for _k in range(3):
-            step("execute", rc.nft_transaction, owner["host"], owner["did"], owner["did"], parent,
-                 data="NFT-01 execute", timeout=ch.TRANSFER_TIMEOUT)
+            step("execute", "the owner", rc.nft_transaction, owner["host"], owner["did"],
+                 owner["did"], parent, data="NFT-01 execute", timeout=ch.TRANSFER_TIMEOUT)
 
-        # A subscriber on another node executes the parent; its chain must match.
+        # A subscriber on another node executes the parent - once its own copy
+        # of the chain has caught up with the owner's (see _caught_up).
         sub = recv[(i * hops + hops) % len(recv)]
         ok_sub, msg = rc.subscribe_nft(sub["host"], parent)
-        if ok_sub:
-            step("execute", rc.nft_transaction, sub["host"], sub["did"], sub["did"], parent,
-                 data="NFT-01 subscriber execute", timeout=ch.TRANSFER_TIMEOUT)
-            out["sub"] = sub
-        else:
+        if not ok_sub:
             out["problems"].append("subscribe refused: {}".format(ch.node_reason(msg)))
+        else:
+            synced, lag = _caught_up(rc.get_nft_chain, sub, owner, parent)
+            timing["subscriber catch-up"].append(lag)
+            if synced:
+                step("execute", "a subscriber", rc.nft_transaction, sub["host"], sub["did"],
+                     sub["did"], parent, data="NFT-01 subscriber execute",
+                     timeout=ch.TRANSFER_TIMEOUT)
+                out["sub"] = sub
+            else:
+                out["problems"].append("the subscriber's copy of NFT {} was still behind the "
+                                       "owner's after {:.0f}s".format(parent[:10], lag))
 
-        # The second NFT changes owner `hops` times.
+        # The second NFT changes owner `hops` times; each new owner passes it on
+        # once its own node lists it.
         holder, path = owner, [recv[(i * hops + k) % len(recv)] for k in range(hops)]
         moved = 0
         for nxt in path:
             if nxt["did"] == holder["did"]:
                 continue
-            ok, _r = step("transfer", rc.nft_transaction, holder["host"], holder["did"], nxt["did"],
-                          mover, data="NFT-01 transfer", transfer_ownership=True,
+            who = "the first owner" if moved == 0 else "owner {}".format(moved + 1)
+            ok, _r = step("transfer", who, rc.nft_transaction, holder["host"], holder["did"],
+                          nxt["did"], mover, data="NFT-01 transfer", transfer_ownership=True,
                           timeout=ch.TRANSFER_TIMEOUT)
             if not ok:
                 break
+            arrived, lag = _poll(lambda: _holds_nft(nxt, mover))
+            timing["arrival at new owner"].append(lag)
             holder, moved = nxt, moved + 1
+            if not arrived:
+                out["problems"].append("NFT {} not listed by its new owner {:.0f}s after the "
+                                       "transfer".format(mover[:10], lag))
+                break
         out["holder"], out["moved"] = holder, moved
         return out
 
@@ -332,7 +375,7 @@ def sc_01(ctx, ci):
     if not owners or len(recv) < 4:
         return SKIP, "needs contract owners and at least 4 subscribers", ""
     per_owner = max(1, int(round(2 * ctx.args.scale)))
-    timing = {"deploy": [], "execute": [], "subscribe": []}
+    timing = {"deploy": [], "execute": [], "subscribe": [], "catch-up before execute": []}
 
     def contract(job):
         i, c = job
@@ -344,16 +387,28 @@ def sc_01(ctx, ci):
             out["problems"].append("generate failed: {}".format(err))
             return out
         out["sc"] = sc_id
+        last = [owner]          # whoever extended the chain last
 
         def run(entry, kind, data):
+            who = "the owner" if entry is owner else "subscriber {}".format(subs.index(entry) + 1)
+            # Every executor builds on its own copy of the chain, so it waits
+            # until that copy has the previous execute (see _caught_up).
+            if kind == "execute" and entry is not last[0]:
+                synced, lag = _caught_up(rc.get_sc_chain, entry, last[0], sc_id)
+                timing["catch-up before execute"].append(lag)
+                if not synced:
+                    out["problems"].append("{}'s copy of contract {} was still behind after "
+                                           "{:.0f}s".format(who, sc_id[:10], lag))
+                    return False
             (ok, msg, _r), secs = _timed(rc.sc_transaction, entry["host"], entry["did"], sc_id,
                                          data=data, timeout=ch.TRANSFER_TIMEOUT)
             timing[kind].append(secs)
             if not ok:
-                out["problems"].append("{} by {} refused: {}".format(kind, entry["did"][-6:],
-                                                                     ch.node_reason(msg)))
-            elif kind == "execute":
-                out["executes"] += 1
+                out["problems"].append("{} by {} refused: {}".format(kind, who, ch.node_reason(msg)))
+            else:
+                last[0] = entry
+                if kind == "execute":
+                    out["executes"] += 1
             return ok
 
         def subscribe(entry):

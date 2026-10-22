@@ -481,10 +481,16 @@ def create_did(host, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
     return did, "created"
 
 
-def mint_ft(host, did, ft_name, ft_count, token_count, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT):
-    """Mint a new FT series. token_count is RBT burnt (FTCount <= TokenCount*1000)."""
+def mint_ft(host, did, ft_name, ft_count, token_count, port=DEFAULT_PORT, timeout=SIGNATURE_TIMEOUT,
+            start_index=0):
+    """Mint FTs. token_count is RBT burnt (FTCount <= TokenCount*1000).
+
+    The new FTs are numbered from start_index (core/ft.go:223, FTNumStartIndex),
+    so minting more of an existing (ft_name, did) series must start after the
+    FTs already minted - from 0 again, every ID collides with the first mint and
+    the node refuses it ('duplicate genesis call rejected')."""
     body = {"did": did, "ft_name": ft_name, "ft_count": int(ft_count),
-            "token_count": int(token_count), "ft_num_start_index": 0}
+            "token_count": int(token_count), "ft_num_start_index": int(start_index)}
     return signed_action(host, EP_FT_MINT, body, port, timeout)
 
 

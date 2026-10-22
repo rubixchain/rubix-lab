@@ -145,16 +145,25 @@ def percentile(values, p):
     return vals[k]
 
 
-def summarize(results):
-    """{n, ok, failed, p50, p95, max, reasons} for burst() results. Times are of
-    the transfers that went through; reasons group the refusals by the node's
-    own words."""
+def summarize(results, set_aside=()):
+    """{n, ok, failed, p50, p95, max, reasons, aside, aside_reasons} for burst()
+    results. Times are of the transfers that went through; reasons group the
+    refusals by the node's own words.
+
+    Refusals whose message contains a marker in `set_aside` are counted apart
+    (aside / aside_reasons) and left out of failed / reasons: a capacity
+    measure passes the markers of refusals that come from the sender's own
+    tokens, which would happen with no load at all."""
     ok = [r for r in results if r["ok"]]
+    refused = [r["msg"] for r in results if not r["ok"]]
+    aside = [m for m in refused if any(k in m for k in set_aside)]
+    counted = [m for m in refused if m not in aside]
     secs = [r["secs"] for r in ok]
-    return {"n": len(results), "ok": len(ok), "failed": len(results) - len(ok),
+    return {"n": len(results), "ok": len(ok), "failed": len(counted),
             "p50": percentile(secs, 50), "p95": percentile(secs, 95),
             "max": max(secs) if secs else 0.0,
-            "reasons": refusal_summary([r["msg"] for r in results if not r["ok"]])}
+            "reasons": refusal_summary(counted),
+            "aside": len(aside), "aside_reasons": refusal_summary(aside)}
 
 
 def ring(entries):
@@ -200,19 +209,22 @@ def save_limit(key, value, detail=None):
         pass
 
 
-def quorum_capacity(default):
+def quorum_capacity(default, fractional=False):
     """How many concurrent transfers one quorum signs in full - QCAP-01's last
-    measurement, or `default` before it has run."""
-    entry = load_limits().get("quorum_senders") or {}
+    measurement, or `default` before it has run. Whole-RBT and fractional
+    amounts are measured apart: a fractional pledge makes the quorum split its
+    own tokens, which whole amounts never do."""
+    key = "quorum_senders_fractional" if fractional else "quorum_senders"
+    entry = load_limits().get(key) or {}
     try:
         return max(1, int(entry.get("value") or default))
     except (TypeError, ValueError):
         return default
 
 
-def quorums_for(n_senders, default_capacity):
+def quorums_for(n_senders, default_capacity, fractional=False):
     """Quorums needed so that no quorum carries more than its measured capacity."""
-    cap = quorum_capacity(default_capacity)
+    cap = quorum_capacity(default_capacity, fractional)
     return max(1, -(-n_senders // cap))
 
 

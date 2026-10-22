@@ -21,13 +21,13 @@ the smoke test); the reports go to `reports/pdf/` and `reports/json/`.
 | Stage | Test ID | What it does | Records / must hold |
 |---|---|---|---|
 | 0 | AUDIT-START | Reads every node's database: every DID in the pool and the faucet pair | total held = 400,000 RBT; nothing locked or stuck; every token owned by one DID; counters match the real tokens; no token without chain history |
-| 1 | QCAP-01 | Senders on different machines all transfer at once through **one** quorum: 10 → 20 → 50 → 70 → 90 → 100 → 150 → 200 | p50 / p95 / max time and refusal reasons per rung; **the highest rung that went through in full is saved** (`full-test/lab-limits.json`) and sizes the quorums of later cases |
+| 1 | QCAP-01 | Senders on different machines all transfer at once through **one** quorum: 10 → 20 → 50 → 70 → 90 → 100 → 150 → 200 → 220, first with 1 RBT each, then again with one fractional amount (which makes the quorum split its own tokens for every pledge) | p50 / p95 / max time and refusal reasons per rung; senders refused for their own tokens (a known product bug) are counted apart; **the highest rung of each ladder that went through in full is saved** (`full-test/lab-limits.json`) and sizes the quorums of later cases |
 | 1 | WALLET-PREP | Builds a big wallet (thousands of whole tokens, from the faucet) and a fragmented one (change sent by 30 wallets at once, round after round) | both reach their size; cost per token and per round |
 | 1 | WALLET-01 | Sends 1 / 100 / 1,000 RBT from the big wallet, ten 50s at once, and fractional amounts paid in parts from the fragmented one | every amount the wallet covers goes through and is credited |
 | 1 | FT-01 | Every owner at once: two FT series (one at the 1,000-per-RBT cap), a re-mint under the same name, 6 hops, a fan-out to 5 wallets at once, two series in one transaction | every holder of every series shows exactly what it should |
-| 1 | NFT-01 | Every owner at once: 2 NFTs, 3 children, executes (one by a subscriber on another node), 6 owner changes | children listed; chain equal on owner and subscriber; each NFT with its last owner only |
-| 1 | SC-01 | Contracts from every owner at once, 4 subscribers each joining at depths 1/3/4/6 while executes continue | every subscriber's chain matches the owner's |
-| 4 | AUDIT-END | The audit again, compared with AUDIT-START | total unchanged; nothing locked, stuck or doubled |
+| 1 | NFT-01 | Every owner at once: 2 NFTs, 3 children, executes (one by a subscriber on another node), 6 owner changes. A subscriber or new owner acts only once its own node holds the NFT's latest chain | children listed; chain equal on owner and subscriber; each NFT with its last owner only; how long a node takes to hold it |
+| 1 | SC-01 | Contracts from every owner at once, 4 subscribers each joining at depths 1/3/4/6 while executes continue. Each executor waits until its own copy of the chain has the previous execute | every subscriber's chain matches the owner's; how long a copy takes to catch up |
+| 4 | AUDIT-END | The audit again, compared with AUDIT-START | total unchanged; nothing locked, stuck or doubled; no counter drift that was not there at the start |
 
 The stage-2 limit cases (pledge boundary, quorum as sender, double spend from
 one sender, node- and machine-level concurrency, the fleet-wide sender

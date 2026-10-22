@@ -133,7 +133,8 @@ def _audit(ctx, label):
     reading = {"label": label, "held": held, "dids": dids_read, "nodes": len(members),
                "totals": dict((NAME[s], round(v, 3)) for s, v in totals.items()),
                "locked": locked, "stuck": stuck, "doubled": len(doubled),
-               "drift": len(drift), "negative": len(negative), "orphans": len(orphans),
+               "drift": dict(((host, did), bad) for host, did, bad in drift),
+               "negative": len(negative), "orphans": len(orphans),
                "unreadable": unreadable}
 
     findings = []
@@ -156,14 +157,19 @@ def _audit(ctx, label):
         findings.append("{} token(s) are Free under two different DIDs - a double spend: {}".format(
             len(doubled), "; ".join("{} held by {}".format(t, " and ".join(d[:12] for d in o))
                                     for t, o in sample)))
-    if drift:
-        findings.append("{} DID(s) have a denomination counter that does not match their Free "
-                        "tokens (e.g. {} on {})".format(len(drift), drift[0][2], drift[0][0]))
     if negative:
         findings.append("{} negative denomination counter(s)".format(len(negative)))
     if orphans:
         findings.append("{} Free token(s) with no chain history".format(len(orphans)))
     return reading, findings
+
+
+def _drift_finding(drift):
+    """drift: {(host, did): {denom: (counted, actual)}} -> one sentence."""
+    (host, _did), bad = sorted(drift.items())[0]
+    return "{} DID(s) have a denomination counter that does not match their Free tokens " \
+           "(e.g. {} on {}, as denomination: (counter, real Free tokens))".format(
+               len(drift), dict(sorted(bad.items())), host)
 
 
 def _describe(reading):
@@ -180,6 +186,8 @@ def audit_start(ctx, ci):
         return SKIP, "nothing to audit", findings
     _START.clear()
     _START.update(reading)
+    if reading["drift"]:
+        findings.append(_drift_finding(reading["drift"]))
     if findings:
         return False, "the fleet is not clean before the run", "; ".join(findings) + \
             " | " + _describe(reading)
@@ -196,16 +204,26 @@ def audit_end(ctx, ci):
         if abs(moved) > TOL:
             findings.append("the fleet total moved {:+.3f} RBT during this run ({:.3f} -> "
                             "{:.3f})".format(moved, _START["held"], reading["held"]))
+    # Counter drift already there at the start (left by an earlier run) is
+    # reported, not failed again; drift that is new or changed is a finding.
+    before = _START.get("drift", {})
+    new = dict((k, v) for k, v in reading["drift"].items() if before.get(k) != v)
+    carried = len(reading["drift"]) - len(new)
+    if new:
+        findings.append("new in this run: " + _drift_finding(new))
+    carry = " | {} DID(s) still carry the counter drift found at the start".format(carried) \
+        if carried else ""
     if findings:
         return False, "the fleet is not clean after the run", "; ".join(findings) + \
-            " | " + _describe(reading)
+            " | " + _describe(reading) + carry
     since = ""
     if _START:
         since = " | since the start: committed {:+.3f}, burnt for FT {:+.3f}".format(
             reading["totals"]["committed"] - _START["totals"]["committed"],
             reading["totals"]["burnt-for-FT"] - _START["totals"]["burnt-for-FT"])
     return True, "clean: " + _describe(reading), \
-        "total unchanged; every token owned once, counters consistent, nothing locked" + since
+        "total unchanged; every token owned once, no new counter drift, nothing locked" + \
+        since + carry
 
 
 CASES = {"AUDIT-START": audit_start, "AUDIT-END": audit_end}

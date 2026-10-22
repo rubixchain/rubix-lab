@@ -1001,8 +1001,9 @@ def main():
     # Scale knobs. Defaults are the catalogue's sizes; lower one only for a
     # quick pass. The value actually used is stated in the case's report row,
     # so a reduced run is never mistaken for the full one.
-    p.add_argument("--quorum-ladder", default="10,20,50,70,90,100,150,200",
-                   help="QCAP-01: concurrent senders through one quorum, rung by rung")
+    p.add_argument("--quorum-ladder", default="10,20,50,70,90,100,150,200,220",
+                   help="QCAP-01: concurrent senders through one quorum, rung by rung "
+                        "(climbed twice: whole RBT, then a fractional amount)")
     p.add_argument("--ladder-stop", type=float, default=50.0,
                    help="stop climbing a ladder once a rung's pass rate falls below this "
                         "percent (default 50)")
