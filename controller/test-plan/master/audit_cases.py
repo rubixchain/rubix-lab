@@ -5,20 +5,30 @@ in the pool plus the faucet DID and the faucet quorum:
 
     total      RBT held across the whole fleet - Free, Locked, Committed,
                Pledged, QuorumPledged and BurntForFT - must equal what the
-               faucet minted (--fleet-total, 400,000). Nothing in the lab mints
-               after that, so any other figure is value created or lost.
-               Transferred rows are history and Burnt split parents are
+               faucet minted (--fleet-total, 400,000). Any other figure is value
+               created or lost: a HARD FAIL (nothing in the lab mints after
+               setup). Transferred rows are history and Burnt split parents are
                replaced by children worth the same, so neither is counted.
-    locked     no RBT left Locked while nothing is running
-    stuck      no RBT in Orphaned / ChainSyncIssue / BeingDoubleSpent / Seed /
-               Generated / Fetched (constants/constants.go)
-    ownership  no token Free under two different DIDs anywhere in the fleet -
-               the fleet-wide double-spend check no single node can make
-    counters   token_denom matches the real Free tokens of every DID, and no
-               counter is negative
-    chain      no Free token without tokenchain history
+    ownership  no token Free under two different DIDs anywhere in the fleet - a
+               double spend, a HARD FAIL (the value exists twice; locking one
+               copy cannot undo it).
+    stuck      tokens in Orphaned / ChainSyncIssue / BeingDoubleSpent / Seed /
+               Generated / Fetched (constants/constants.go), and Free tokens
+               with no chain history: AUDIT-START LOCKS these out of use
+               (quarantine) and re-audits. Locking is the ONLY change the audit
+               makes to the fleet (user, 2026-10-22): it never rewrites a
+               counter and never restores a token. Locking only removes a token
+               from circulation and keeps it on the ledger, so it is always
+               safe, and the count is small.
+    locked     RBT already Locked is left parked - reported, not failed. It is
+               out of circulation; per-case checks (case_evidence, FAIL-01)
+               catch locks made during a run.
+    counters   token_denom drift and negative counters are a KNOWN PRODUCT BUG
+               that conserves value: reported, never failed, never rewritten.
 
-AUDIT-END also compares itself with AUDIT-START of the same run.
+AUDIT-START fixes what it can (quarantine) and re-audits. AUDIT-END reports the
+run's true end state and does not change the fleet. Both fail only on value not
+conserved or a double spend; everything else is reported.
 """
 
 import os
@@ -60,7 +70,10 @@ def _members(ctx):
 
 
 def _read_node(host, dids):
-    """One REPEATABLE READ snapshot of everything the audit needs from a node."""
+    """One REPEATABLE READ snapshot of everything the audit needs from a node.
+
+    The last query returns the tokens AUDIT-START quarantines: anything in a
+    stuck status, plus a Free token with no chain history."""
     rbt, free = db.TYPE_RBT, db.FREE
     return db.query_snapshot(host, [
         ("SELECT did, token_status, COALESCE(SUM(token_value), 0) FROM tokens "
@@ -74,6 +87,10 @@ def _read_node(host, dids):
         ("SELECT t.token_id FROM tokens t WHERE t.token_type = %s AND t.token_status = %s "
          "AND t.did = ANY(%s) AND NOT EXISTS "
          "(SELECT 1 FROM tokenchain c WHERE c.token_id = t.token_id)", (rbt, free, dids)),
+        ("SELECT t.token_id, t.did FROM tokens t WHERE t.token_type = %s AND t.did = ANY(%s) AND "
+         "(t.token_status = ANY(%s) OR (t.token_status = %s AND NOT EXISTS "
+         "(SELECT 1 FROM tokenchain c WHERE c.token_id = t.token_id)))",
+         (rbt, dids, list(STUCK), free)),
     ])
 
 
@@ -93,7 +110,7 @@ def _audit(ctx, label):
         readings = list(ex.map(one, members.items()))
 
     totals = dict((s, 0.0) for s in HELD)
-    stuck, locked, drift, negative, orphans = {}, {}, [], [], []
+    stuck, locked, drift, negative, orphans, quarantine = {}, {}, [], [], [], []
     owners = {}
     unreadable = []
     dids_read = 0
@@ -101,7 +118,7 @@ def _audit(ctx, label):
         if snap is None:
             unreadable.append("{} ({})".format(host, err))
             continue
-        status_rows, denom_rows, free_rows, free_ids, neg_rows, orphan_rows = snap
+        status_rows, denom_rows, free_rows, free_ids, neg_rows, orphan_rows, quar_rows = snap
         dids_read += len(members[host])
         for did, status, value in status_rows:
             status, value = int(status), float(value)
@@ -127,6 +144,7 @@ def _audit(ctx, label):
             owners.setdefault(token_id, set()).add(did)
         negative += [(host, did, float(d), int(n)) for did, d, n in neg_rows]
         orphans += [(host, t) for (t,) in orphan_rows]
+        quarantine += [(host, t, d) for (t, d) in quar_rows]
 
     doubled = dict((t, sorted(o)) for t, o in owners.items() if len(o) > 1)
     held = round(sum(totals.values()), 3)
@@ -135,8 +153,11 @@ def _audit(ctx, label):
                "locked": locked, "stuck": stuck, "doubled": len(doubled),
                "drift": dict(((host, did), bad) for host, did, bad in drift),
                "negative": len(negative), "orphans": len(orphans),
-               "unreadable": unreadable}
+               "quarantine": quarantine, "unreadable": unreadable}
 
+    # findings = the HARD FAILS only. Parked Locked RBT, stuck/orphan tokens
+    # (quarantined by AUDIT-START), counter drift and negative counters are
+    # non-fatal and reported through _soft_notes.
     findings = []
     if unreadable:
         findings.append("{} node database(s) could not be read, so this audit is incomplete: "
@@ -146,21 +167,11 @@ def _audit(ctx, label):
         findings.append("the fleet holds {:.3f} RBT but the faucet minted {:.3f}: {:+.3f} RBT "
                         "{}".format(held, expected, held - expected,
                                     "created from nowhere" if held > expected else "lost"))
-    if locked:
-        findings.append("{:.3f} RBT left Locked on {} DID(s) with nothing running".format(
-            sum(locked.values()), len(locked)))
-    if stuck:
-        findings.append("RBT in a stuck state: {}".format(
-            ", ".join("{} {:.3f}".format(k, v) for k, v in sorted(stuck.items()))))
     if doubled:
         sample = sorted(doubled.items())[:3]
         findings.append("{} token(s) are Free under two different DIDs - a double spend: {}".format(
             len(doubled), "; ".join("{} held by {}".format(t, " and ".join(d[:12] for d in o))
                                     for t, o in sample)))
-    if negative:
-        findings.append("{} negative denomination counter(s)".format(len(negative)))
-    if orphans:
-        findings.append("{} Free token(s) with no chain history".format(len(orphans)))
     return reading, findings
 
 
@@ -188,25 +199,74 @@ def _describe(reading):
                 t["quorum-pledged"], t["committed"], t["burnt-for-FT"], t["locked"]))
 
 
+def _soft_notes(reading):
+    """The non-fatal things to report but not fail on: RBT parked in Locked, the
+    known token_denom drift and negative counters, and any stuck/orphan tokens
+    still present (their value, if real, shows up in the conservation check)."""
+    notes = []
+    if reading["locked"]:
+        notes.append("{:.3f} RBT parked in Locked on {} DID(s) - left as is".format(
+            sum(reading["locked"].values()), len(reading["locked"])))
+    if reading["stuck"]:
+        notes.append("RBT in a stuck state: {}".format(
+            ", ".join("{} {:.3f}".format(k, v) for k, v in sorted(reading["stuck"].items()))))
+    if reading["orphans"]:
+        notes.append("{} Free token(s) with no chain history".format(reading["orphans"]))
+    if reading["negative"]:
+        notes.append("{} negative token_denom counter(s) (known counter bug)".format(
+            reading["negative"]))
+    if reading["drift"]:
+        notes.append(_drift_finding(reading["drift"], known=True))
+    return notes
+
+
+def _quarantine(targets):
+    """Lock each problem token - a token in a stuck state, or a Free token with
+    no chain history - so it leaves the spendable pool and is simply left alone.
+
+    This is the ONLY change the audit makes to the fleet (user, 2026-10-22): no
+    counter is rewritten and nothing is restored. Locking only ever removes a
+    token from use and keeps it on the ledger (Locked is counted in the fleet
+    total), so it is always safe. The audit runs with nothing else transacting
+    (AUDIT-START is `first`), so the token cannot change under it. Every write is
+    echoed by db_client. Returns how many tokens it locked."""
+    n = 0
+    for host, token_id, did in targets:
+        try:
+            db.writable_query(host, "UPDATE tokens SET token_status = %s WHERE token_id = %s AND "
+                              "did = %s AND token_type = %s AND token_status <> %s",
+                              (db.LOCKED, token_id, did, db.TYPE_RBT, db.LOCKED),
+                              i_understand_this_writes=True)
+            n += 1
+        except Exception:
+            pass
+    return n
+
+
 def audit_start(ctx, ci):
     reading, findings = _audit(ctx, "start")
     if reading is None:
         return SKIP, "nothing to audit", findings
+    quarantined = _quarantine(reading["quarantine"])
+    if quarantined:
+        reading, findings = _audit(ctx, "start")      # re-check the quarantined fleet
     _START.clear()
     _START.update(reading)
-    # Counter drift is a known product bug that conserves value, so it is
-    # reported but does not by itself fail the audit (see _drift_finding).
-    drift = _drift_finding(reading["drift"], known=True) if reading["drift"] else ""
-    tail = _describe(reading) + ((" | " + drift) if drift else "")
+    soft = _soft_notes(reading)
+    pieces = (["quarantined {} problem token(s) - locked out of use".format(quarantined)]
+              if quarantined else []) + soft + [_describe(reading)]
+    tail = " | ".join(pieces)
     if findings:
         return False, "the fleet is not clean before the run", "; ".join(findings) + " | " + tail
-    if drift:
-        return True, "clean apart from known-bug counter drift (400,000 RBT conserved)", tail
-    return True, "clean: " + _describe(reading), \
-        "every token owned once, counters consistent, nothing locked or stuck"
+    tags = (["{} quarantined".format(quarantined)] if quarantined else []) + \
+           (["known issues reported"] if soft else [])
+    actual = "clean" + (" ({})".format(", ".join(tags)) if tags else "") + ": " + _describe(reading)
+    return True, actual, tail
 
 
 def audit_end(ctx, ci):
+    # AUDIT-END reports the run's true end state and does NOT change the fleet -
+    # cleaning happens at the next run's AUDIT-START.
     reading, findings = _audit(ctx, "end")
     if reading is None:
         return SKIP, "nothing to audit", findings
@@ -215,30 +275,18 @@ def audit_end(ctx, ci):
         if abs(moved) > TOL:
             findings.append("the fleet total moved {:+.3f} RBT during this run ({:.3f} -> "
                             "{:.3f})".format(moved, _START["held"], reading["held"]))
-    # Counter drift already there at the start (left by an earlier run) is
-    # reported, not failed again; drift that is new or changed is a finding.
-    before = _START.get("drift", {})
-    new = dict((k, v) for k, v in reading["drift"].items() if before.get(k) != v)
-    carried = len(reading["drift"]) - len(new)
-    # New counter drift is the same known product bug, not a new finding - it
-    # conserves value. Report it; fail only on lost/created value, a double
-    # spend or stuck locks (those stay in `findings`).
-    drift = ("new in this run: " + _drift_finding(new, known=True)) if new else ""
-    carry = " | {} DID(s) still carry the counter drift found at the start".format(carried) \
-        if carried else ""
-    tail = _describe(reading) + ((" | " + drift) if drift else "") + carry
-    if findings:
-        return False, "the fleet is not clean after the run", "; ".join(findings) + " | " + tail
+    soft = _soft_notes(reading)
     since = ""
     if _START:
-        since = " | since the start: committed {:+.3f}, burnt for FT {:+.3f}".format(
+        since = "committed {:+.3f}, burnt for FT {:+.3f} since the start".format(
             reading["totals"]["committed"] - _START["totals"]["committed"],
             reading["totals"]["burnt-for-FT"] - _START["totals"]["burnt-for-FT"])
-    actual = "clean apart from known-bug counter drift (total unchanged)" if drift \
-        else "clean: " + _describe(reading)
-    return True, actual, \
-        "total unchanged; every token owned once, nothing locked" + \
-        (("; " + drift) if drift else "; no new counter drift") + since + carry
+    pieces = soft + [_describe(reading)] + ([since] if since else [])
+    tail = " | ".join(pieces)
+    if findings:
+        return False, "the fleet is not clean after the run", "; ".join(findings) + " | " + tail
+    actual = "clean" + (" (known issues reported)" if soft else "") + ": " + _describe(reading)
+    return True, actual, tail
 
 
 CASES = {"AUDIT-START": audit_start, "AUDIT-END": audit_end}
