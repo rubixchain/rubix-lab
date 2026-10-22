@@ -30,6 +30,15 @@ controller/test-plan/full-test/smoke-test-roles.txt
 # stay on the controller.
 controller/test-plan/full-test/fleet-ledger.json
 controller/test-plan/full-test/lab-limits.json
+# Who holds the fleet right now (full-test/run_lock.py) - one run at a time.
+controller/test-plan/full-test/fleet-run.lock
+
+# The web UI's own history (controller/ui), and its demo's fake fleet, runs and
+# reports. The real runs' event streams go to /reports/events/, ignored below.
+controller/ui/*.sqlite
+controller/ui/*.sqlite-*
+controller/ui/demo-data/
+controller/ui/server.log
 
 # Every test-plan script's report lands here (repo-root reports/), timestamped
 # per run — real fleet data, not something to commit.

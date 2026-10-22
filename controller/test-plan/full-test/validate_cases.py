@@ -32,6 +32,12 @@ USAGE
     python3 validate_cases.py                   # every case module
     python3 validate_cases.py --cases master    # one module
     python3 validate_cases.py --verbose         # show each case's return value
+    python3 validate_cases.py --events /tmp/ev.jsonl   # also check the web UI's
+                                                       # event stream (run_events.py)
+
+The fake QCAP-01 saves its "limit" like the real one does; that goes to a
+temporary file, never to the real full-test/lab-limits.json that later cases
+size their quorums by.
 
 Exit code is non-zero if any case raised, so this can gate a run:
     python3 validate_cases.py && python3 test_runner.py
@@ -41,6 +47,7 @@ import argparse
 import importlib.util
 import os
 import sys
+import tempfile
 import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -48,6 +55,7 @@ sys.path.insert(0, HERE)
 
 import rubix_client as rc
 import db_client as db
+import run_events
 import wallet_shapes as ws
 import test_runner as tr
 from test_runner import CaseContext, CaseInfo, load_case_module
@@ -71,6 +79,9 @@ class _Args:
     fleet_total = 400000.0
     ssh_user = "rubix"
     scale = 0.5
+    race_receivers = 4
+    load_ladder = "2,4,6"
+    chain_hops = 4
 
 
 def _entry(n):
@@ -184,6 +195,17 @@ def install_stubs():
     rc.get_transactions = rec("get_transactions", (True, [{"id": "t1"}], ""))
     rc.get_dids = rec("get_dids", (True, ["bafybmi" + "z" * 52], ""))
     rc._tx = rec("_tx", (True, "ok", {}))
+
+    # FAIL-01 reaches nodes over SSH and checks liveness over HTTP; offline,
+    # both are faked so no network or subprocess is touched.
+    import subprocess
+
+    class _P:
+        returncode, stdout, stderr = 0, "KILLED rc=0\n", ""
+    subprocess.run = lambda *a, **k: _P()
+    rc.http_json = rec("http_json", (True, {"status": True, "message": "peer"}))
+    db.wallet_totals = rec("wallet_totals", {"free": 500.0, "locked": 0.0,
+                                             "pledged": 0.0, "committed": 0.0})
 
     db.available = lambda: True
     # The fleet audit's per-node snapshot: one empty result per statement.
@@ -394,10 +416,19 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--cases", default="", help="one module, e.g. sc (default: all)")
     p.add_argument("--verbose", action="store_true")
+    p.add_argument("--events", default="", metavar="FILE",
+                   help="also write the event stream (run_events.py) to FILE and check it")
     args = p.parse_args()
 
     install_stubs()
     _patch_sleep()
+    # The fake QCAP-01 saves its limit (case_helpers.save_limit); keep it out
+    # of the real lab-limits.json.
+    sys.path.insert(0, os.path.join(HERE, "..", "master"))
+    import case_helpers
+    case_helpers.LIMITS_PATH = os.path.join(tempfile.mkdtemp(prefix="validate-cases-"),
+                                            "lab-limits.json")
+    run_events.start(args.events)
 
     if args.cases:
         modules = [args.cases]
@@ -416,6 +447,16 @@ def main():
         all_failures += [(m,) + f for f in validate(m, args.verbose)]
         if hasattr(load_case_module(m), "NEEDS"):
             schedule_problems += validate_schedule(m)
+    if args.events:
+        run_events.close()
+        event_problems = run_events.check_file(args.events)
+        print("== events ({}) ==".format(args.events))
+        for p_ in event_problems[:20]:
+            print("  [PROBLEM] " + p_)
+        if event_problems:
+            sys.exit("{} event stream problem(s) - see above".format(len(event_problems)))
+        with open(args.events, encoding="utf-8") as fh:
+            print("  {} well-formed event line(s)\n".format(sum(1 for line in fh if line.strip())))
     if schedule_problems:
         sys.exit("{} scheduling problem(s) - see above".format(len(schedule_problems)))
 

@@ -74,6 +74,7 @@ def ft_01(ctx, ci):
     if not owners or len(recv) < 5:
         return SKIP, "needs FT owners and at least 5 receivers", ""
     hops = _hops(ctx)
+    ch.ensure_quorums(ctx)      # a quorum that restarted in an earlier case lost its setup
     stamp = int(time.time())
     expect = {}                     # (did, name) -> count
     entry_of = dict((e["did"], e) for e in owners + list(recv))
@@ -258,6 +259,7 @@ def nft_01(ctx, ci):
     if not owners or len(recv) < 3:
         return SKIP, "needs NFT owners and at least 3 receivers", ""
     hops = _hops(ctx)
+    ch.ensure_quorums(ctx)      # FT-01 may have restarted a shared quorum; re-assert its setup
     timing = {"create": [], "deploy": [], "children": [], "execute": [], "transfer": [],
               "subscriber catch-up": [], "arrival at new owner": []}
 
@@ -375,6 +377,7 @@ def sc_01(ctx, ci):
     if not owners or len(recv) < 4:
         return SKIP, "needs contract owners and at least 4 subscribers", ""
     per_owner = max(1, int(round(2 * ctx.args.scale)))
+    ch.ensure_quorums(ctx)      # FT-01 may have restarted a shared quorum; re-assert its setup
     timing = {"deploy": [], "execute": [], "subscribe": [], "catch-up before execute": []}
 
     def contract(job):

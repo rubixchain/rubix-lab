@@ -16,11 +16,19 @@ The suite runs in stages, in this order:
     0  audit_cases.py    AUDIT-START  the fleet is clean, total = 400,000 RBT
     1  quorum_cases.py   QCAP-01      what one quorum signs at once (saved, and
                                       used to size the quorums of later cases)
+                         QCAP-02      the pledge boundary is the quorum's holding
+                         QCAP-03a/b   a quorum spending its own RBT
        wallet_cases.py   WALLET-PREP  a big and a fragmented wallet, then
                          WALLET-01    sending 1 / 100 / 1,000 RBT from them
        asset_cases.py    FT-01        FT series minted, re-minted, passed on
                          NFT-01       NFTs with children, executes, new owners
                          SC-01        contracts with subscribers at many depths
+    2  race_cases.py     RACE-01      one token, many simultaneous sends - one wins
+                         RACE-02      node- and machine-level concurrency
+       load_cases.py     LOAD-01      the whole fleet transacting at once
+       chain_cases.py    CHAIN-01     a deep chain, a new quorum at every hop
+       combo_cases.py    COMBO-01     several asset types in one transaction
+    3  fail_cases.py     FAIL-01      a node killed mid-transfer, six ways
     4  audit_cases.py    AUDIT-END    nothing lost, created, locked or doubled
 
 Each module defines CASES {id: fn}, ORDER [id, ...] and NEEDS (what each case
@@ -46,6 +54,11 @@ import audit_cases
 import quorum_cases
 import wallet_cases
 import asset_cases
+import race_cases
+import load_cases
+import chain_cases
+import combo_cases
+import fail_cases
 
 # Run order. A unit marked "first" or "last" in its NEEDS runs at the start or
 # the end whatever its place here.
@@ -54,6 +67,11 @@ CASE_MODULES = [
     quorum_cases,
     wallet_cases,
     asset_cases,
+    race_cases,
+    load_cases,
+    chain_cases,
+    combo_cases,
+    fail_cases,
 ]
 
 
@@ -90,7 +108,11 @@ def _merge_registries(modules):
     last = set(c for spec in needs.values() if spec.get("last")
                for c in spec.get("cases", []) or [])
     last |= set(name for name, spec in needs.items() if spec.get("last") and "cases" not in spec)
-    order = [t for t in order if t not in last] + [t for t in order if t in last]
+    lasts = [t for t in order if t in last]
+    # The closing audit is always the very last case, after any destructive
+    # "last" test (FAIL-01 kills nodes), so it audits the fleet's final state.
+    lasts.sort(key=lambda t: t == "AUDIT-END")
+    order = [t for t in order if t not in last] + lasts
     return cases, order, needs, timing, info, no_rerun
 
 

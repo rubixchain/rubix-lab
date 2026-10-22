@@ -165,3 +165,7 @@ NEEDS = {
                 "quorums": 2, "fund": 5, "quorum_fund": 2500},
 }
 NO_DELAY_RERUN = set(ORDER)
+# What a case draws from the faucet itself, beyond what NEEDS funds: WALLET-PREP
+# tops the big wallet up to --whole-wallet whole tokens. Only the web UI reads
+# this, to show the most a run can draw before it starts.
+FAUCET_DRAW = {"WALLET-PREP": lambda args: args.whole_wallet}

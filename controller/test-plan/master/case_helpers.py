@@ -93,6 +93,28 @@ def refusal_summary(messages, top=3, limit=160):
 TRANSFER_TIMEOUT = 900
 
 
+def ensure_quorums(ctx):
+    """Re-activate every quorum signer on its own node before a case begins.
+
+    Quorum setup is in memory (core.SetupQuorum loads the signing key into the
+    c.qc map, core/quorum_initiator.go) and is lost if the node restarts. The
+    runner sets a unit's quorum up once, but FT/NFT/SC share one unit, so a
+    quorum that restarts during an earlier, heavy case (e.g. a large FT signing
+    load) leaves the next case refused with 'requestPledgeTokenHandler : Quorum
+    is not setup'. The call is cheap and harmless when the quorum is already up,
+    so each case re-asserts it first. Returns the quorum hosts that could not be
+    set up (empty = all good)."""
+    failed = []
+    for q in (getattr(ctx, "quorum_hosts", None) or []):
+        try:
+            ok, _msg = rc.quorum_setup(q["host"], q["did"], ctx.port)
+        except Exception:
+            ok = False
+        if not ok:
+            failed.append(q["host"])
+    return failed
+
+
 def burst(jobs, timeout=TRANSFER_TIMEOUT):
     """Run every job at the same moment and time each one.
 

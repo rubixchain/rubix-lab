@@ -97,6 +97,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "master"))
 
 import rubix_client as rc
 import db_client as db
+import run_lock
 import test_runner as tr
 from case_helpers import node_reason
 
@@ -755,7 +756,11 @@ def main():
     p.add_argument("--drain", type=int, default=5,
                    help="0.999 sends in SPL-DRAIN (default 5)")
     p.add_argument("--yes", action="store_true", help="do not ask before starting")
-    run(p.parse_args())
+    args = p.parse_args()
+    # One run on the fleet at a time (full-test/run_lock.py): stops here if
+    # another run holds it.
+    run_lock.take("unpledged_spend.py")
+    run(args)
 
 
 if __name__ == "__main__":

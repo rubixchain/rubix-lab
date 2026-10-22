@@ -40,6 +40,11 @@ Usage:
     python3 test_runner.py                                   # every case
     python3 test_runner.py --only 'QCAP-*'                   # one group
     python3 test_runner.py --only AUDIT-START,QCAP-01
+
+One run on the fleet at a time: a second run, from a terminal or the web UI,
+refuses to start while one is going (run_lock.py). --events FILE also writes
+the run as JSON lines for the web UI (run_events.py); without it nothing
+changes.
 """
 
 import argparse
@@ -62,6 +67,8 @@ import db_client as db
 import case_evidence
 import fleet as fleet_inventory
 import report_builder
+import run_events
+import run_lock
 
 FIXED_ROLES = fleet_inventory.FIXED_ROLES
 DEFAULT_HOSTS = fleet_inventory.HOSTS_PATH
@@ -281,6 +288,15 @@ UNIT_DEFAULTS = {"senders": 1, "receivers": 1, "quorums": 1, "fund": 0,
 # Added to a unit's `fund`. Being generous costs one faucet transfer; being
 # short costs a failure that says nothing about the product.
 FUND_SAFETY_MARGIN = 10
+
+
+def unit_targets(spec, quorum_floor):
+    """(RBT each quorum, RBT each sender and receiver) a unit is topped up to
+    before it starts; prepare_unit draws only the shortfall from the faucet.
+    The web UI shows the same figures as the faucet draw before a run."""
+    floor = spec["quorum_fund"] if spec["quorum_fund"] is not None else quorum_floor
+    want = spec["fund"] + FUND_SAFETY_MARGIN if spec["fund"] else 0
+    return floor, want
 
 
 class Unit(object):
@@ -506,7 +522,7 @@ def prepare_unit(unit, args):
     fund what the unit's cases expect. Returns sender_quorum {host: quorum}.
     Raises RuntimeError with the step that failed."""
     s = unit.spec
-    floor = s["quorum_fund"] if s["quorum_fund"] is not None else args.quorum_floor
+    floor, want = unit_targets(s, args.quorum_floor)
     for q in unit.quorums:
         ok, msg = rc.quorum_setup(q["host"], q["did"], args.port)
         if not ok:
@@ -527,7 +543,6 @@ def prepare_unit(unit, args):
                 raise RuntimeError(msg)
             sender_quorum[host] = q
 
-    want = s["fund"] + FUND_SAFETY_MARGIN if s["fund"] else 0
     seen = set()
     for e in unit.senders + unit.receivers:
         if e["did"] not in seen:
@@ -576,9 +591,11 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
     def skip_all(unit, actual, note):
         for tid in unit.cases:
             unit.rows.append((tid, (SKIP, actual, note), 0.0, resolve_ci(tid, master, case_info)))
+            run_events.case_result(unit, tid, SKIP, (SKIP, actual, note), 0.0, None)
             say("  [SKIP] {:<11} {}: {}".format(tid, actual, note))
 
     def run_one(unit):
+        run_events.unit_started(unit)
         try:
             sender_quorum = prepare_unit(unit, args) if unit.needs_nodes else {}
         except Exception as e:
@@ -600,6 +617,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
         participants' rows before and after, every transaction found on both
         nodes, value conserved, nothing left locked, rows consistent, and the
         fullnode's verdict on each transaction."""
+        run_events.case_started(unit, tid, paced)
         started = time.time()
         state = case_evidence.begin(unit)
         try:
@@ -641,6 +659,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
 
             status = ("SKIP" if (isinstance(result[0], str) and result[0] == SKIP)
                       else "PASS" if result[0] is True else "FAIL")
+            run_events.case_result(unit, tid, status, result, elapsed, evidence)
             say("  [{:<4}] {:<11} {:>7.2f}s  {}".format(status, tid, elapsed, result[1]))
 
     workers = max(1, len(pool_nodes))
@@ -690,6 +709,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                 exc = fut.exception()
                 if exc:
                     skip_all(unit, "runner error", "{}: {}".format(type(exc).__name__, exc))
+                run_events.unit_done(unit, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -905,6 +925,7 @@ class CatalogueReport:
         else:
             print("PDF : not written - reportlab missing. Results are safe in the JSON "
                   "above. Install with: sudo apt install -y python3-reportlab")
+        return paths["json"], (paths["pdf"] if pdf_ok else "")
 
 
 def load_fleet(hosts_path=DEFAULT_HOSTS):
@@ -972,7 +993,16 @@ def discover_pool(specs, timeout):
     return nodes, excluded
 
 
-def main():
+def fullnode_reason_key(reason):
+    """A fullnode's rejection reason with the IDs in it masked, so the same
+    failure groups across transactions. Contract/NFT IDs are base58 "Qm..."
+    hashes. The web UI groups the fullnodes' reasons with this too."""
+    return re.sub(r"bafy\w+|Qm[1-9A-HJ-NP-Za-km-z]{44}|[0-9a-f]{16,}|\b\d+_\d+(_\d+)?\b",
+                  "<id>",
+                  (reason or "").replace("failed to validate transaction:", "")).strip()[:160]
+
+
+def build_parser():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--suite", default="",
@@ -1015,6 +1045,12 @@ def main():
                    help="WALLET-01: part tokens the fragmented wallet collects (default 600)")
     p.add_argument("--asset-hops", type=int, default=6,
                    help="FT-01 / NFT-01 / SC-01: hops each asset makes (default 6)")
+    p.add_argument("--race-receivers", type=int, default=20,
+                   help="RACE-01: simultaneous receivers one token is raced to (default 20)")
+    p.add_argument("--load-ladder", default="10,20,50,100,200,300,500,750,988",
+                   help="LOAD-01: DIDs transacting at once, rung by rung")
+    p.add_argument("--chain-hops", type=int, default=200,
+                   help="CHAIN-01: hops in the chain, each a new quorum (default 200)")
     p.add_argument("--scale", type=float, default=1.0,
                    help="multiplier for the asset cases' volume (default 1.0)")
     p.add_argument("--fleet-total", type=float, default=400000.0,
@@ -1025,9 +1061,21 @@ def main():
     p.add_argument("--collect-versions", action="store_true",
                    help="SSH each pool machine and record every node's build")
     p.add_argument("--ssh-user", default="rubix", help="SSH user for --collect-versions")
-    args = p.parse_args()
+    p.add_argument("--events", default="", metavar="FILE",
+                   help="also write the run as JSON lines to FILE as it goes, for the web UI "
+                        "(run_events.py). Off by default.")
+    return p
 
+
+def main():
+    args = build_parser().parse_args()
+
+    # One run on the fleet at a time: stops here if another run holds it.
+    run_lock.take("test_runner.py", by="the web UI" if args.events else "a terminal",
+                  events=os.path.abspath(args.events) if args.events else "")
     log_path = rc.start_log("test_runner")
+    run_lock.note(log=log_path)
+    run_events.start(args.events)
 
     if args.suite:
         patterns, suite_modules = load_suite(args.suite)
@@ -1064,6 +1112,7 @@ def main():
     case_info = getattr(module, "CASE_INFO", {}) or {}
     master = load_master()
     units = build_units(module, order)
+    run_events.run_started(args, module_names[0], order, units, log_path)
 
     # Every verdict rests on database readings; without the driver there would
     # be no evidence, so do not run at all.
@@ -1076,6 +1125,7 @@ def main():
     # Every RBT a case spends comes from the faucet, so a misconfigured faucet
     # would fail every case on funding. Stop here instead.
     faucet_ok, faucet_note = rc.faucet_ready()
+    run_events.phase("faucet", faucet_ok, faucet_note)
     if not faucet_ok:
         sys.exit("ERROR: faucet not ready - {}".format(faucet_note))
     print("Faucet: {}... on {}:{}, quorum {}... on {}:{} - {}".format(
@@ -1086,8 +1136,10 @@ def main():
 
     print()
     print("== Fleet: reachability + DIDs ==")
+    run_events.phase("discover", None, "reading every node and announcing its DIDs")
     pool_nodes, excluded = discover_pool(specs, rc.DEFAULT_TIMEOUT)
     fleet = [{"host": n["host"], "did": d} for n in pool_nodes for d in n["dids"]]
+    run_events.pool(specs, pool_nodes, fleet, excluded)
     print("{} node(s) on {} pool machine(s) in hosts.txt, {} usable with {} DID(s), "
           "{} excluded".format(len(specs), len(set(s["machine"] for s in specs)),
                                len(pool_nodes), len(fleet), len(excluded)))
@@ -1121,6 +1173,7 @@ def main():
     participants = "; ".join("{} [{}]: {}".format(u.name, ",".join(u.cases), u.describe())
                              for u in units if u.hosts)
 
+    run_events.phase("report", None, "evidence, fleet ledger and report")
     version_rows = []
     if args.collect_versions:
         print("\nCollecting per-node versions over SSH...")
@@ -1194,11 +1247,8 @@ def main():
                 disagreed.add(e["case"])
             for fn, p in (c.get("per_fullnode") or {}).items():
                 for _tid, r in (p.get("rejected") or {}).items():
-                    # IDs differ per transaction; mask them so the same failure
-                    # groups. Contract/NFT IDs are base58 "Qm..." hashes.
-                    key = re.sub(r"bafy\w+|Qm[1-9A-HJ-NP-Za-km-z]{44}|[0-9a-f]{16,}|\b\d+_\d+(_\d+)?\b",
-                                 "<id>",
-                                 (r or "").replace("failed to validate transaction:", "")).strip()[:160]
+                    # IDs differ per transaction; mask them so the same failure groups.
+                    key = fullnode_reason_key(r)
                     entry = reasons.setdefault(key, (set(), set()))
                     entry[0].add(e["case"])
                     entry[1].add(case_evidence.short_name(fn))
@@ -1237,8 +1287,11 @@ def main():
     for line in ledger_lines:
         print(line)
 
-    report.save(args.report_name or args.cases.replace(",", "-"), meta, timing_ids)
+    report_json, report_pdf = report.save(args.report_name or args.cases.replace(",", "-"),
+                                          meta, timing_ids)
     print("Log : {}".format(log_path))
+    run_events.run_done(report.rows, duration, report_json, report_pdf, ev_path, log_path,
+                        ledger_lines, reasons, disagreed, known)
 
 
 if __name__ == "__main__":

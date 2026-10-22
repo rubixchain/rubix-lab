@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rubix Lab</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">Rubix Lab</div>
+  <nav>
+    <a href="#/fleet" data-page="fleet">Fleet</a>
+    <a href="#/run" data-page="run">Run builder</a>
+    <a href="#/live" data-page="live">Live run</a>
+    <a href="#/reports" data-page="reports">Reports</a>
+  </nav>
+  <a id="busy" class="busy" href="#/live"></a>
+</header>
+<div id="demo" class="demo" hidden>DEMO - a fake fleet. Nothing here touches the lab; runs and reports stay in controller/ui/demo-data/.</div>
+<main id="main"></main>
+<script src="/static/app.js"></script>
+</body>
+</html>

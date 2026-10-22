@@ -52,6 +52,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rubix_client as rc
+import run_lock
 import test_runner as tr
 from test_cases import SmokeContext, TEST_CASES
 
@@ -262,7 +263,10 @@ def main():
     p.add_argument("--ft-count", type=int, default=10)
     p.add_argument("--ft-token-count", type=int, default=1)
     args = p.parse_args()
+    # One run on the fleet at a time (run_lock.py): stops here if another holds it.
+    run_lock.take("smoke_test.py")
     log_path = rc.start_log("smoke_test")
+    run_lock.note(log=log_path)
     report = Report()
 
     print("== Common: pool + reachability + DID readiness ==")
