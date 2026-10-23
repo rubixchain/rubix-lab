@@ -206,6 +206,14 @@ KNOWN_PRODUCT_BUGS = (
      "previous transaction (core/transaction_builder.go:369); a quorum that has seen "
      "the token refuses it, one that has not accepts a second genesis "
      "(core/consensus/checks.go:836) which the fullnodes then reject"),
+    ("did not exist with the peer",
+     "peer unreachable, error swallowed (ipfsport/peer.go:205)",
+     "the node could not reach the other node over IPFS at all - on 2026-10-22 a node "
+     "left deaf by an IPFS auto-restart, which never re-registers its p2p listener "
+     "(core/ipfs_recovery.go; controller/p2p-check.sh finds them). SendJSONRequest "
+     "redeclares err inside its retry loop (core/ipfsport/peer.go:205), so after every "
+     "attempt fails it returns nil with an empty answer, which getPeer reads as 'the DID "
+     "is not on that peer' (core/peer.go:200)"),
     ("transaction amount exceeds 3 decimal places",
      "float sum of contract values (parts.go:55)",
      "a multi-contract request is checked on the float sum of its values "

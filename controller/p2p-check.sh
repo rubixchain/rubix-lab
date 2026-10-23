@@ -20,8 +20,13 @@
 #               (core/ipfsport/peer.go OpenPeerConn), so it climbs over time.
 #
 # Per node: IPFS answering, the p2p listener and its target, who holds the
-# listener port, open forwards (how far the peer-port pool has climbed), and
-# IPFS auto-restarts in the node's log.txt.
+# listener port, open forwards (peer connections in use right now - a port the
+# pool leaked leaves no forward behind, so this does not show the leak), and
+# IPFS auto-restarts in the node's log.txt since the node last started.
+#
+# First run, 2026-10-23: .130 nodes 0-7 DEAF, each with IPFS auto-restarts in
+# its log, node 8 fine, no restart on any other machine; a whole-machine
+# restart made all 9 receive again.
 #
 # Read-only: changes nothing anywhere. The fix for a DEAF or PORT TAKEN node
 # is restarting its whole machine (restart-nodes.sh --host <ip> --force, which
@@ -85,7 +90,10 @@ while [ $# -ge 2 ]; do
   if p2p=$(IPFS_PATH=$d/.ipfs "$d/ipfs" p2p ls 2>/dev/null); then ipfs=up; else ipfs=down; fi
   target=$(awk '$2 ~ "^/p2p/" {print $3; exit}' <<<"$p2p")
   fwd=$(awk '$2 !~ "^/p2p/" && NF >= 3' <<<"$p2p" | wc -l)
-  restarts=$(grep -c "Restarting IPFS daemon" "$d/log.txt" 2>/dev/null || true)
+  # log.txt is appended across node starts, so count only the IPFS restarts
+  # since the node's last start ("Setting up the core", core/core.go:233) -
+  # one of those means the node has been deaf since it happened.
+  restarts=$(awk '/Setting up the core/ {n = 0} /Restarting IPFS daemon/ {n++} END {print n + 0}' "$d/log.txt" 2>/dev/null)
   echo "s=$s L=$L unit=${unit:-0} sock=$([ -n "$sock" ] && echo yes || echo no) owner=${owner:--} name=${name:--} holder=${holder:--} ipfs=$ipfs target=${target:-none} fwd=$fwd restarts=${restarts:-0}"
 done
 REMOTE
@@ -128,10 +136,10 @@ REMOTE
     else
       ok=$((ok + 1)); continue
     fi
-    bad+=("node $s: $verdict (forwards open $fwd, IPFS restarts in log $restarts). Fix: $fix")
+    bad+=("node $s: $verdict (forwards open $fwd, IPFS restarts since it started $restarts). Fix: $fix")
   done < <(grep '^s=' <<<"$raw")
 
-  printf '%-15s %s/%s can receive   most forwards open on one node: %s   IPFS restarts in logs: %s\n' \
+  printf '%-15s %s/%s can receive   most forwards open on one node: %s   IPFS restarts since the nodes started: %s\n' \
     "$ip" "$ok" "$n" "$maxfwd" "$rs"
   for b in "${bad[@]}"; do echo "      - $b"; done
   [ "$ok" -eq "$n" ]
