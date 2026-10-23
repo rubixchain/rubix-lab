@@ -37,8 +37,7 @@ QCAP_SENDERS = 220
 # (case_evidence.KNOWN_PRODUCT_BUGS): a former quorum spending a token it once
 # pledged (core/consensus/checks.go:308), and a second-hand part token whose
 # whole-token genesis the sender cannot supply.
-NOT_THE_QUORUM = ("failed to get quorum DID for t",
-                  "ValidateMinterAllowlist: whole-token genesis fetch failed")
+NOT_THE_QUORUM = ch.SENDERS_OWN_TOKENS
 
 
 def _rung_line(label, n, s):
@@ -143,6 +142,23 @@ def _free(host, did):
     return float(detail["balance"]) if ok and detail else None
 
 
+def _whole_wallet(entry):
+    """`entry` with a DID on its node that holds no Free part token, or None.
+    A fractional value is then split from the sender's own whole token, whose
+    genesis it holds - paying with a part token it received from someone else
+    is refused by the known minter-allowlist bug, which on 2026-10-22 stood in
+    for the boundary itself at value == holding."""
+    own = entry.get("did")
+    for did in [own] + [d for d in (entry.get("dids") or []) if d != own]:
+        try:
+            rows = db.token_rows(entry["host"], did, status=db.FREE)
+        except Exception:
+            continue
+        if not [v for _t, v, _st, _p in rows if v < 1.0 - 1e-9]:
+            return dict(entry, did=did)
+    return None
+
+
 def qcap_02(ctx, ci):
     quorums, senders, recv = ctx.quorum_hosts, ctx.senders, ctx.receivers
     n = min(len(quorums), len(senders), len(recv), len(QCAP2_OFFSETS))
@@ -162,7 +178,14 @@ def qcap_02(ctx, ci):
             lines.append("holding {:.3f}, offset {:+.3f}: value not positive, skipped".format(
                 held, offset))
             continue
+        # The quorums can hold more than quorum_fund (a poorest DID may already
+        # be rich), so the unit's flat `fund` left the two rungs above the
+        # holding unfunded on 2026-10-22. Fund the sender for THIS value.
+        s = _whole_wallet(s) or s
         sender_free = _free(s["host"], s["did"]) or 0.0
+        if sender_free < value + 1.0:
+            ok, msg = rc.fund_did(s["host"], s["did"], value + 2.0 - sender_free, ctx.port)
+            sender_free = _free(s["host"], s["did"]) or 0.0
         if sender_free < value + 0.1:
             lines.append("holding {:.3f}, value {:.3f}: sender holds only {:.3f}, skipped".format(
                 held, value, sender_free))
@@ -174,12 +197,15 @@ def qcap_02(ctx, ci):
         reason = ch.node_reason(msg)
         should_pass = value <= held + 1e-9
         liquidity = "insufficient quorum liquidity" in reason
+        known = (not ok) and any(k in reason for k in ch.SENDERS_OWN_TOKENS + ch.CLOCK_AHEAD)
         verdict = "went through" if ok else ("refused (liquidity)" if liquidity
                                              else "refused: " + reason)
         lines.append("holding {:.3f}, value {:.3f} ({:+.3f}): {}".format(held, value, offset, verdict))
         # The boundary holds when value<=holding goes through and value>holding
         # is refused for liquidity (not for some other reason).
-        if should_pass and ok:
+        if known:
+            lines[-1] += " - not measured: a known bug on the sender's side, not the boundary"
+        elif should_pass and ok:
             boundary_ok += 1
         elif (not should_pass) and liquidity:
             boundary_ok += 1
@@ -280,25 +306,35 @@ def qcap_03b(ctx, ci):
         return SKIP, "needs five nodes (A, B, C, Q, Q2)", ""
     A, B, C, Q, Q2 = ctx.senders[:5]
     port, V = ctx.port, 20.0
+    # The pledge is released when a LATER transaction spends a token of the
+    # pledged one (core/callback.go). B's onward send takes its lowest whole
+    # token_ids first (core/wallet/token_lock.go), so a B that already holds
+    # tokens spends its own older ones and Q's pledge is never touched - which
+    # is what "not released" meant on 2026-10-22. B must hold no whole token
+    # before A pays it: a DID on B's node that holds none. Q likewise plays
+    # from an empty DID funded with exactly V, so pledging V leaves it nothing
+    # to send - draining a full Q instead pushed its whole wallet through Q2,
+    # whose pledges for that (held until C spends onward) left Q2 short for
+    # B's spend.
+    B = ch.empty_did(B, whole_only=True)
+    Q = ch.empty_did(Q, whole_only=True)
+    if B is None or Q is None:
+        return SKIP, "no DID on {}'s node is free of whole tokens - the case follows the exact " \
+            "tokens pledged and paid".format("B" if B is None else "Q"), ""
 
-    for q in (Q, Q2):
-        ok, why = _as_quorum(q, 100, port)
-        if not ok:
-            return SKIP, "could not set up quorum {}: {}".format(q["host"].split(".")[-1], why), ""
+    ok, why = _as_quorum(Q2, 100, port)
+    if not ok:
+        return SKIP, "could not set up quorum {}: {}".format(Q2["host"].split(".")[-1], why), ""
+    ok, msg = rc.quorum_setup(Q["host"], Q["did"], port)
+    if not ok:
+        return SKIP, "could not set up quorum {}: {}".format(Q["host"].split(".")[-1], msg), ""
     for host, qdid in ((A["host"], Q["did"]), (Q["host"], Q2["did"]), (B["host"], Q2["did"])):
         ok, msg = _wire(host, qdid, port)
         if not ok:
             return SKIP, "could not wire quorum: " + str(msg), ""
-
-    # Bring Q down to roughly V free, so pledging V for one transfer leaves it
-    # unable to send V itself.
-    import wallet_shapes as ws
-    ws.drain_to(ctx, Q, C, keep=0.0)
-    have = _free(Q["host"], Q["did"]) or 0.0
-    if have < V:
-        ok, msg = rc.fund_did(Q["host"], Q["did"], V - have, port)
-        if not ok:
-            return SKIP, "could not fund Q to the pledge amount: " + str(msg), ""
+    ok, msg = rc.fund_did(Q["host"], Q["did"], V, port)
+    if not ok:
+        return SKIP, "could not fund Q to the pledge amount: " + str(msg), ""
 
     # A pays B through Q: Q pledges ~all of its V.
     ok, msg, _r = rc.initiate_transaction(A["host"], A["did"], B["did"], rbt=V,
@@ -308,6 +344,16 @@ def qcap_03b(ctx, ci):
             ch.node_reason(msg)), ""
     time.sleep(ch.SETTLE)
     steps = []
+    # The tokens A paid B - the ones B must spend onward to release Q.
+    paid = set()
+    for _ in range(20):
+        paid = set(ch.whole_free(B["host"], B["did"]))
+        if len(paid) >= int(V):
+            break
+        time.sleep(2)
+    if len(paid) < int(V):
+        return SKIP, "B never showed the {:.0f} whole tokens A paid it ({} arrived)".format(
+            V, len(paid)), ""
 
     # 1. Q tries to send V while its value is pledged - should be refused.
     ok, msg, _r = rc.initiate_transaction(Q["host"], Q["did"], C["did"], rbt=V,
@@ -319,15 +365,24 @@ def qcap_03b(ctx, ci):
     ok, msg, _r = rc.initiate_transaction(B["host"], B["did"], C["did"], rbt=V,
                                           memo="QCAP-03b release", timeout=ch.TRANSFER_TIMEOUT)
     released, wait_s = False, None
+    onward_ok, onward_why = ok, ch.node_reason(msg)
     if ok:
+        time.sleep(2)
+    still_held = paid & set(ch.whole_free(B["host"], B["did"])) if ok else paid
+    if ok and not still_held:
         t0 = time.time()
         for _ in range(60):
             if db.pledged_value(Q["host"], Q["did"]) < V - ch.TOL:
                 released, wait_s = True, round(time.time() - t0, 1)
                 break
             time.sleep(2)
-    steps.append("pledge released {}".format(
-        "after {:.0f}s".format(wait_s) if released else "NOT within 120s"))
+    if not onward_ok:
+        steps.append("B's onward spend was refused: " + onward_why)
+    elif still_held:
+        steps.append("B's onward spend did not move the {} token(s) A paid it".format(len(still_held)))
+    else:
+        steps.append("pledge released {}".format(
+            "after {:.0f}s".format(wait_s) if released else "NOT within 120s"))
 
     # 3. After release Q's tokens are Free but their last chain role is
     #    "unpledge". A whole-RBT send hits the ex-quorum bug (checks.go:308); a
@@ -354,10 +409,22 @@ def qcap_03b(ctx, ci):
     # the known ex-quorum bug after release.
     if not refused_while_pledged:
         return False, "a quorum sent RBT whose value it had entirely pledged", note
+    if not onward_ok or still_held:
+        return SKIP, "the release could not be tested: " + steps[-1], note
     if not released:
-        return False, "the pledge was not released after the receiver spent the token onward", note
-    return True, "pledged RBT is unspendable until released ({:.0f}s), then the known ex-quorum " \
-        "bug blocks whole-token sends while splits go through".format(wait_s or 0), note
+        # A node with several quorum DIDs set up checks only one of them, picked
+        # by Go map order, when a later transaction arrives (core/fullnode.go:69,
+        # CheckTxnsPresentInUnpledgeSequenceInfo filters on quorum_did,
+        # core/wallet/pledge.go:497) - and quorums set up in earlier cases stay
+        # set up on their nodes until a restart.
+        return False, "the pledge was not released after the receiver spent the pledged tokens " \
+            "onward (if Q's node has other quorum DIDs set up, the release checks one of them " \
+            "at random - core/fullnode.go:69)", note
+    def outcome(r):
+        return "went through" if r and r[0] else "refused ({})".format(r[1][:80] if r else "not tried")
+    return True, "pledged RBT is unspendable until released ({:.0f}s); after the release a " \
+        "whole-RBT send {} and a fractional send {}".format(
+            wait_s or 0, outcome(whole), outcome(split)), note
 
 
 CASES = {"QCAP-01": qcap_01, "QCAP-02": qcap_02, "QCAP-03a": qcap_03a, "QCAP-03b": qcap_03b}

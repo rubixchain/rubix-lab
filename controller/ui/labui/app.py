@@ -9,7 +9,9 @@ one lab, not a public site. No password - the lab network is internal.
     POST /api/fleet/refresh              read the fleet again now
     POST /api/fleet/builds               collect every node's build over SSH
     GET  /api/catalogue                  cases, units, knobs
+    GET  /api/custom                     what the Custom run form offers
     POST /api/plan                       what a run would do, and whether it may start
+                                         (a catalogue run, or {"mode": "custom", "spec": ...})
     POST /api/runs                       start a run
     GET  /api/runs                       past and current runs
     GET  /api/runs/current               the run on now (or the last one)
@@ -88,6 +90,10 @@ class App(object):
                 "id", "source", "kind", "name", "cases", "only", "status", "started_at",
                 "ended_at", "duration", "version", "passed", "failed", "skipped", "total",
                 "note")})
+            spec = r.get("spec")
+            if isinstance(spec, dict):
+                out[-1]["label"] = spec.get("label") or ""
+                out[-1]["scenarios"] = [s.get("summary") for s in spec.get("scenarios") or []]
             out[-1]["files"] = self.links({"json": r.get("report_json"), "pdf": r.get("report_pdf"),
                                            "log": r.get("log"), "evidence": r.get("evidence"),
                                            "console": r.get("console")})
@@ -206,6 +212,8 @@ def make_handler(app):
                     return self._send(200, app.poller.snapshot())
                 if path == "/api/catalogue":
                     return self._send(200, app.catalogue.info())
+                if path == "/api/custom":
+                    return self._send(200, app.catalogue.custom_form())
                 if path == "/api/runs":
                     return self._send(200, {"runs": app.run_list(int((q.get("limit") or [500])[0]))})
                 if path == "/api/runs/current":

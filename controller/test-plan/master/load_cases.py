@@ -114,17 +114,24 @@ def load_01(ctx, ci):
             continue
         jobs = [{"host": a["host"], "did": a["did"], "to": b["did"], "rbt": 1.0,
                  "memo": "LOAD-01 rung {}".format(k)} for a, b in ch.ring(group)]
-        s = ch.summarize(ch.burst(jobs))
-        line = "{}: {}/{} at once, p50 {:.1f}s p95 {:.1f}s max {:.1f}s{}".format(
-            k, s["ok"], s["n"], s["p50"], s["p95"], s["max"],
-            " - refused: " + s["reasons"] if s["failed"] else "")
+        # Refusals from the sender's own tokens (known bugs) and from a sender's
+        # clock running ahead of its quorum's would happen with no load at all:
+        # counted apart, as QCAP-01 does. On 2026-10-22 one ex-quorum sender,
+        # refused on every rung from 20 up, held the limit at 10.
+        s = ch.summarize(ch.burst(jobs), set_aside=ch.SENDERS_OWN_TOKENS + ch.CLOCK_AHEAD)
+        counted = s["n"] - s["aside"]
+        line = "{}: {}/{} at once, p50 {:.1f}s p95 {:.1f}s max {:.1f}s{}{}".format(
+            k, s["ok"], counted, s["p50"], s["p95"], s["max"],
+            " - refused: " + s["reasons"] if s["failed"] else "",
+            " - {} not counted (sender's own tokens or clock): {}".format(s["aside"], s["aside_reasons"])
+            if s["aside"] else "")
         lines.append(line)
         print("    LOAD-01 " + line)
-        if s["failed"] == 0 and clean:
+        if s["failed"] == 0 and counted > 0 and clean:
             limit = k
         else:
             clean = False
-        if s["n"] and 100.0 * s["ok"] / s["n"] < ctx.args.ladder_stop:
+        if counted and 100.0 * s["ok"] / counted < ctx.args.ladder_stop:
             lines.append("stopped: under {:.0f}% went through at {}".format(ctx.args.ladder_stop, k))
             break
         if i < len(rungs) - 1:
@@ -138,8 +145,8 @@ def load_01(ctx, ci):
     if not limit:
         return False, "even {} DIDs transacting at once did not all go through".format(rungs[0]), note
     top_note = " - the top of the ladder, so the real limit is higher" if limit == rungs[-1] else ""
-    return True, "{} DIDs transacted at once with every transfer going through{}".format(
-        limit, top_note), note
+    return True, "{} DIDs transacted at once with every transfer going through, apart from " \
+        "refusals of the senders' own tokens or clocks{}".format(limit, top_note), note
 
 
 CASES = {"LOAD-01": load_01}

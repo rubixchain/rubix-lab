@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "label": "example",
+  "rerun": "once",
+  "scenarios": [
+    {"name": "rbt pairs", "asset": "RBT", "operation": "transfer", "pattern": "pairs",
+     "senders": 4, "receivers": 4, "quorums": 2, "amount": 1.0, "rounds": 2},
+    {"name": "fractional ring", "asset": "RBT", "operation": "transfer", "pattern": "ring",
+     "senders": 4, "quorums": 1, "amount": 0.1, "amount_max": 0.9,
+     "rounds": 2, "concurrency": "batch", "batch": 2},
+    {"name": "rbt chain", "asset": "RBT", "operation": "transfer", "pattern": "chain",
+     "senders": 2, "receivers": 3, "quorums": 2, "amount": 1.0, "rounds": 3,
+     "rotate_quorum": true},
+    {"name": "ft fan-out", "asset": "FT", "operation": "mint+transfer", "pattern": "fan-out",
+     "senders": 2, "receivers": 3, "quorums": 1, "assets": 1000, "per_transfer": 50},
+    {"name": "nft hops", "asset": "NFT", "operation": "deploy+transfer", "pattern": "chain",
+     "senders": 2, "receivers": 3, "quorums": 1, "assets": 2, "rounds": 2},
+    {"name": "nft executes", "asset": "NFT", "operation": "deploy+execute",
+     "senders": 2, "quorums": 1, "assets": 1, "rounds": 2},
+    {"name": "contracts", "asset": "SC", "operation": "deploy+execute", "pattern": "fan-out",
+     "senders": 2, "receivers": 2, "quorums": 1, "assets": 1, "rounds": 2}
+  ]
+}

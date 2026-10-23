@@ -30,6 +30,7 @@ import run_lock
 import test_runner as tr
 
 from labui import FULL_TEST, proc
+from labui import plan as plan_mod
 
 RUNNING = ("starting", "running")
 STATS_KEEP = 200000         # op records kept in memory for a live run's figures
@@ -114,6 +115,7 @@ class RunState(object):
         self.events_path = self.out_path = self.log_path = None
         self.cmdline, self.only, self.cases_module, self.order, self.knobs = "", "", "", [], {}
         self.holder = None
+        self.spec = None                    # a custom run's scenarios
         self.events = collections.deque(maxlen=EVENTS_KEEP)
         self.seq = 0
         self.console = collections.deque(maxlen=CONSOLE_KEEP)
@@ -149,6 +151,7 @@ class RunState(object):
             self.order = ev.get("order") or []
             self.cases_module = ev.get("cases") or ""
             self.knobs = ev.get("knobs") or {}
+            self.spec = ev.get("spec") or self.spec
             self.log_path = ev.get("log") or self.log_path
             for u in ev.get("units") or []:
                 self.units.setdefault(u["name"], dict(u, status="waiting"))
@@ -256,6 +259,7 @@ class RunManager(object):
             st.holder = holder
             row = self.store.run(run_id) or {}
             st.cmdline, st.only = row.get("cmdline") or "", row.get("only") or ""
+            st.kind, st.spec = row.get("kind") or "catalogue", row.get("spec")
             if row.get("started_at"):
                 try:
                     st.started = time.mktime(datetime.datetime.fromisoformat(
@@ -263,7 +267,7 @@ class RunManager(object):
                 except ValueError:
                     pass
             if not row:
-                self.store.put_run({"id": run_id, "source": "ui", "kind": "catalogue",
+                self.store.put_run({"id": run_id, "source": "ui", "kind": st.kind,
                                     "status": "running", "started_at": holder.get("started"),
                                     "events": st.events_path, "console": st.out_path,
                                     "pid": st.pid, "created": time.time()})
@@ -304,24 +308,37 @@ class RunManager(object):
             if not ok:
                 raise RunError(409, "faucet not ready - " + note, plan)
 
+            kind = "custom" if plan.get("mode") == "custom" else "catalogue"
             run_id = "ui-" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             while self.store.run(run_id) or os.path.exists(
                     os.path.join(self.cfg.events_dir, run_id + ".jsonl")):
                 run_id += "x"
-            st = RunState(run_id, "ui")
+            st = RunState(run_id, "ui", kind)
             st.events_path = os.path.join(self.cfg.events_dir, run_id + ".jsonl")
             st.out_path = os.path.join(self.cfg.events_dir, run_id + ".out")
             st.only = ",".join(plan["order"]) if "--only" in plan["argv"] else ""
-            st.cmdline = plan["command"]
             st.knobs = plan["knobs"]
-            argv = list(self.cfg.runner) + plan["argv"] + ["--events", st.events_path]
+            run_argv = list(plan["argv"])
+            if kind == "custom":
+                # The spec the runner reads, kept beside the run's events so the
+                # run can be repeated from a terminal with the same command.
+                spec_path = os.path.join(self.cfg.events_dir, run_id + ".spec.json")
+                with open(spec_path, "w", encoding="utf-8") as fh:
+                    json.dump(plan["spec"], fh, indent=2)
+                run_argv = [spec_path if a == plan_mod.SPEC_ARG else a for a in run_argv]
+                st.spec = plan["spec"]
+                st.cmdline = "python3 test_runner.py " + plan_mod._sh(run_argv)
+            else:
+                st.cmdline = plan["command"]
+            argv = list(self.cfg.runner) + run_argv + ["--events", st.events_path]
             st.popen = proc.spawn(argv, FULL_TEST, st.out_path)
             st.pid = st.popen.pid
-            self.store.put_run({"id": run_id, "source": "ui", "kind": "catalogue",
-                                "name": self.catalogue.name, "cases": ",".join(plan["order"]),
+            self.store.put_run({"id": run_id, "source": "ui", "kind": kind,
+                                "name": "custom" if kind == "custom" else self.catalogue.name,
+                                "cases": ",".join(plan["order"]),
                                 "only": st.only, "status": "starting",
                                 "started_at": now_iso(st.started), "pid": st.pid,
-                                "knobs": plan["knobs"], "cmdline": st.cmdline,
+                                "knobs": plan["knobs"], "spec": st.spec, "cmdline": st.cmdline,
                                 "events": st.events_path, "console": st.out_path,
                                 "created": time.time()})
             self.current = st
@@ -496,7 +513,11 @@ class RunManager(object):
         if not holder or (st is not None and st.pid == holder.get("pid")):
             return
         script = holder.get("script", "")
+        args = [str(a) for a in holder.get("args") or []]
         kind = {"smoke_test.py": "smoke", "unpledged_spend.py": "probe"}.get(script, "catalogue")
+        if kind == "catalogue" and "--cases" in args and \
+                args[args.index("--cases") + 1:args.index("--cases") + 2] == ["custom"]:
+            kind = "custom"
         t = RunState("terminal-{}".format(holder.get("pid")), "terminal", kind)
         t.status, t.pid, t.holder = "running", holder.get("pid"), holder
         t.cmdline = "{} {}".format(script, " ".join(holder.get("args") or [])).strip()
@@ -610,7 +631,7 @@ class RunManager(object):
             "started": st.started, "ended": st.ended,
             "elapsed": round((st.ended or time.time()) - st.started, 1),
             "pid": st.pid, "cmdline": st.cmdline, "only": st.only, "cases_module": st.cases_module,
-            "knobs": st.knobs, "holder": st.holder, "note": st.note,
+            "knobs": st.knobs, "spec": st.spec, "holder": st.holder, "note": st.note,
             "phases": list(st.phases.values()), "units": list(st.units.values()),
             "cases": list(st.cases.values()), "stats": stats, "refusals": refusals[:50],
             "funding": funding, "ops": list(reversed(st.recent_ops)), "ops_total": st.ops_total,
@@ -639,7 +660,8 @@ class RunManager(object):
             "status": r.get("status"), "started_at": r.get("started_at"),
             "ended_at": r.get("ended_at"), "elapsed": r.get("duration"),
             "cmdline": r.get("cmdline"), "only": r.get("only"), "cases_module": r.get("name"),
-            "knobs": r.get("knobs"), "note": r.get("note"), "version": r.get("version"),
+            "knobs": r.get("knobs"), "spec": r.get("spec") if isinstance(r.get("spec"), dict) else None,
+            "note": r.get("note"), "version": r.get("version"),
             "conditions": r.get("conditions"), "phases": [], "units": self.store.units(run_id),
             "cases": cases, "stats": stats, "refusals": refusals[:50], "funding": funding,
             "ops": self.store.ops(run_id, 300), "ops_total": len(records), "console": [],

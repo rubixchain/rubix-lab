@@ -18,6 +18,13 @@ last good catalogue stays and the error is shown.
 Limits from the lab's rules are warnings here, never blocks: a worst-case
 faucet draw of 10,000 RBT or more, a value above 5,000. The run's own checks
 stay as they are.
+
+A custom run (the Run builder's second tab) is planned the same way from
+custom/custom_cases.py: its check() normalises the scenarios and finds what is
+wrong with them, its budget() works out each scenario's operations, quorum
+funding and faucet draw, and configure() gives the runner's build_units and
+fits the units to place on the pool. Each plan loads its own copy of the
+module, so two pages planning at once never share a spec.
 """
 
 import argparse
@@ -50,6 +57,9 @@ KNOB_RULES = {
 # The UI turns these on by default (the terminal default is off): a run's
 # report then names the build it ran on, and limits can be compared by release.
 UI_DEFAULTS = {"collect_versions": True}
+
+CUSTOM = "custom"               # custom/custom_cases.py
+SPEC_ARG = "{spec}"             # in a custom plan's argv: where the spec file goes
 
 
 def _sh(argv):
@@ -216,10 +226,30 @@ class Catalogue(object):
         return {"module": self.name, "error": self.error, "cases": cases, "units": units,
                 "knobs": self.knob_specs()}
 
+    @staticmethod
+    def _fleet_checks(pool, faucet, errors, warnings):
+        """(pool, machines, faucet free RBT) - and what stops a run, from the
+        poller's last reading."""
+        if pool is None:
+            errors.append("the fleet has not been read yet - wait for the Fleet page to fill in")
+            pool = []
+        elif not pool:
+            errors.append("no usable pool node: none is up with a DID")
+        machines = len(set(n["machine"] for n in pool))
+        info = faucet or {}
+        if faucet is None:
+            warnings.append("the faucet has not been read yet; it is checked again at Start")
+        elif not info.get("ok"):
+            errors.append("faucet not ready - {}".format(info.get("note")))
+        faucet_free = ((info.get("faucet") or {}).get("balance")) if info else None
+        return pool, machines, faucet_free
+
     def plan(self, req, pool, faucet):
         """What a run would do, and whether it may start. `pool` is the poller's
         usable pool nodes (None before the fleet has been read), `faucet` its
-        faucet reading."""
+        faucet reading. req["mode"] "custom" plans a custom run."""
+        if req.get("mode") == CUSTOM:
+            return self.custom_plan(req, pool, faucet)
         errors, warnings = [], []
         module = self.load()
         if self.error:
@@ -238,19 +268,7 @@ class Catalogue(object):
         errors += kerr
         warnings += kwarn
 
-        if pool is None:
-            errors.append("the fleet has not been read yet - wait for the Fleet page to fill in")
-            pool = []
-        elif not pool:
-            errors.append("no usable pool node: none is up with a DID")
-        machines = len(set(n["machine"] for n in pool))
-
-        info = faucet or {}
-        if faucet is None:
-            warnings.append("the faucet has not been read yet; it is checked again at Start")
-        elif not info.get("ok"):
-            errors.append("faucet not ready - {}".format(info.get("note")))
-        faucet_free = ((info.get("faucet") or {}).get("balance")) if info else None
+        pool, machines, faucet_free = self._fleet_checks(pool, faucet, errors, warnings)
 
         units_out, total = [], 0.0
         if order and not unknown:
@@ -323,6 +341,92 @@ class Catalogue(object):
         return {"ok": not errors, "errors": errors, "warnings": warnings, "units": units_out,
                 "order": order, "argv": argv, "knobs": knobs,
                 "command": "python3 test_runner.py " + _sh(argv),
+                "pool": {"nodes": len(pool), "machines": machines,
+                         "dids": sum(len(n["dids"]) for n in pool)},
+                "draw": {"worst": total, "faucet_free": faucet_free}}
+
+    # -- custom runs -----------------------------------------------------------------
+
+    def custom_module(self):
+        """A fresh copy of custom/custom_cases.py: each plan configures its own."""
+        return tr.load_case_module(CUSTOM)
+
+    def custom_form(self):
+        """What the Custom run form offers (custom_cases.form())."""
+        try:
+            return self.custom_module().form()
+        except BaseException as e:
+            return {"error": "custom/custom_cases.py could not be loaded ({}: {})".format(
+                type(e).__name__, e)}
+
+    def custom_plan(self, req, pool, faucet):
+        """What a custom run would do: each scenario's participants, operations,
+        quorum funding and faucet draw, and whether it fits the fleet."""
+        errors, warnings = [], []
+        try:
+            module = self.custom_module()
+        except BaseException as e:
+            return {"ok": False, "mode": CUSTOM, "units": [], "warnings": [],
+                    "errors": ["custom/custom_cases.py could not be loaded ({}: {})".format(
+                        type(e).__name__, e)]}
+        norm, serr, swarn = module.check(req.get("spec") or {})
+        errors += serr
+        warnings += swarn
+        collect = bool(req.get("collect_versions", True))
+        pool, machines, faucet_free = self._fleet_checks(pool, faucet, errors, warnings)
+
+        units_out, total, order = [], 0.0, []
+        if norm and not serr:
+            module.configure(norm)
+            order = list(module.ORDER)
+            by_id = dict((sc["id"], sc) for sc in norm["scenarios"])
+            for u in tr.build_units(module, order):
+                sc = by_id[u.cases[0]]
+                b = module.budget(sc)
+                if pool:
+                    now, ever, why = tr.fits(u, pool, pool)
+                else:
+                    now, ever, why = False, True, ""
+                if not ever:
+                    errors.append("{} cannot be placed: {}".format(u.name, why))
+                # FT mint makes no transfer, so the runner runs it once either way.
+                runs = 2 if norm["rerun"] == "twice" and \
+                    "{}:{}".format(sc["asset"], sc["operation"]) != "FT:mint" else 1
+                draw = b["draw"] * runs
+                total += draw
+                if draw >= CASE_LIMIT_RBT:
+                    warnings.append("{} can draw up to {:,.0f} RBT from the faucet - the lab keeps "
+                                    "every case under {:,}".format(u.name, draw, CASE_LIMIT_RBT))
+                units_out.append({
+                    "name": u.name, "cases": list(u.cases), "summary": sc["summary"],
+                    "exclusive": u.exclusive, "same_node": bool(sc["same_node"]),
+                    "quorums": sc["quorums"], "senders": sc["senders"],
+                    "receivers": sc["receivers"], "nodes": u.node_count(),
+                    "fits": bool(now and ever), "skip": not ever, "why": why,
+                    "ops": b["ops"] * runs, "at_once": b["at_once"], "value": b["value"] * runs,
+                    "quorum_target": b["quorum_fund"], "quorum_need": b["quorum_need"],
+                    "sender_need": b["sender_need"], "receiver_need": b["receiver_need"],
+                    "participant_target": b["sender_need"], "extra": 0, "draw": draw, "runs": runs,
+                })
+            busy = sum(u["nodes"] or 0 for u in units_out)
+            if pool and len(units_out) > 1 and busy > len(pool):
+                warnings.append("the scenarios need {} nodes in all and {} are usable - they run "
+                                "one after another as nodes free up".format(busy, len(pool)))
+        if total >= CASE_LIMIT_RBT:
+            warnings.append("in the worst case (every participant empty) this run draws {:,.0f} RBT "
+                            "from the faucet. It draws only shortfalls - DIDs keep what they hold "
+                            "- so the real draw is usually far less".format(total))
+        if faucet_free is not None and total > faucet_free:
+            warnings.append("the faucet holds {:,.3f} RBT free, less than the worst-case draw of "
+                            "{:,.0f}".format(faucet_free, total))
+        argv = ["--cases", CUSTOM, "--spec", SPEC_ARG, "--report-name", CUSTOM]
+        if collect:
+            argv.append("--collect-versions")
+        shown = [a if a != SPEC_ARG else "custom-spec.json" for a in argv]
+        return {"ok": not errors, "mode": CUSTOM, "errors": errors, "warnings": warnings,
+                "units": units_out, "order": order, "argv": argv, "spec": norm,
+                "knobs": {"collect_versions": collect},
+                "command": "python3 test_runner.py " + _sh(shown),
                 "pool": {"nodes": len(pool), "machines": machines,
                          "dids": sum(len(n["dids"]) for n in pool)},
                 "draw": {"worst": total, "faucet_free": faucet_free}}

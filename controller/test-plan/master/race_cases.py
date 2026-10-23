@@ -55,22 +55,29 @@ def race_01(ctx, ci):
     n = min(len(recv), int(getattr(ctx.args, "race_receivers", 20)))
     if not ctx.senders or n < 2:
         return SKIP, "needs one sender and at least two receivers", ""
-    S = ctx.senders[0]
     port = ctx.port
 
-    # Leave S holding exactly one whole token: drain it, then fund 1 RBT. The
-    # sender's node already points at its quorum (prepare_unit).
-    import wallet_shapes as ws
-    ws.drain_to(ctx, S, recv[0], keep=0.0)
-    have = _free(S["host"], S["did"]) or 0.0
-    if have < 1.0:
-        ok, msg = rc.fund_did(S["host"], S["did"], 1.0 - have, port)
-        if not ok:
-            return SKIP, "could not fund the sender to one token: " + str(msg), ""
+    # The race needs a wallet holding exactly ONE token and nothing else. Until
+    # 2026-10-23 the case drained the sender and never checked: the drain was
+    # refused (a second-hand part token, known bug), the wallet kept 7.422 RBT,
+    # and two legitimate 1-RBT sends were reported as a double spend. So: an
+    # empty DID on the sender's node, funded with one whole token, checked.
+    S = ch.empty_did(ctx.senders[0])
+    if S is None:
+        return SKIP, "no DID on the sender's node holds nothing - a one-token wallet cannot " \
+            "be made without draining, and draining is not reliable", ""
+    ok, msg = rc.fund_did(S["host"], S["did"], 1, port)
+    if not ok:
+        return SKIP, "could not fund the sender to one token: " + str(msg), ""
     time.sleep(ch.SETTLE)
     before = _free(S["host"], S["did"]) or 0.0
+    tokens = ch.whole_free(S["host"], S["did"])
+    if len(tokens) != 1 or abs(before - 1.0) > ch.TOL:
+        return SKIP, "the sender wallet is not one token ({} whole token(s), {:.3f} RBT) - " \
+            "the race would not test a double spend".format(len(tokens), before), ""
 
     # Fire 1 RBT to n receivers at the same instant.
+    start = [(_free(recv[i]["host"], recv[i]["did"]) or 0.0) for i in range(n)]
     jobs = [{"host": S["host"], "did": S["did"], "to": recv[i]["did"], "rbt": 1.0,
              "memo": "RACE-01 double-spend attempt"} for i in range(n)]
     results = ch.burst(jobs)
@@ -78,16 +85,13 @@ def race_01(ctx, ci):
     time.sleep(ch.SETTLE)
     after = _free(S["host"], S["did"]) or 0.0
 
-    credited = 0
-    for i in wins:
-        ok, _c = rc.wait_for_balance(recv[i]["host"], recv[i]["did"],
-                                     (_free(recv[i]["host"], recv[i]["did"]) or 0.0), port, attempts=1)
-    # Count receivers that actually show the credit.
+    # A receiver is credited when its own balance rose by the 1 RBT it was sent.
     got = sum(1 for i in wins
-              if (_free(recv[i]["host"], recv[i]["did"]) or 0.0) >= 1.0 - ch.TOL)
+              if rc.wait_for_balance(recv[i]["host"], recv[i]["did"], start[i] + 1.0 - ch.TOL,
+                                     port, attempts=10)[0])
     spent = round(before - after, 3)
-    note = "{} simultaneous sends of 1 RBT from a one-token wallet: {} accepted, {} credited; " \
-           "wallet {:.3f} -> {:.3f}".format(n, len(wins), got, before, after)
+    note = "{} simultaneous sends of 1 RBT from a one-token wallet (token {}): {} accepted, " \
+           "{} credited; wallet {:.3f} -> {:.3f}".format(n, tokens[0], len(wins), got, before, after)
     if len(wins) > 1:
         return False, "DOUBLE SPEND: {} of {} simultaneous sends were accepted from a wallet " \
             "holding one token".format(len(wins), n), note

@@ -6,7 +6,7 @@ controller. Open it from any lab machine: **http://192.168.1.120:8470**.
 | Page | Shows |
 |---|---|
 | Fleet | every machine and node: up, peer ID, DIDs held vs the layout, quorum list, build; the faucet pair (`faucet_ready`, balances); the fullnodes (accepted / rejected, rejection reasons grouped, transactions they disagree on) |
-| Run builder | the catalogue cases with their text, the runner's scale knobs, and the plan for a run - units, nodes, quorum funding, the most it can draw from the faucet - before Start |
+| Run builder | **Catalogue run**: the catalogue cases with their text and the runner's scale knobs. **Custom run**: scenarios you describe - asset and operation, pattern, senders / receivers / quorums, amounts, rounds, concurrency. Both show the plan for the run - units, nodes, quorum funding, the most it can draw from the faucet - before Start |
 | Live run | the run as it goes: units and participants, every operation, p50/p95/max per case, refusals grouped (known product bugs tagged), DB checks, fullnode verdicts, the console. Reload it or open it on another machine: it picks the run up again |
 | Reports | every run - from the UI, from a terminal, and the older reports in `reports/` - with its JSON, PDF, evidence and log |
 
@@ -46,6 +46,42 @@ Nothing to configure: hosts.txt and the node layout are read through
   reports are imported from `reports/` when the UI starts and every minute.
 - The UI never writes to a node's database, never restarts, wipes or deploys a
   node, and never creates a DID.
+
+## Custom runs
+
+The Run builder's second tab (`#/run/custom`). Each scenario becomes one case
+(CUSTOM-1, CUSTOM-2, ...) run by the same `test_runner.py` as the catalogue:
+participants picked from the fleet and spread over machines, quorums set up and
+the participant nodes' quorum lists reset, the database check after every case.
+Scenarios on different nodes run side by side unless one is set to run alone.
+
+| Asset | Operations |
+|---|---|
+| RBT | transfer |
+| FT | mint, mint+transfer |
+| NFT | deploy, deploy+transfer (owner changes), deploy+execute |
+| SC | deploy, deploy+execute (receivers subscribe, owner and subscribers execute) |
+
+Patterns: **pairs** (sender i to receiver i), **fan-out** (every sender to every
+receiver), **fan-in** (all to one receiver), **ring** (each sender to the next
+sender), **chain** (each sender's amount passed hop by hop through the
+receivers; optionally a new quorum every hop). Concurrency: all at once, N at a
+time, or one at a time. Each run of a scenario first tops its participants up
+from the faucet - shortfall only - and its quorums to every pledge they could
+hold at once. A scenario fails if an operation is refused or the end state does
+not reconcile (RBT balances, FT counts, NFT owners, contract chains).
+
+The page writes each run's spec beside its events
+(`reports/events/<run>.spec.json`) and shows the terminal command for it. A
+spec is JSON; `test-plan/custom/example-spec.json` is a worked example of every
+asset (the form's "load example" button loads the same). From a terminal:
+
+    cd ~/Desktop/rubix/rubix-lab/controller/test-plan/full-test
+    python3 validate_cases.py --cases custom --spec ../custom/example-spec.json
+    python3 test_runner.py --cases custom --spec ../custom/example-spec.json --report-name custom
+
+The first checks the spec offline; the second runs it on the fleet. The fields
+are described at the top of `test-plan/custom/custom_cases.py`.
 
 ## Demo (away from the lab)
 

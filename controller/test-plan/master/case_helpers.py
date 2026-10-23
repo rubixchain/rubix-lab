@@ -47,6 +47,47 @@ def rand_value(lo, hi):
     return max(v, 0.001)
 
 
+# Refusals that come from the sender's own tokens and would happen with no load
+# at all - both known product bugs (case_evidence.KNOWN_PRODUCT_BUGS): a former
+# quorum spending a token it once pledged (core/consensus/checks.go:308), and a
+# second-hand part token whose whole-token genesis the sender cannot supply. A
+# capacity measure counts them apart, not against what it measures.
+SENDERS_OWN_TOKENS = ("failed to get quorum DID for t",
+                      "ValidateMinterAllowlist: whole-token genesis fetch failed")
+# A sender whose clock is ahead of its quorum's is refused outright
+# (core/consensus/checks.go:61): the machines' clocks, not a capacity limit.
+CLOCK_AHEAD = ("invalid epoch",)
+
+
+def whole_free(host, did):
+    """token_ids of the DID's Free WHOLE RBT tokens, read from its node's DB."""
+    return [t for t, v, _st, _p in db.token_rows(host, did, status=db.FREE) if v >= 1.0 - 1e-9]
+
+
+def empty_did(entry, whole_only=False):
+    """`entry` with its DID swapped for one on the SAME node that holds no Free
+    RBT at all (whole_only: no Free whole token; parts are allowed), or None.
+
+    A send of whole RBT takes the lowest whole token_id first
+    (core/wallet/token_lock.go), so a wallet that already holds older tokens
+    never moves the one it was just handed. Cases that follow ONE token - a
+    chain, a one-token race, a pledge released by spending onward - need a
+    wallet that holds nothing else. Most 5- and 10-DID nodes have idle DIDs, so
+    the node's other DIDs are tried first and the entry's own DID last. The
+    node, and so its quorum list, is unchanged."""
+    own = entry.get("did")
+    for did in [d for d in (entry.get("dids") or []) if d != own] + [own]:
+        if not did:
+            continue
+        try:
+            rows = db.token_rows(entry["host"], did, status=db.FREE)
+        except Exception:
+            continue
+        if not [v for _t, v, _st, _p in rows if (v >= 1.0 - 1e-9 or not whole_only)]:
+            return dict(entry, did=did)
+    return None
+
+
 def node_reason(msg, limit=300):
     """The node's own reason from a refusal. A quorum refusal arrives wrapped -
     'peer request failed: status=400 body={"referenceId":"",...,"message":"<reason>"}'

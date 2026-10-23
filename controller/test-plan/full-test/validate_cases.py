@@ -288,8 +288,20 @@ def _fake_pool(machines):
     return pool
 
 
-def validate(module_name, verbose=False):
+SPEC = {"path": ""}      # --spec, for a module built from one (custom/custom_cases.py)
+
+
+def _load(module_name):
+    """load_case_module, and for a module built from a spec, the spec: --spec
+    if given, else the module's own EXAMPLE_SPEC."""
     mod = load_case_module(module_name)
+    if hasattr(mod, "configure"):
+        mod.configure(SPEC["path"] or mod.EXAMPLE_SPEC)
+    return mod
+
+
+def validate(module_name, verbose=False):
+    mod = _load(module_name)
     _fake_fullnode()
     ctx = build_ctx()
     info = getattr(mod, "CASE_INFO", {})
@@ -330,7 +342,7 @@ def validate_schedule(module_name, machines=26):
     same-node units find their multi-DID nodes.
     """
     import threading
-    mod = load_case_module(module_name)
+    mod = _load(module_name)
     pool = _fake_pool(machines)
     n_nodes = len(pool)
     fleet = [{"host": n["host"], "did": d} for n in pool for d in n["dids"]]
@@ -418,7 +430,10 @@ def main():
     p.add_argument("--verbose", action="store_true")
     p.add_argument("--events", default="", metavar="FILE",
                    help="also write the event stream (run_events.py) to FILE and check it")
+    p.add_argument("--spec", default="", metavar="FILE",
+                   help="--cases custom: the spec to check (default: the module's example)")
     args = p.parse_args()
+    SPEC["path"] = args.spec
 
     install_stubs()
     _patch_sleep()
@@ -445,7 +460,7 @@ def main():
     schedule_problems = []
     for m in modules:
         all_failures += [(m,) + f for f in validate(m, args.verbose)]
-        if hasattr(load_case_module(m), "NEEDS"):
+        if hasattr(_load(m), "NEEDS"):
             schedule_problems += validate_schedule(m)
     if args.events:
         run_events.close()

@@ -622,7 +622,11 @@ class FakeFleet(object):
         return []
 
     def query_snapshot(self, host, statements, *a, **k):
-        """The fleet audit's per-node snapshot (audit_cases._read_node)."""
+        """The fleet audit's per-node snapshot (audit_cases._read_node): its
+        first three statements (status totals, token_denom, free rows) from the
+        fake wallets, and an empty result for every statement after them -
+        the fake fleet has no duplicate, negative, chainless or stuck tokens.
+        One result per statement, however many the audit asks."""
         first = statements[0][0] if statements else ""
         if "GROUP BY did, token_status" not in first:
             return [[] for _ in statements]
@@ -638,7 +642,7 @@ class FakeFleet(object):
                 for value, count in denoms(w).items():
                     denom_rows.append((did, value, count))
                     free_rows.append((did, value, count))
-        return [status_rows, denom_rows, free_rows, [], [], []]
+        return [status_rows, denom_rows, free_rows] + [[] for _ in statements[3:]]
 
     def ex_pledged(self, host, did, *a, **k):
         return float(self.state["dirty"].get(did, 0.0))

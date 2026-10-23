@@ -612,6 +612,23 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                 "known product bug".format(", ".join(unit.dirty_spenders)))
         _run_cases(unit)
 
+    def _unpaced_dids(unit):
+        """Every DID a case may send from in its WITHOUT-delay run: the
+        participants, the other DIDs on their nodes (wallet_shapes.second_did,
+        case_helpers.empty_did), and for an exclusive unit the whole fleet -
+        LOAD-01, RACE-02 and FAIL-01 drive DIDs straight from ctx.fleet. Until
+        2026-10-23 only the participants were unpaced, so LOAD-01's hundreds of
+        fleet senders each polled every fullnode's Postgres twice a second on a
+        new connection, and the fullnodes ran out of connections ("too many
+        clients already") in the middle of the run."""
+        entries = unit.quorums + unit.senders + unit.receivers
+        dids = set(e["did"] for e in entries)
+        for e in entries:
+            dids.update(e.get("dids") or ())
+        if unit.exclusive:
+            dids.update(e["did"] for e in (fleet or ()))
+        return sorted(dids)
+
     def _run_once(unit, tid, ci, paced):
         """One run of a case, wrapped in the database check (case_evidence):
         participants' rows before and after, every transaction found on both
@@ -625,7 +642,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                 rc.reset_pacing(*(unit.quorums + unit.senders + unit.receivers))
                 result = cases_map[tid](unit.ctx, ci)
             else:
-                with rc.unpaced(*(unit.quorums + unit.senders + unit.receivers)):
+                with rc.unpaced(*_unpaced_dids(unit)):
                     result = cases_map[tid](unit.ctx, ci)
         except Exception as e:
             result = (False, "exception", "{}: {}".format(type(e).__name__, e))
@@ -899,11 +916,11 @@ class CatalogueReport:
             status, ci.test_id, elapsed, actual, ("  -- " + note) if note else ""))
         return status
 
-    def save(self, asset, meta, timing_ids):
+    def save(self, asset, meta, timing_ids, title=None):
         paths = rc.new_report_paths("catalogue_{}".format(asset), ("pdf", "json"))
         report_builder.build_json(paths["json"], meta, self.rows)
         pdf_ok = report_builder.build_pdf(
-            paths["pdf"], "Rubix Lab - {} Catalogue Run".format(asset.upper()),
+            paths["pdf"], title or "Rubix Lab - {} Catalogue Run".format(asset.upper()),
             meta, self.rows, timing_ids)
 
         p = sum(1 for r in self.rows if r["status"] == "PASS")
@@ -1064,6 +1081,9 @@ def build_parser():
     p.add_argument("--events", default="", metavar="FILE",
                    help="also write the run as JSON lines to FILE as it goes, for the web UI "
                         "(run_events.py). Off by default.")
+    p.add_argument("--spec", default="", metavar="FILE",
+                   help="--cases custom: the scenarios to run, as JSON (the web UI's Custom "
+                        "run writes one; custom/custom_cases.py has an example)")
     return p
 
 
@@ -1089,6 +1109,16 @@ def main():
     if len(module_names) != 1:
         sys.exit("ERROR: pass one case module (normally just 'master').")
     module = load_case_module(module_names[0])
+    # A module built from a spec (custom/custom_cases.py) has no cases until
+    # it is given one.
+    if hasattr(module, "configure"):
+        if not args.spec:
+            sys.exit("ERROR: --cases {} runs the scenarios in a spec - pass --spec FILE "
+                     "(the web UI's Custom run writes one).".format(module_names[0]))
+        try:
+            module.configure(args.spec)
+        except ValueError as e:
+            sys.exit("ERROR: the spec {} cannot run: {}".format(args.spec, e))
 
     order = list(module.ORDER)
     if args.only:
@@ -1112,7 +1142,8 @@ def main():
     case_info = getattr(module, "CASE_INFO", {}) or {}
     master = load_master()
     units = build_units(module, order)
-    run_events.run_started(args, module_names[0], order, units, log_path)
+    run_events.run_started(args, module_names[0], order, units, log_path,
+                           spec=getattr(module, "SPEC", None))
 
     # Every verdict rests on database readings; without the driver there would
     # be no evidence, so do not run at all.
@@ -1225,6 +1256,10 @@ def main():
     }
     if args.only:
         meta["conditions"].insert(3, ("Subset filter", "--only {}".format(args.only)))
+    # A custom run says what its scenarios were instead of the catalogue's knobs.
+    if hasattr(module, "report_conditions"):
+        meta["conditions"] = [c for c in meta["conditions"] if c[0] != "Scale knobs"] + \
+            list(module.report_conditions())
 
     # The raw before/after database readings, next to the report, so a reviewer
     # can check the arithmetic rather than trust the verdict.
@@ -1288,7 +1323,7 @@ def main():
         print(line)
 
     report_json, report_pdf = report.save(args.report_name or args.cases.replace(",", "-"),
-                                          meta, timing_ids)
+                                          meta, timing_ids, getattr(module, "REPORT_TITLE", None))
     print("Log : {}".format(log_path))
     run_events.run_done(report.rows, duration, report_json, report_pdf, ev_path, log_path,
                         ledger_lines, reasons, disagreed, known)

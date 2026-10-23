@@ -12,8 +12,9 @@
 # touched. Pass --force to bounce every selected node regardless.
 #
 # Machines are processed in PARALLEL (independent machines, no shared state).
-# Within a machine, its nodes are restarted one after another and then polled
-# together. Each machine's output is buffered and printed in hosts.txt order.
+# Within a machine, the selected nodes are all stopped, then all started, then
+# polled together (see the remote script for why not one by one). Each
+# machine's output is buffered and printed in hosts.txt order.
 #
 # Usage:
 #   ./restart-nodes.sh                                  # pool machines, only the nodes that are down
@@ -115,11 +116,22 @@ restart_one() {
     return 2
   fi
 
+  # Stop them ALL, then start them all - not restart one after another. A node
+  # whose IPFS restarted on its own shuts down with a stale IPFS PID and falls
+  # through to `pkill -f "ipfs daemon"` (core/shutdown_manager.go
+  # killIPFSUnix), killing every node's IPFS on the machine; the others'
+  # auto-restart then never registers their p2p listener again
+  # (core/ipfs_recovery.go), so they stay up but cannot receive. One by one,
+  # each restart could undo the ones before it. ./p2p-check.sh shows the result.
   if ! ssh -o BatchMode=yes -o ConnectTimeout=8 "${SSH_USER}@${ip}" bash -s -- "${todo[@]}" <<'REMOTE_SCRIPT'
 rc=0
 for s in "$@"; do
-  sudo -n systemctl restart "rubixgoplatform@$s" \
-    || { echo "  ERROR: could not restart rubixgoplatform@$s (sudo grant missing? re-run setup.sh there)"; rc=1; }
+  sudo -n systemctl stop "rubixgoplatform@$s" \
+    || { echo "  ERROR: could not stop rubixgoplatform@$s (sudo grant missing? re-run setup.sh there)"; rc=1; }
+done
+for s in "$@"; do
+  sudo -n systemctl start "rubixgoplatform@$s" \
+    || { echo "  ERROR: could not start rubixgoplatform@$s (sudo grant missing? re-run setup.sh there)"; rc=1; }
 done
 exit $rc
 REMOTE_SCRIPT

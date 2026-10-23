@@ -198,7 +198,8 @@ class Importer(object):
                     ev_path, ev_best = e["path"], abs((e["ts"] - ended).total_seconds())
         log = self._pick_log(logs, "test_runner", started, run_id)
         summary = data.get("summary") or {}
-        run = {"id": run_id, "source": "terminal", "kind": "catalogue", "name": m.group("name"),
+        kind = "custom" if m.group("name").startswith("custom") else "catalogue"
+        run = {"id": run_id, "source": "terminal", "kind": kind, "name": m.group("name"),
                "cases": ",".join(r.get("test_id", "") for r in data.get("results") or []),
                "only": (cond.get("Subset filter") or "").replace("--only ", ""),
                "status": "finished", "started_at": _iso(started), "ended_at": _iso(ended),

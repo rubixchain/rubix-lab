@@ -46,6 +46,7 @@ next, each sized by what QCAP-01 measured.
 | `full-test/test_runner.py` | Runs the suite: picks participants per case, prepares them, runs, reports |
 | `full-test/rubix_client.py` | API client, including faucet funding |
 | `custom/unpledged_spend.py` | A separate probe for the ex-quorum spend bug |
+| `custom/custom_cases.py` | Custom runs: scenarios from a spec (the web UI's Run builder writes one) - `test_runner.py --cases custom --spec FILE`. Not catalogue cases |
 
 Every row in the catalogue has code, and every case has a row. To add a case:
 write `fn(ctx, ci)` in its module, add it to `CASES`, `ORDER` and `NEEDS`, and

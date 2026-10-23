@@ -108,10 +108,11 @@ def _entry(e):
     return {"host": e.get("host"), "machine": e.get("machine"), "did": e.get("did")}
 
 
-def run_started(args, cases, order, units, log):
+def run_started(args, cases, order, units, log, spec=None):
     if not active():
         return
     emit("run_started", cases=cases, order=list(order), only=getattr(args, "only", ""),
+         spec=spec,
          report_name=getattr(args, "report_name", ""),
          units=[{"name": u.name, "cases": list(u.cases), "exclusive": u.exclusive,
                  "first": bool(u.spec["first"]), "last": bool(u.spec["last"]),

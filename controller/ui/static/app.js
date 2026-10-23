@@ -309,13 +309,82 @@ async function pageFleet(main) {
 // Run builder
 // ---------------------------------------------------------------------------
 
-async function pageRun(main) {
+async function pageRun(main, args) {
+  // #/run/custom or #/run/catalogue opens that tab; #/run opens the last one used.
+  const asked = args && args[0];
+  const tab = asked === "custom" || asked === "catalogue" ? asked : (store("runtab") === "custom" ? "custom" : "catalogue");
+  store("runtab", tab);
   main.innerHTML = `<h1>Run builder</h1>
-    <div class="sub">Pick catalogue cases and their scale knobs. The plan on the right is worked out by the runner's own
+    <div class="sub">${tab === "custom"
+      ? "Describe scenarios: what is sent, by how many senders to how many receivers, how often and how fast. Each scenario runs as one case through the same runner as the catalogue - participants picked from the fleet, quorums set up, faucet top-ups, the database check."
+      : "Pick catalogue cases and their scale knobs."} The plan on the right is worked out by the runner's own
     code against the fleet the UI last read, and checked again when you press Start.</div>
-    <div class="toolbar"><span class="tab on">Catalogue run</span>
-    <span class="tab off" title="Custom runs (senders, receivers, quorums, assets, patterns) come in the next phase">Custom run - next phase</span></div>
+    <div class="toolbar"><a class="tab${tab === "catalogue" ? " on" : ""}" href="#/run/catalogue">Catalogue run</a>
+    <a class="tab${tab === "custom" ? " on" : ""}" href="#/run/custom">Custom run</a></div>
     <div class="builder"><div id="b-left"></div><div class="panel planbox" id="b-plan"><div class="muted">working out the plan…</div></div></div>`;
+  return tab === "custom" ? customBuilder() : catalogueBuilder();
+}
+
+/* The plan panel on the right of both tabs: asks the backend what the run
+   would do, shows it, and starts it after a confirmation. `o` says what to
+   send (request(); null when there is nothing to plan) and how to show it. */
+function planPanel(o) {
+  let timer = null, plan = null, confirming = false, starting = false, startError = null;
+  function changed() {
+    confirming = false; startError = null;
+    clearTimeout(timer);
+    timer = setTimeout(refresh, 350);
+  }
+  async function refresh() {
+    const body = o.request();
+    if (!body) { plan = null; render(); return; }
+    try { plan = await post("/api/plan", body); } catch (e) { plan = {ok: false, errors: [e.message], warnings: [], units: []}; }
+    render();
+  }
+  function render() {
+    const el = $("#b-plan");
+    if (!el) return;
+    if (!o.request()) { el.innerHTML = `<h2>Plan</h2><div class='muted'>${esc(o.empty)}</div>`; return; }
+    if (!plan) { el.innerHTML = "<h2>Plan</h2><div class='muted'>working out the plan…</div>"; return; }
+    const busy = fleetBusy();
+    const draw = plan.draw || {};
+    el.innerHTML = `<h2>Plan ${plan.ok ? badge("ready") : badge("not ready")}</h2>
+      ${msgList(plan.errors, plan.warnings)}
+      ${plan.pool ? `<div class="kv" style="margin-bottom:10px">
+        <div class="k">${esc(o.countLabel)}</div><div>${esc(o.count(plan))}</div>
+        <div class="k">Pool</div><div>${plan.pool.nodes} usable nodes on ${plan.pool.machines} machines, ${plan.pool.dids} DIDs</div>
+        <div class="k">Faucet draw, worst case</div><div><b>${rbt(draw.worst, 0)} RBT</b>${draw.faucet_free != null ? ` <span class="muted">(faucet holds ${rbt(draw.faucet_free, 0)})</span>` : ""}<br>
+          <span class="small muted">if every participant held nothing; a run draws only shortfalls, so usually far less</span></div></div>` : ""}
+      ${(plan.units || []).length ? o.table(plan) : ""}
+      ${o.after ? o.after(plan) : ""}
+      ${plan.command ? `<div style="margin-top:10px" class="small muted">The same run from a terminal:</div><pre class="cmd">${esc(plan.command)}</pre>` : ""}
+      <div style="margin-top:14px">${busy ? `<div class="note">The fleet is busy: ${esc(busy)}</div>` : ""}
+      ${startError ? `<div class="note red">${esc(startError)}</div>` : ""}
+      ${confirming ? `<div class="note blue">Start this run on the fleet now? It resets the quorum lists of the nodes it uses and draws from the faucet.</div>
+        <button class="primary" id="b-go" ${starting ? "disabled" : ""}>${starting ? "Starting…" : "Yes, start the run"}</button> <button id="b-cancel">Cancel</button>`
+        : `<button class="primary" id="b-start" ${plan.ok && !busy ? "" : "disabled"}>Start run</button>`}</div>`;
+    const s = $("#b-start");
+    if (s) s.onclick = () => { confirming = true; render(); };
+    const c = $("#b-cancel");
+    if (c) c.onclick = () => { confirming = false; render(); };
+    const g = $("#b-go");
+    if (g) g.onclick = async () => {
+      starting = true; render();
+      try {
+        const r = await post("/api/runs", o.request());
+        location.hash = "#/runs/" + encodeURIComponent(r.id);
+      } catch (e) {
+        startError = e.message;
+        if (e.body && e.body.plan) plan = e.body.plan;
+      }
+      starting = false; confirming = false; render();
+    };
+  }
+  every(5000, () => { if (!confirming && !starting) refresh(); });
+  return {changed, refresh};
+}
+
+async function catalogueBuilder() {
   const cat = await api("/api/catalogue");
   const saved = store("form") || {};
   const known = new Set(cat.cases.map(c => c.id));
@@ -404,14 +473,12 @@ async function pageRun(main) {
   $("#b-none").onclick = () => { form.cases.clear(); syncChecks(); changed(); };
   $("#b-reset").onclick = () => { form.knobs = Object.assign({}, knobDefault); renderKnobs(); changed(); };
 
-  let timer = null, plan = null, confirming = false, starting = false, startError = null;
   function changed() {
     store("form", {cases: Array.from(form.cases), knobs: form.knobs});
-    confirming = false; startError = null;
-    clearTimeout(timer);
-    timer = setTimeout(refreshPlan, 350);
+    planner.changed();
   }
   function request() {
+    if (!form.cases.size) return null;
     const knobs = {};
     cat.knobs.forEach(k => {
       let v = form.knobs[k.name];
@@ -420,59 +487,207 @@ async function pageRun(main) {
     });
     return {mode: "catalogue", cases: cat.cases.map(c => c.id).filter(id => form.cases.has(id)), knobs};
   }
-  async function refreshPlan() {
-    if (!form.cases.size) { plan = null; renderPlan(); return; }
-    try { plan = await post("/api/plan", request()); } catch (e) { plan = {ok: false, errors: [e.message], warnings: [], units: []}; }
-    renderPlan();
-  }
-  function renderPlan() {
-    const el = $("#b-plan");
-    if (!form.cases.size) { el.innerHTML = "<h2>Plan</h2><div class='muted'>Pick at least one case.</div>"; return; }
-    if (!plan) { el.innerHTML = "<h2>Plan</h2><div class='muted'>working out the plan…</div>"; return; }
-    const busy = fleetBusy();
-    const units = plan.units || [];
-    const draw = plan.draw || {};
-    el.innerHTML = `<h2>Plan ${plan.ok ? badge("ready") : badge("not ready")}</h2>
-      ${msgList(plan.errors, plan.warnings)}
-      ${plan.pool ? `<div class="kv" style="margin-bottom:10px">
-        <div class="k">Cases</div><div>${(plan.order || []).length} in ${units.length} unit(s), in catalogue order</div>
-        <div class="k">Pool</div><div>${plan.pool.nodes} usable nodes on ${plan.pool.machines} machines, ${plan.pool.dids} DIDs</div>
-        <div class="k">Faucet draw, worst case</div><div><b>${rbt(draw.worst, 0)} RBT</b>${draw.faucet_free != null ? ` <span class="muted">(faucet holds ${rbt(draw.faucet_free, 0)})</span>` : ""}<br>
-          <span class="small muted">if every participant held nothing; a run draws only shortfalls, so usually far less</span></div></div>` : ""}
-      ${units.length ? `<div class="tablewrap"><table><thead><tr><th>Unit</th><th class="num">Nodes</th><th>Quorums</th><th>Participants</th><th class="num">Draw</th></tr></thead><tbody>${
-        units.map(u => `<tr><td><b>${esc(u.name)}</b>${u.exclusive ? ' <span class="tag ex">alone</span>' : ""}${u.skip ? ` ${badge("SKIP")}` : ""}<div class="small muted">${esc(u.cases.join(", "))}</div></td>
-          <td class="num">${u.nodes || "-"}</td>
-          <td class="small">${u.quorums ? `${u.quorums} × ${rbt(u.quorum_target, 0)} RBT` : "-"}</td>
-          <td class="small">${u.senders + u.receivers ? `${u.senders} s${u.receivers ? ` + ${u.receivers} r` : ""} × ${rbt(u.participant_target, 0)} RBT` : "-"}${u.extra ? `<br>+ ${rbt(u.extra, 0)} drawn by the case` : ""}</td>
-          <td class="num">${rbt(u.draw, 0)}</td></tr>`).join("")}</tbody></table></div>
-        <div class="small muted" style="margin-top:4px">Quorums are topped up to their target before the unit starts (test_runner.unit_targets); a pledge is held until the receiver spends onward.</div>` : ""}
-      ${plan.command ? `<div style="margin-top:10px" class="small muted">The same run from a terminal:</div><pre class="cmd">${esc(plan.command)}</pre>` : ""}
-      <div style="margin-top:14px">${busy ? `<div class="note">The fleet is busy: ${esc(busy)}</div>` : ""}
-      ${startError ? `<div class="note red">${esc(startError)}</div>` : ""}
-      ${confirming ? `<div class="note blue">Start this run on the fleet now? It resets the quorum lists of the nodes it uses and draws from the faucet.</div>
-        <button class="primary" id="b-go" ${starting ? "disabled" : ""}>${starting ? "Starting…" : "Yes, start the run"}</button> <button id="b-cancel">Cancel</button>`
-        : `<button class="primary" id="b-start" ${plan.ok && !busy ? "" : "disabled"}>Start run</button>`}</div>`;
-    const s = $("#b-start");
-    if (s) s.onclick = () => { confirming = true; renderPlan(); };
-    const c = $("#b-cancel");
-    if (c) c.onclick = () => { confirming = false; renderPlan(); };
-    const g = $("#b-go");
-    if (g) g.onclick = async () => {
-      starting = true; renderPlan();
-      try {
-        const r = await post("/api/runs", request());
-        location.hash = "#/runs/" + encodeURIComponent(r.id);
-      } catch (e) {
-        startError = e.message;
-        if (e.body && e.body.plan) plan = e.body.plan;
-      }
-      starting = false; confirming = false; renderPlan();
-    };
-  }
+  const planner = planPanel({
+    request, empty: "Pick at least one case.", countLabel: "Cases",
+    count: plan => `${(plan.order || []).length} in ${(plan.units || []).length} unit(s), in catalogue order`,
+    table: plan => `<div class="tablewrap"><table><thead><tr><th>Unit</th><th class="num">Nodes</th><th>Quorums</th><th>Participants</th><th class="num">Draw</th></tr></thead><tbody>${
+      plan.units.map(u => `<tr><td><b>${esc(u.name)}</b>${u.exclusive ? ' <span class="tag ex">alone</span>' : ""}${u.skip ? ` ${badge("SKIP")}` : ""}<div class="small muted">${esc(u.cases.join(", "))}</div></td>
+        <td class="num">${u.nodes || "-"}</td>
+        <td class="small">${u.quorums ? `${u.quorums} × ${rbt(u.quorum_target, 0)} RBT` : "-"}</td>
+        <td class="small">${u.senders + u.receivers ? `${u.senders} s${u.receivers ? ` + ${u.receivers} r` : ""} × ${rbt(u.participant_target, 0)} RBT` : "-"}${u.extra ? `<br>+ ${rbt(u.extra, 0)} drawn by the case` : ""}</td>
+        <td class="num">${rbt(u.draw, 0)}</td></tr>`).join("")}</tbody></table></div>
+      <div class="small muted" style="margin-top:4px">Quorums are topped up to their target before the unit starts (test_runner.unit_targets); a pledge is held until the receiver spends onward.</div>`,
+  });
   renderKnobs();
   syncChecks();
-  refreshPlan();
-  every(5000, () => { if (!confirming && !starting) refreshPlan(); });
+  planner.refresh();
+}
+
+// The Custom run tab. The form's choices, defaults and limits come from
+// custom/custom_cases.py (GET /api/custom), and the plan from its check() and
+// budget(), so the page never offers what the run would refuse.
+const INT_FIELDS = ["senders", "receivers", "quorums", "rounds", "assets", "per_transfer", "batch"];
+const CONCURRENCY_LABEL = {all: "all at once", batch: "N at a time", sequential: "one at a time"};
+
+async function customBuilder() {
+  const meta = await api("/api/custom");
+  if (meta.error) { $("#b-left").innerHTML = `<div class="note red">${esc(meta.error)}</div>`; return; }
+  const D = meta.defaults;
+  const fresh = () => Object.assign({}, D);
+  const loadSaved = () => {
+    const s = store("custom");
+    return s && Array.isArray(s.scenarios) && s.scenarios.length ? s :
+      {label: "", rerun: "twice", collect_versions: true, scenarios: [fresh()]};
+  };
+  let form = loadSaved();
+
+  function patternsOf(sc) { return meta.op_patterns[sc.asset + ":" + sc.operation]; }
+  function normalize(sc) {
+    const ops = meta.operations[sc.asset] || meta.operations[meta.assets[0]];
+    if (!ops.includes(sc.operation)) sc.operation = ops[0];
+    const pats = patternsOf(sc);
+    if (pats && !pats.includes(sc.pattern)) sc.pattern = pats[0];
+    if (!pats || sc.pattern === "ring") sc.receivers = 0;
+    else if (sc.pattern === "fan-in") sc.receivers = 1;
+    else if (!+sc.receivers) sc.receivers = D.receivers;
+    if (!(sc.pattern === "chain" && (meta.rotate || []).includes(sc.asset + ":" + sc.operation))) sc.rotate_quorum = false;
+  }
+  form.scenarios.forEach(normalize);
+
+  $("#b-left").innerHTML = `
+    <div class="panel"><div class="toolbar" style="margin-top:0"><h2 style="margin:0">Custom run</h2>
+      <span class="spacer"></span><button class="small" id="c-example" title="replace the form with a worked example of every asset">load example</button>
+      <button class="small" id="c-reset">start over</button></div>
+      <div class="fields" id="c-run"></div></div>
+    <div id="c-scen"></div>
+    <div class="toolbar"><button id="c-add">+ Add scenario</button>
+      <span class="sub">up to ${meta.limits.scenarios}; scenarios on different nodes run side by side unless one runs alone</span></div>`;
+
+  function sel(name, options, value, labels) {
+    return `<select data-f="${name}">${options.map(o => `<option value="${esc(o)}"${o === value ? " selected" : ""}>${esc(labels ? labels[o] : o)}</option>`).join("")}</select>`;
+  }
+  function num(name, value, attrs) {
+    return `<input type="number" data-f="${name}" value="${esc(value == null ? "" : value)}" ${attrs || ""}>`;
+  }
+  function fld(label, input, help, cls) {
+    return `<label class="fld${cls ? " " + cls : ""}"><span>${esc(label)}</span>${input}${help ? `<small>${esc(help)}</small>` : ""}</label>`;
+  }
+  function check(name, value, label, help) {
+    return `<label class="fld check" title="${esc(help || "")}"><input type="checkbox" data-f="${name}"${value ? " checked" : ""}> ${esc(label)}</label>`;
+  }
+  function renderRun() {
+    $("#c-run").innerHTML =
+      `<label class="fld wide"><span>Name</span><input type="text" data-g="label" value="${esc(form.label || "")}" placeholder="optional - shown in Reports and the report"></label>` +
+      `<label class="fld wide"><span>Run each scenario</span><select data-g="rerun">${Object.keys(meta.rerun).map(k =>
+        `<option value="${k}"${form.rerun === k ? " selected" : ""}>${k === "twice" ? "twice: without, then with fullnode delay" : "once, without delay"}</option>`).join("")}</select>
+        <small>${esc(meta.rerun[form.rerun] || "")}</small></label>` +
+      `<label class="fld check"><input type="checkbox" data-g="collect_versions"${form.collect_versions ? " checked" : ""}> record every node's build (SSH)</label>`;
+  }
+  function scenarioHtml(sc, i) {
+    const key = sc.asset + ":" + sc.operation;
+    const pats = patternsOf(sc);
+    const repeats = !(sc.operation === "mint" || sc.operation === "deploy");
+    const roundsLabel = key === "NFT:deploy+transfer" ? "Hops per NFT" : sc.pattern === "chain" && pats ? "Hops per chain" :
+      sc.operation === "deploy+execute" ? "Executes each" : "Rounds";
+    const recvLocked = !pats || sc.pattern === "ring" || sc.pattern === "fan-in";
+    const recvNote = !pats ? "none - nothing is sent to anyone" : sc.pattern === "ring" ? "none - the senders pay each other" :
+      sc.pattern === "fan-in" ? "one, by the pattern" : key === "SC:deploy+execute" ? "they subscribe and execute" : "";
+    const fields = [
+      fld("Asset", sel("asset", meta.assets, sc.asset)),
+      fld("Operation", sel("operation", meta.operations[sc.asset], sc.operation)),
+      pats ? fld("Pattern", sel("pattern", pats, sc.pattern)) : "",
+      fld("Senders", num("senders", sc.senders, 'min="1" step="1"'), sc.asset === "SC" || sc.asset === "NFT" ? "the owners" : ""),
+      fld("Receivers", num("receivers", sc.receivers, `min="0" step="1"${recvLocked ? " disabled" : ""}`), recvNote),
+      fld("Quorums", num("quorums", sc.quorums, 'min="1" step="1"'), "the participant nodes are split across them"),
+      sc.asset === "RBT" ? fld("Amount (RBT)", num("amount", sc.amount, 'min="0.001" step="0.001"'), "3 decimal places at most") : "",
+      sc.asset === "RBT" ? fld("Random up to", num("amount_max", sc.amount_max, 'min="0.001" step="0.001" placeholder="fixed"'), "empty = always the amount") : "",
+      sc.asset !== "RBT" ? fld({FT: "FTs minted per sender", NFT: "NFTs per sender", SC: "Contracts per sender"}[sc.asset],
+        num("assets", sc.assets, 'min="1" step="1"'), sc.asset === "FT" ? "1 RBT burnt per 1,000" : "") : "",
+      key === "FT:mint+transfer" ? fld("FTs per transfer", num("per_transfer", sc.per_transfer, 'min="1" step="1"')) : "",
+      repeats ? fld(roundsLabel, num("rounds", sc.rounds, 'min="1" step="1"')) : "",
+      fld("Concurrency", sel("concurrency", Object.keys(CONCURRENCY_LABEL), sc.concurrency, CONCURRENCY_LABEL)),
+      sc.concurrency === "batch" ? fld("N at a time", num("batch", sc.batch, 'min="1" step="1"')) : "",
+      repeats && sc.pattern !== "chain" ? fld("Pause (seconds)", num("round_gap", sc.round_gap, 'min="0" step="1"'),
+        "between " + roundsLabel.toLowerCase().replace(" per nft", "").replace(" each", "")) : "",
+      fld("Quorum funding (RBT)", num("quorum_fund", sc.quorum_fund, 'min="0" step="1" placeholder="auto"'), "empty = worked out"),
+    ].join("");
+    const checks = [
+      check("same_node", sc.same_node, "all on one node", "every DID from one node - the biggest holds " + meta.limits.dids_on_a_node),
+      sc.pattern === "chain" && (meta.rotate || []).includes(key) ? check("rotate_quorum", sc.rotate_quorum, "new quorum every hop", "a different quorum signs each hop") : "",
+      check("alone", sc.alone, "run alone", "nothing else runs beside this scenario"),
+    ].join("");
+    const patHelp = !pats ? "" : sc.pattern + ": " + ((meta.pattern_help[key] || {})[sc.pattern] || meta.patterns[sc.pattern]);
+    const help = [meta.op_help[key], patHelp].filter(Boolean).join(" · ");
+    return `<div class="panel scen" data-i="${i}"><div class="toolbar" style="margin-top:0">
+        <h2>CUSTOM-${i + 1}</h2><input type="text" data-f="name" value="${esc(sc.name || "")}" placeholder="name (optional)" size="24">
+        <span class="spacer"></span><button class="small" data-act="dup">duplicate</button>
+        <button class="small" data-act="del"${form.scenarios.length === 1 ? " disabled" : ""}>remove</button></div>
+      <div class="fields">${fields}</div><div class="checks">${checks}</div>
+      <div class="help">${esc(help)}</div></div>`;
+  }
+  function renderScenarios() {
+    $("#c-scen").innerHTML = form.scenarios.map(scenarioHtml).join("");
+    $("#c-add").disabled = form.scenarios.length >= meta.limits.scenarios;
+  }
+  function save() { store("custom", form); }
+  function changed() { save(); planner.changed(); }
+
+  function onRunField(e) {
+    const el = e.target.closest("[data-g]");
+    if (!el) return;
+    form[el.dataset.g] = el.type === "checkbox" ? el.checked : el.value;
+    if (el.dataset.g === "rerun" && e.type === "change") renderRun();
+    changed();
+  }
+  $("#c-run").addEventListener("input", onRunField);
+  $("#c-run").addEventListener("change", e => { if (e.target.tagName === "SELECT" || e.target.type === "checkbox") onRunField(e); });
+  function onField(e) {
+    const el = e.target.closest("[data-f]");
+    if (!el) return;
+    const sc = form.scenarios[+el.closest(".scen").dataset.i];
+    sc[el.dataset.f] = el.type === "checkbox" ? el.checked : el.value;
+    if (e.type === "change" && ["asset", "operation", "pattern", "concurrency"].includes(el.dataset.f)) {
+      normalize(sc);
+      renderScenarios();
+    }
+    changed();
+  }
+  $("#c-scen").addEventListener("input", onField);
+  $("#c-scen").addEventListener("change", e => { if (e.target.tagName === "SELECT" || e.target.type === "checkbox") onField(e); });
+  $("#c-scen").addEventListener("click", e => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    const i = +b.closest(".scen").dataset.i;
+    if (b.dataset.act === "dup" && form.scenarios.length < meta.limits.scenarios)
+      form.scenarios.splice(i + 1, 0, Object.assign({}, form.scenarios[i], {name: ""}));
+    if (b.dataset.act === "del" && form.scenarios.length > 1) form.scenarios.splice(i, 1);
+    renderScenarios(); changed();
+  });
+  $("#c-add").onclick = () => { form.scenarios.push(fresh()); renderScenarios(); changed(); };
+  $("#c-example").onclick = () => {
+    const ex = meta.example;
+    form = {label: ex.label, rerun: ex.rerun, collect_versions: form.collect_versions,
+            scenarios: ex.scenarios.map(s => Object.assign(fresh(), s))};
+    form.scenarios.forEach(normalize);
+    renderRun(); renderScenarios(); changed();
+  };
+  $("#c-reset").onclick = () => {
+    form = {label: "", rerun: "twice", collect_versions: true, scenarios: [fresh()]};
+    renderRun(); renderScenarios(); changed();
+  };
+
+  function cleaned(sc) {
+    const out = {};
+    Object.keys(D).forEach(k => {
+      let v = sc[k];
+      if (INT_FIELDS.includes(k) || k === "amount" || k === "round_gap") v = v === "" || v == null ? D[k] : Number(v);
+      else if (k === "amount_max" || k === "quorum_fund") v = v === "" || v == null ? null : Number(v);
+      out[k] = v;
+    });
+    return out;
+  }
+  function request() {
+    if (!form.scenarios.length) return null;
+    return {mode: "custom", collect_versions: !!form.collect_versions,
+            spec: {version: meta.version, label: form.label || "", rerun: form.rerun || "twice",
+                   scenarios: form.scenarios.map(cleaned)}};
+  }
+  const planner = planPanel({
+    request, empty: "Add a scenario.", countLabel: "Scenarios",
+    count: plan => `${(plan.units || []).length} - each one case and one unit`,
+    table: plan => `<div class="tablewrap"><table><thead><tr><th>Scenario</th><th class="num">Nodes</th><th class="num">Operations</th><th>Quorums</th><th>Top-up each</th><th class="num">Draw</th></tr></thead><tbody>${
+      plan.units.map(u => `<tr><td><b>${esc(u.name)}</b>${u.exclusive ? ' <span class="tag ex">alone</span>' : ""}${u.skip ? ` ${badge("SKIP")}` : ""}<div class="small">${esc(u.summary)}</div></td>
+        <td class="num">${u.nodes || "-"}</td>
+        <td class="num">${(u.ops || 0).toLocaleString("en-US")}${u.runs > 1 ? '<div class="small muted">2 runs</div>' : ""}</td>
+        <td class="small">${u.quorums} × ${rbt(u.quorum_target, 0)} RBT${u.quorum_target < u.quorum_need ? `<div style="color:var(--bad)">could pledge ${rbt(u.quorum_need, 0)}</div>` : ""}</td>
+        <td class="small">senders ${rbt(u.sender_need)}${u.receivers && u.receiver_need ? `<br>receivers ${rbt(u.receiver_need)}` : ""}</td>
+        <td class="num">${rbt(u.draw, 0)}</td></tr>`).join("")}</tbody></table></div>
+      <div class="small muted" style="margin-top:4px">Every run of a scenario first tops its participants up to what it needs - the shortfall only. Quorums are funded for every pledge they could hold at once: a pledge is held until the receiver spends onward.</div>`,
+    after: plan => plan.spec ? `<details style="margin-top:10px"><summary class="small">The spec (JSON) - save it as custom-spec.json to run the same from a terminal</summary><pre class="cmd">${esc(JSON.stringify(plan.spec, null, 2))}</pre></details>` : "",
+  });
+  renderRun();
+  renderScenarios();
+  planner.refresh();
 }
 
 // ---------------------------------------------------------------------------
@@ -490,7 +705,7 @@ async function pageLive(main, args) {
     }
     id = cur.id;
   }
-  main.innerHTML = `<div id="l-head"></div><div id="l-banner"></div><div id="l-progress"></div>
+  main.innerHTML = `<div id="l-head"></div><div id="l-banner"></div><div id="l-progress"></div><div id="l-spec"></div>
     <div class="panel"><h2>Cases <span class="sub">click a row for its database checks and full notes</span></h2><div class="tablewrap"><table id="l-cases"></table></div></div>
     <div class="row"><div class="panel grow"><h2>Units and participants</h2><div class="tablewrap"><table id="l-units"></table></div></div></div>
     <div class="row"><div class="panel grow"><h2>Refusals <span class="sub">grouped by the node's own reason; known product bugs tagged</span></h2><div id="l-refusals"></div></div>
@@ -513,8 +728,17 @@ async function pageLive(main, args) {
   }
   const running = () => snap && snap.live && (snap.status === "starting" || snap.status === "running");
 
+  function scenarios() {
+    return (snap.spec && snap.spec.scenarios) || [];
+  }
+  function renderSpec() {
+    const list = scenarios();
+    $("#l-spec").innerHTML = list.length ? `<div class="panel"><h2>Scenarios <span class="sub">${
+      esc(snap.spec.label ? snap.spec.label + " · " : "")}each ${snap.spec.rerun === "once" ? "once, without delay" : "without delay, then with delay"}</span></h2>${
+      list.map(sc => `<div class="small" style="margin-bottom:4px"><span class="mono"><b>${esc(sc.id)}</b></span> ${esc(sc.summary)}</div>`).join("")}</div>` : "";
+  }
   function render() {
-    renderHead(); renderBanner(); renderProgress(); renderCases(); renderUnits();
+    renderHead(); renderBanner(); renderProgress(); renderSpec(); renderCases(); renderUnits();
     renderRefusals(); renderFullnode(); renderConditions(); renderOps();
     if (!consoleN && snap.console && snap.console.length) {
       appendConsole(snap.console);
@@ -593,8 +817,10 @@ async function pageLive(main, args) {
       const checks = (c.checks || []).map(k => `<tr><td>${esc(k.check)}</td><td>${k.ok === true ? badge("ok") : k.ok === false ? badge("FAIL") : badge("-")}</td><td class="small muted">${esc(k.mode || "")}</td><td class="small">${esc(k.detail)}</td></tr>`).join("");
       const known = Object.entries(c.known_bugs || {}).map(([k, n]) => `<div class="small">${n}× ${esc(k)}</div>`).join("");
       const buckets = c.fullnode_buckets ? Object.entries(c.fullnode_buckets).filter(([, n]) => n).map(([k, n]) => `${esc(k.replace(/_/g, " "))}: ${n}`).join(" · ") : "";
+      const sc = scenarios().find(x => x.id === tid);
+      const text = c.case || (sc && sc.summary);
       return main + `<tr class="detail"><td colspan="8"><div class="kv">
-        ${c.case ? `<div class="k">Case</div><div>${esc(c.case)}</div>` : ""}${c.expected ? `<div class="k">Expected</div><div>${esc(c.expected)}</div>` : ""}
+        ${text ? `<div class="k">Case</div><div>${esc(text)}</div>` : ""}${c.expected ? `<div class="k">Expected</div><div>${esc(c.expected)}</div>` : ""}
         <div class="k">Actual</div><div>${esc(c.actual || "-")}</div><div class="k">Note</div><div class="small">${esc(c.note || "-")}</div>
         ${known ? `<div class="k">Known product bugs</div><div>${known}</div>` : ""}
         ${buckets ? `<div class="k">Fullnode, without vs with delay</div><div class="small">${buckets}</div>` : ""}</div>
@@ -708,7 +934,7 @@ async function pageReports(main) {
   main.innerHTML = `<h1>Reports</h1>
     <div class="sub">Every run: started here, from a terminal, and the older reports found in reports/ (looked for every minute).</div>
     <div class="toolbar"><input type="text" id="r-filter" placeholder="filter: case, id, build, status" size="34">
-      <select id="r-kind"><option value="">every kind</option><option>catalogue</option><option>smoke</option><option>probe</option></select>
+      <select id="r-kind"><option value="">every kind</option><option>catalogue</option><option>custom</option><option>smoke</option><option>probe</option></select>
       <span class="spacer"></span><span id="r-count" class="sub"></span><button id="r-scan">Look for new reports now</button></div>
     <div class="panel"><div class="tablewrap"><table id="r-table"></table></div></div>`;
   let runs = [];
@@ -720,12 +946,13 @@ async function pageReports(main) {
     const f = ($("#r-filter").value || "").toLowerCase();
     const kind = $("#r-kind").value;
     const rows = runs.filter(r => (!kind || r.kind === kind) &&
-      (!f || [r.id, r.name, r.cases, r.status, r.version, r.note, r.source].join(" ").toLowerCase().includes(f)));
+      (!f || [r.id, r.name, r.cases, r.status, r.version, r.note, r.source, r.label,
+              (r.scenarios || []).join(" ")].join(" ").toLowerCase().includes(f)));
     $("#r-count").textContent = `${rows.length} of ${runs.length}`;
     $("#r-table").innerHTML = `<thead><tr><th>Started</th><th>Kind</th><th>From</th><th>Cases</th><th>Status</th><th class="num">Pass</th><th class="num">Fail</th><th class="num">Skip</th><th class="num">Took</th><th>Build</th><th>Files</th></tr></thead><tbody>${
       rows.map(r => `<tr class="click" data-id="${esc(r.id)}"><td class="small">${esc(when(r.started_at))}</td><td>${esc(r.kind || "")}</td>
         <td class="small">${esc(r.source === "ui" ? "web UI" : r.source || "")}</td>
-        <td class="small" title="${esc(r.cases || "")}">${esc(shortId(r.cases || r.name || "", 60, 0))}${r.note ? `<div class="muted">${esc(r.note)}</div>` : ""}</td>
+        <td class="small" title="${esc((r.scenarios || []).join("\n") || r.cases || "")}">${r.label ? `<b>${esc(r.label)}</b> ` : ""}${esc(shortId(r.cases || r.name || "", 60, 0))}${r.note ? `<div class="muted">${esc(r.note)}</div>` : ""}</td>
         <td>${badge(r.status || "")}</td><td class="num">${r.passed ?? ""}</td><td class="num">${r.failed ? `<b style="color:var(--bad)">${r.failed}</b>` : (r.failed ?? "")}</td><td class="num">${r.skipped ?? ""}</td>
         <td class="num small">${esc(dur(r.duration))}</td><td class="small">${esc(shortId(r.version || "", 28, 0))}</td>
         <td class="small">${fileLinks(r.files)}</td></tr>`).join("") || `<tr><td colspan="11" class="muted">no runs found yet</td></tr>`}</tbody>`;
