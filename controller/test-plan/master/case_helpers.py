@@ -48,14 +48,14 @@ def rand_value(lo, hi):
 
 
 # Refusals that come from the sender's own tokens and would happen with no load
-# at all - both known product bugs (case_evidence.KNOWN_PRODUCT_BUGS): a former
-# quorum spending a token it once pledged (core/consensus/checks.go:308), and a
-# second-hand part token whose whole-token genesis the sender cannot supply. A
-# capacity measure counts them apart, not against what it measures.
-SENDERS_OWN_TOKENS = ("failed to get quorum DID for t",
-                      "ValidateMinterAllowlist: whole-token genesis fetch failed")
+# at all - a known product bug (case_evidence.KNOWN_PRODUCT_BUGS): a former
+# quorum spending a token it once pledged (core/consensus/checks.go:309). A
+# capacity measure counts them apart, not against what it measures. (The minter
+# allowlist refusal on second-hand part tokens was here too; its fixes are in
+# the fleet's build 532c413b, so it now counts like any other refusal.)
+SENDERS_OWN_TOKENS = ("failed to get quorum DID for t",)
 # A sender whose clock is ahead of its quorum's is refused outright
-# (core/consensus/checks.go:61): the machines' clocks, not a capacity limit.
+# (core/consensus/checks.go:62): the machines' clocks, not a capacity limit.
 CLOCK_AHEAD = ("invalid epoch",)
 # What a capacity step counts apart from the limit it measures.
 ASIDE = SENDERS_OWN_TOKENS + CLOCK_AHEAD

@@ -171,30 +171,29 @@ def plain(text, labels):
 # case's note says what they are instead of each run rediscovering them.
 # (marker in the node's message, short label for the Note column, full
 # explanation for the end-of-run summary). Markers are the start of a phrase,
-# so a message cut short still counts.
+# so a message cut short still counts. Lines are those of the fleet's build,
+# vaishnav/custom-testnet @ 532c413b (re-checked 2026-10-29). The minter
+# allowlist refusal on second-hand part tokens is no longer listed: its fixes
+# (f890aa01, 257a9e9d, 4601dd04) are in that build, so it would be a new finding.
 KNOWN_PRODUCT_BUGS = (
     ("failed to get quorum DID for t",
-     "ex-quorum cannot spend tokens it pledged (checks.go:308)",
+     "ex-quorum cannot spend tokens it pledged (checks.go:309)",
      "the sender was a quorum earlier and is spending a token it pledged then, now "
      "unpledged and Free; core looks that token up in the CURRENT transaction's "
-     "pledges instead of the pledge transaction (core/consensus/checks.go:308, "
+     "pledges instead of the pledge transaction (core/consensus/checks.go:309, "
      "FindDIDByTokenID(txnInfo.Quorums ...)), so it always refuses"),
-    ("ValidateMinterAllowlist: whole-token genesis fetch failed",
-     "minter allowlist on second-hand part tokens (fix not in lab build)",
-     "the quorum asks the sender for the whole token's genesis, which a second-hand "
-     "holder of a part token does not have; fixed by f890aa01, 257a9e9d and 4601dd04, "
-     "none of which is in the build the lab runs"),
     ("invalid epoch",
-     "zero clock tolerance (checks.go:61)",
+     "zero clock tolerance (checks.go:62)",
      "the quorum rejects a transaction stamped even a second ahead of its own clock "
-     "(core/consensus/checks.go:61, Epoch > time.Now()), so any clock difference "
-     "between sender and quorum refuses transfers"),
+     "(core/consensus/checks.go:62, Epoch > time.Now(), whole seconds), so a sender "
+     "whose clock runs a fraction of a second ahead of its quorum's is refused "
+     "whenever a second ticks over between the two readings"),
     ("deadlock detected (SQLSTATE 40P01)",
      "token_denom deadlock on concurrent splits (Go map order)",
      "two splits or pledges at once on one DID - a quorum pledging fractional amounts "
      "for several transfers, or one wallet deploying or minting several things - "
      "update its token_denom rows one by one in Go map order, which is random "
-     "(core/wallet/persist_genesis_tx.go:209, post_consensus_persistence.go:716), so "
+     "(core/wallet/persist_genesis_tx.go:209, post_consensus_persistence.go:672, :703), so "
      "Postgres finds a lock cycle and kills one. Sorting the denominations before the "
      "updates removes it. A pledge also decrements token_denom in a second DB "
      "transaction after the pledge itself is committed (core/pledge_v2.go:287): when "
@@ -205,7 +204,7 @@ KNOWN_PRODUCT_BUGS = (
      "transaction builder treated the execute/transfer as a DEPLOY of that ID with no "
      "previous transaction (core/transaction_builder.go:369); a quorum that has seen "
      "the token refuses it, one that has not accepts a second genesis "
-     "(core/consensus/checks.go:836) which the fullnodes then reject"),
+     "(core/consensus/checks.go:841) which the fullnodes then reject"),
     ("did not exist with the peer",
      "peer unreachable, error swallowed (ipfsport/peer.go:205)",
      "the node could not reach the other node over IPFS at all - on 2026-10-22 a node "

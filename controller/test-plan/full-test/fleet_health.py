@@ -13,6 +13,14 @@ Two uses:
                 shows it: on 2026-10-22 eight of .130's nine nodes were deaf and
                 four cases failed on them. The runner leaves them out.
 
+  clock_skew()  before a run: which machines' clocks are off the rest of the
+                fleet's. A quorum refuses a transaction stamped later than its
+                own clock (core/consensus/checks.go:62, whole seconds, no
+                tolerance), so a sender whose machine runs ahead of its
+                quorum's is refused for the lab's clocks. The runner leaves
+                such machines out, so an "invalid epoch" refusal it reports is
+                Rubix's own, at offsets within CLOCK_TOL.
+
   Watch         during a case step (master/steps.py): CPU and iowait, memory,
                 swap, disk and load on every machine the step runs on, the node
                 processes' memory, each node's MainPID (a change = the node
@@ -25,13 +33,19 @@ ps, df, systemctl and `ipfs p2p ls`.
 """
 
 import os
+import statistics
 import subprocess
+import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 SSH_USER = "rubix"
 PERIOD = 3                  # seconds between samples while a step runs
+# Seconds a machine's clock may differ from the fleet's median. Two machines
+# within it differ by at most twice it, less than the time from a sender
+# stamping a transaction to its quorum checking it (~0.1s on 2026-10-29).
+CLOCK_TOL = 0.05
 
 # A step that fails while a machine it runs on crosses one of these is reported
 # as HARDWARE. Chosen so that a machine merely busy does not count: Rubix must
@@ -251,6 +265,51 @@ class Watch(object):
         if self.controller:
             out["controller"] = summarize(self.controller, [])
         return out
+
+
+def clock_offset(machine, samples=4):
+    """Seconds this machine's clock is ahead of the controller's (negative:
+    behind), or None if it cannot be read. The samples run over one shared SSH
+    connection (multiplexed), so each round trip is a few ms; the offset is the
+    remote time minus the midpoint of the local times around it, taken from the
+    sample with the shortest round trip, as NTP does."""
+    opts = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "ControlMaster=auto",
+            "-o", "ControlPath=" + os.path.join(tempfile.gettempdir(), "rubix-clock-%r@%h:%p"),
+            "-o", "ControlPersist=15"]
+    target = "{}@{}".format(SSH_USER, machine)
+    best = None
+    try:
+        subprocess.run(["ssh"] + opts + [target, "true"], capture_output=True, timeout=20)
+        for _ in range(samples):
+            t0 = time.time()
+            p = subprocess.run(["ssh"] + opts + [target, "date +%s.%N"],
+                               capture_output=True, text=True, timeout=10)
+            t1 = time.time()
+            remote = float((p.stdout or "").strip())
+            if best is None or t1 - t0 < best[1]:
+                best = (remote - (t0 + t1) / 2.0, t1 - t0)
+    except Exception:
+        pass
+    return best[0] if best else None
+
+
+def clock_skew(machines):
+    """({machine: seconds off} for the machines more than CLOCK_TOL off,
+    {machine: seconds off} for every machine read). Off what: the median clock
+    of the machines read, not the controller's - what refuses a transfer is a
+    sender's clock ahead of its quorum's, so only the machines against each
+    other matter. A machine that cannot be read is in neither."""
+    machines = sorted(set(m for m in machines if m))
+    if not machines:
+        return {}, {}
+    with ThreadPoolExecutor(max_workers=min(32, len(machines))) as ex:
+        raw = dict((m, o) for m, o in zip(machines, ex.map(clock_offset, machines))
+                   if o is not None)
+    if not raw:
+        return {}, {}
+    mid = statistics.median(raw.values())
+    rel = dict((m, o - mid) for m, o in raw.items())
+    return dict((m, d) for m, d in rel.items() if abs(d) > CLOCK_TOL), rel
 
 
 def deaf_nodes(hosts):

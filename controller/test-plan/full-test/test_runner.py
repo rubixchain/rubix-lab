@@ -1013,6 +1013,56 @@ def discover_pool(specs, timeout):
     return nodes, excluded
 
 
+def health_gate(nodes):
+    """(the pool nodes a run can use, why the others are left out). What would
+    make a case fail for the lab rather than for Rubix stays out of the run:
+      - a node that cannot RECEIVE: its IPFS lost its p2p listener, which the
+        auto-restart never registers again (core/ipfs_recovery.go). It answers
+        its API and sends, so nothing else shows it; on 2026-10-22 four cases
+        failed on .130's deaf nodes;
+      - every node of a machine whose clock is more than
+        fleet_health.CLOCK_TOL off the fleet's: a quorum refuses a sender whose
+        clock is ahead of its own (core/consensus/checks.go:62), so its refusals
+        would be the lab's clocks (smoke test, 2026-10-29).
+    The faucet pair and the fullnodes cannot be left out: a clock of theirs that
+    is off is printed as a warning, as is a machine not NTP-synchronised.
+    Shared by test_runner and smoke_test."""
+    import fleet_health
+    deaf, unsynced = fleet_health.deaf_nodes([n["host"] for n in nodes])
+    fixed = [(fleet_inventory.split(h)[0], role) for h, role in
+             [(rc.FAUCET_HOST, "faucet"), (rc.FAUCET_QUORUM_HOST, "faucet quorum")] +
+             [(h, "fullnode") for h in rc.FULLNODE_HOSTS] if h]
+    off, read = fleet_health.clock_skew([n["machine"] for n in nodes] + [m for m, _r in fixed])
+    fix_clock = "fix: ssh -t rubix@{} 'sudo timedatectl set-ntp true && sudo systemctl restart systemd-timesyncd'"
+    kept, excluded, late = [], [], {}
+    for n in nodes:
+        if n["host"] in deaf:
+            excluded.append("{} - {} (fix: restart-nodes.sh --host {} --force)".format(
+                n["host"], deaf[n["host"]], n["machine"]))
+        elif n["machine"] in off:
+            late[n["machine"]] = late.get(n["machine"], 0) + 1
+        else:
+            kept.append(n)
+    for m, count in sorted(late.items()):
+        excluded.append("{} ({} node(s)) - its clock is {:+.0f} ms off the fleet's, and a quorum "
+                        "refuses a sender whose clock is ahead of its own ({})".format(
+                            m, count, off[m] * 1000, fix_clock.format(m)))
+    for m, role in fixed:
+        if m in off:
+            print("  WARNING: the {} on {} has its clock {:+.0f} ms off the fleet's - what it "
+                  "takes part in can be refused for the clock ({})".format(
+                      role, m, off[m] * 1000, fix_clock.format(m)))
+    for m in unsynced:
+        print("  WARNING: {}'s clock is not NTP-synchronised ({})".format(m, fix_clock.format(m)))
+    if read:
+        worst = max(read, key=lambda m: abs(read[m]))
+        print("Clocks: {} machine(s) read, {} more than {:.0f} ms off the fleet's median; "
+              "largest {:+.0f} ms on {}".format(len(read), len(off),
+                                                fleet_health.CLOCK_TOL * 1000,
+                                                read[worst] * 1000, worst))
+    return kept, excluded
+
+
 def fullnode_reason_key(reason):
     """A fullnode's rejection reason with the IDs in it masked, so the same
     failure groups across transactions. Contract/NFT IDs are base58 "Qm..."
@@ -1173,18 +1223,8 @@ def main():
     print("== Fleet: reachability + DIDs ==")
     run_events.phase("discover", None, "reading every node and announcing its DIDs")
     pool_nodes, excluded = discover_pool(specs, rc.DEFAULT_TIMEOUT)
-    # A node whose IPFS lost its p2p listener answers its API and sends, but no
-    # peer can reach it (core/ipfs_recovery.go never registers it again): on
-    # 2026-10-22 four cases failed on .130's deaf nodes. Leave such nodes out.
-    import fleet_health
-    deaf, clocks = fleet_health.deaf_nodes([n["host"] for n in pool_nodes])
-    if deaf:
-        pool_nodes = [n for n in pool_nodes if n["host"] not in deaf]
-        excluded += ["{} - {} (fix: restart-nodes.sh --host {} --force)".format(
-            h, why, h.rsplit(":", 1)[0]) for h, why in sorted(deaf.items())]
-    for m in clocks:
-        print("  WARNING: {}'s clock is not NTP-synchronised - Rubix refuses a sender a second "
-              "ahead of its quorum (core/consensus/checks.go:61)".format(m))
+    pool_nodes, gated = health_gate(pool_nodes)
+    excluded += gated
     fleet = [{"host": n["host"], "did": d} for n in pool_nodes for d in n["dids"]]
     run_events.pool(specs, pool_nodes, fleet, excluded)
     print("{} node(s) on {} pool machine(s) in hosts.txt, {} usable with {} DID(s), "

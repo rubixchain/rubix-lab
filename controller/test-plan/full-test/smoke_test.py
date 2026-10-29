@@ -51,6 +51,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import case_evidence
 import node_screens
 import rubix_client as rc
 import run_lock
@@ -86,6 +87,13 @@ class Report:
             passed, actual, reason = fn()
         except Exception as e:
             passed, actual, reason = False, "exception", "{}: {}".format(type(e).__name__, e)
+        if not passed:
+            # A refusal with a known cause in the product says so, as in the
+            # catalogue runner's notes.
+            label = next((label for marker, label, _w in case_evidence.KNOWN_PRODUCT_BUGS
+                          if marker in str(reason or "")), None)
+            if label:
+                reason = "KNOWN PRODUCT BUG - {}: {}".format(label, reason)
         elapsed = round(time.time() - start, 2)
         row = {
             "step": step, "passed": passed, "actual": actual,
@@ -284,6 +292,10 @@ def main():
     # Faucet, faucet quorum and fullnodes come from the hosts.txt roles.
     _hosts, specs = tr.load_fleet(args.hosts)
     ready, excluded = sweep_and_prepare(specs, rc.DEFAULT_TIMEOUT)
+    # Deaf nodes and machines whose clock is off stay out, as in test_runner:
+    # their failures would be the lab's, not Rubix's.
+    ready, gated = tr.health_gate(ready)
+    excluded += gated
     print("{} node(s) in the pool, {} ready, {} excluded".format(len(specs), len(ready), len(excluded)))
     for line in excluded:
         print("  excluded: {}".format(line))

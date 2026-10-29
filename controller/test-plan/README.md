@@ -25,7 +25,9 @@ failed or refused ungently), WRONG (a wrong result), HARDWARE (a machine it ran
 on was at a CPU / memory / disk ceiling - inconclusive) or NOT RUN (a
 precondition did not hold). The rules are in `master/steps.py`; each step's
 record is in the run's `*_db-evidence.json` under `steps`. Nodes whose IPFS
-lost its p2p listener (they answer but cannot receive) are left out of the run.
+lost its p2p listener (they answer but cannot receive), and machines whose clock
+is more than 50 ms off the rest of the fleet's (a quorum refuses a sender whose
+clock is ahead of its own), are left out of the run and the smoke test.
 
 ## The suite, in run order
 
@@ -56,7 +58,7 @@ next, each sized by what QCAP-01 measured.
 | `master/case_helpers.py` | Shared: firing transfers at the same moment and timing them, saved limits, refusal reasons |
 | `master/steps.py` | A case as defined steps: preconditions, the checks after each step, the outcome rules |
 | `master/case_book.py` → `master/CASE-BOOK.md` | Every case and its steps, from the modules' `PURPOSE` and `STEPS` |
-| `full-test/fleet_health.py` | Over SSH: machine CPU / memory / disk / restarts while a step runs; nodes that cannot receive |
+| `full-test/fleet_health.py` | Over SSH: machine CPU / memory / disk / restarts while a step runs; nodes that cannot receive; each machine's clock against the fleet's |
 | `full-test/node_screens.py` | Over SSH: tells each machine's node console which of its nodes the run is using, so its screen shows that node's live log (`systems/console/rubix-console.sh`) |
 | `full-test/test_runner.py` | Runs the suite: picks participants per case, prepares them, runs, reports |
 | `full-test/rubix_client.py` | API client, including faucet funding |
