@@ -1048,9 +1048,10 @@ def build_parser():
     # Scale knobs. Defaults are the catalogue's sizes; lower one only for a
     # quick pass. The value actually used is stated in the case's report row,
     # so a reduced run is never mistaken for the full one.
-    p.add_argument("--quorum-ladder", default="10,20,50,70,90,100,150,200,220",
+    p.add_argument("--quorum-ladder", default="10,20,50,100,150,200,300,400",
                    help="QCAP-01: concurrent senders through one quorum, rung by rung "
-                        "(climbed twice: whole RBT, then a fractional amount)")
+                        "(climbed twice: whole RBT, then a fractional amount). Rungs above "
+                        "the number of sending nodes use a second DID on the same nodes")
     p.add_argument("--ladder-stop", type=float, default=50.0,
                    help="stop climbing a ladder once a rung's pass rate falls below this "
                         "percent (default 50)")
@@ -1169,6 +1170,18 @@ def main():
     print("== Fleet: reachability + DIDs ==")
     run_events.phase("discover", None, "reading every node and announcing its DIDs")
     pool_nodes, excluded = discover_pool(specs, rc.DEFAULT_TIMEOUT)
+    # A node whose IPFS lost its p2p listener answers its API and sends, but no
+    # peer can reach it (core/ipfs_recovery.go never registers it again): on
+    # 2026-10-22 four cases failed on .130's deaf nodes. Leave such nodes out.
+    import fleet_health
+    deaf, clocks = fleet_health.deaf_nodes([n["host"] for n in pool_nodes])
+    if deaf:
+        pool_nodes = [n for n in pool_nodes if n["host"] not in deaf]
+        excluded += ["{} - {} (fix: restart-nodes.sh --host {} --force)".format(
+            h, why, h.rsplit(":", 1)[0]) for h, why in sorted(deaf.items())]
+    for m in clocks:
+        print("  WARNING: {}'s clock is not NTP-synchronised - Rubix refuses a sender a second "
+              "ahead of its quorum (core/consensus/checks.go:61)".format(m))
     fleet = [{"host": n["host"], "did": d} for n in pool_nodes for d in n["dids"]]
     run_events.pool(specs, pool_nodes, fleet, excluded)
     print("{} node(s) on {} pool machine(s) in hosts.txt, {} usable with {} DID(s), "

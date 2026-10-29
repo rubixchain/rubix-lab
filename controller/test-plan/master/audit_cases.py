@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "full-test"))
 
 import rubix_client as rc
 import db_client as db
+import steps
 
 SKIP = "SKIP"
 FLEET_TOTAL_DEFAULT = 400000.0
@@ -167,11 +168,14 @@ def _audit(ctx, label):
         findings.append("the fleet holds {:.3f} RBT but the faucet minted {:.3f}: {:+.3f} RBT "
                         "{}".format(held, expected, held - expected,
                                     "created from nowhere" if held > expected else "lost"))
+    reading["expected"] = expected
+    reading["doubled_text"] = ""
     if doubled:
         sample = sorted(doubled.items())[:3]
-        findings.append("{} token(s) are Free under two different DIDs - a double spend: {}".format(
-            len(doubled), "; ".join("{} held by {}".format(t, " and ".join(d[:12] for d in o))
-                                    for t, o in sample)))
+        reading["doubled_text"] = "{} token(s) are Free under two different DIDs - a double spend: " \
+            "{}".format(len(doubled), "; ".join("{} held by {}".format(t, " and ".join(d[:12] for d in o))
+                                                for t, o in sample))
+        findings.append(reading["doubled_text"])
     return reading, findings
 
 
@@ -243,50 +247,116 @@ def _quarantine(targets):
     return n
 
 
+PURPOSE = {
+    "AUDIT-START": "The fleet's state before the run - nothing created or lost, no token owned "
+                   "twice - so every later step's findings are its own.",
+    "AUDIT-END": "The fleet's state after the run: what the run created, lost, locked or doubled.",
+}
+
+STEPS = {
+    "AUDIT-START": [
+        ("S1", "Read every node",
+         "read every pool node's database and the faucet pair's, one consistent snapshot each",
+         "every node readable (one that is not is the lab's problem: the audit is NOT RUN)"),
+        ("S2", "Quarantine problem tokens",
+         "lock out of use every RBT token in a stuck status, or Free with no chain history, then "
+         "read again - the audit's only write",
+         "done; how many is reported"),
+        ("S3", "Nothing created or lost",
+         "add up every DID's Free, Locked, Committed, Pledged, QuorumPledged and BurntForFT RBT",
+         "equals the 400,000 RBT the faucet minted"),
+        ("S4", "One owner per token", "look for a token Free under two DIDs",
+         "none - two would be a double spend"),
+        ("S5", "Known issues",
+         "list RBT parked in Locked, token_denom drift and negative counters",
+         "reported, not failed (known product bugs)"),
+    ],
+    "AUDIT-END": [
+        ("S1", "Read every node", "as AUDIT-START S1", "every node readable"),
+        ("S2", "Nothing created or lost",
+         "add up every DID's RBT as at the start",
+         "equals the 400,000 minted, and has not moved since AUDIT-START"),
+        ("S3", "One owner per token", "look for a token Free under two DIDs", "none"),
+        ("S4", "Known issues", "as AUDIT-START S5, plus what the run committed and burnt for FT",
+         "reported, not failed"),
+    ],
+}
+
+
+def _read_step(run, ctx, label, got):
+    def read(st):
+        reading, _f = _audit(ctx, label)
+        if reading is None:
+            st.skip("nothing to audit")
+            return
+        got["r"] = reading
+        if reading["unreadable"]:
+            st.skip("{} node database(s) could not be read, so the audit is incomplete: {}".format(
+                len(reading["unreadable"]), "; ".join(reading["unreadable"][:3])))
+    return run.step("S1", read, watch=False)
+
+
+def _total_check(st, r):
+    lost = r["held"] - r["expected"]
+    st.check(abs(lost) <= TOL, "the fleet holds {:.3f} RBT but the faucet minted {:.3f}: {:+.3f} RBT "
+                               "{} (controller/test-plan/custom/lost_rbt.py shows where)".format(
+                                   r["held"], r["expected"], lost,
+                                   "created from nowhere" if lost > 0 else "lost"))
+
+
 def audit_start(ctx, ci):
-    reading, findings = _audit(ctx, "start")
-    if reading is None:
-        return SKIP, "nothing to audit", findings
-    quarantined = _quarantine(reading["quarantine"])
-    if quarantined:
-        reading, findings = _audit(ctx, "start")      # re-check the quarantined fleet
+    run = steps.CaseRun(ctx, "AUDIT-START", STEPS["AUDIT-START"])
+    got = {}
+    if _read_step(run, ctx, "start", got).outcome != steps.PASS:
+        return run.verdict()
+
+    def quarantine(st):
+        n = _quarantine(got["r"]["quarantine"])
+        st.data["quarantined"] = n
+        st.note("{} problem token(s) locked out of use".format(n) if n else "none needed")
+        if n:
+            got["r"], _f = _audit(ctx, "start")       # re-check the quarantined fleet
+    run.step("S2", quarantine, watch=False)
+    r = got["r"]
     _START.clear()
-    _START.update(reading)
-    soft = _soft_notes(reading)
-    pieces = (["quarantined {} problem token(s) - locked out of use".format(quarantined)]
-              if quarantined else []) + soft + [_describe(reading)]
-    tail = " | ".join(pieces)
-    if findings:
-        return False, "the fleet is not clean before the run", "; ".join(findings) + " | " + tail
-    tags = (["{} quarantined".format(quarantined)] if quarantined else []) + \
-           (["known issues reported"] if soft else [])
-    actual = "clean" + (" ({})".format(", ".join(tags)) if tags else "") + ": " + _describe(reading)
-    return True, actual, tail
+    _START.update(r)
+    run.step("S3", lambda st: _total_check(st, r), watch=False)
+    run.step("S4", lambda st: st.check(not r["doubled_text"], r["doubled_text"]), watch=False)
+
+    def known(st):
+        for n in _soft_notes(r):
+            st.note(n)
+    run.step("S5", known, watch=False)
+    return run.verdict(passed="clean: " + _describe(r))
 
 
 def audit_end(ctx, ci):
     # AUDIT-END reports the run's true end state and does NOT change the fleet -
     # cleaning happens at the next run's AUDIT-START.
-    reading, findings = _audit(ctx, "end")
-    if reading is None:
-        return SKIP, "nothing to audit", findings
-    if _START and not _START.get("unreadable") and not reading["unreadable"]:
-        moved = round(reading["held"] - _START["held"], 3)
-        if abs(moved) > TOL:
-            findings.append("the fleet total moved {:+.3f} RBT during this run ({:.3f} -> "
-                            "{:.3f})".format(moved, _START["held"], reading["held"]))
-    soft = _soft_notes(reading)
-    since = ""
-    if _START:
-        since = "committed {:+.3f}, burnt for FT {:+.3f} since the start".format(
-            reading["totals"]["committed"] - _START["totals"]["committed"],
-            reading["totals"]["burnt-for-FT"] - _START["totals"]["burnt-for-FT"])
-    pieces = soft + [_describe(reading)] + ([since] if since else [])
-    tail = " | ".join(pieces)
-    if findings:
-        return False, "the fleet is not clean after the run", "; ".join(findings) + " | " + tail
-    actual = "clean" + (" (known issues reported)" if soft else "") + ": " + _describe(reading)
-    return True, actual, tail
+    run = steps.CaseRun(ctx, "AUDIT-END", STEPS["AUDIT-END"])
+    got = {}
+    if _read_step(run, ctx, "end", got).outcome != steps.PASS:
+        return run.verdict()
+    r = got["r"]
+
+    def totals(st):
+        _total_check(st, r)
+        if _START and not _START.get("unreadable"):
+            moved = round(r["held"] - _START["held"], 3)
+            st.check(abs(moved) <= TOL, "the fleet total moved {:+.3f} RBT during this run ({:.3f} -> "
+                                        "{:.3f})".format(moved, _START["held"], r["held"]))
+    run.step("S2", totals, watch=False)
+    run.step("S3", lambda st: st.check(not r["doubled_text"], r["doubled_text"]), watch=False)
+
+    def known(st):
+        for n in _soft_notes(r):
+            st.note(n)
+        if _START:
+            st.note("committed {:+.3f}, burnt for FT {:+.3f} since the start".format(
+                r["totals"]["committed"] - _START["totals"]["committed"],
+                r["totals"]["burnt-for-FT"] - _START["totals"]["burnt-for-FT"]))
+    run.step("S4", known, watch=False)
+    return run.verdict(passed="clean: " + _describe(r))
 
 
 CASES = {"AUDIT-START": audit_start, "AUDIT-END": audit_end}

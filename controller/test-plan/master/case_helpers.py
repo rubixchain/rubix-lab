@@ -57,6 +57,36 @@ SENDERS_OWN_TOKENS = ("failed to get quorum DID for t",
 # A sender whose clock is ahead of its quorum's is refused outright
 # (core/consensus/checks.go:61): the machines' clocks, not a capacity limit.
 CLOCK_AHEAD = ("invalid epoch",)
+# What a capacity step counts apart from the limit it measures.
+ASIDE = SENDERS_OWN_TOKENS + CLOCK_AHEAD
+
+
+def send(st, frm, to, set_aside=ASIDE, **kw):
+    """One transfer from `frm` to `to`, recorded on step `st` (master/steps.py):
+    accepted or refused, the node's reason, how long, the transaction ID.
+    Returns (ok, msg, result) like rc.initiate_transaction."""
+    kw.setdefault("timeout", TRANSFER_TIMEOUT)
+    t0 = time.time()
+    ok, msg, res = rc.initiate_transaction(frm["host"], frm["did"], to["did"], **kw)
+    txid = res.get("transactionID") if isinstance(res, dict) else None
+    st.op(ok, msg, round(time.time() - t0, 2), txid, to=to["did"], set_aside=set_aside)
+    return ok, msg, res
+
+
+def timed(st, fn, *a, **k):
+    """An NFT / SC / FT operation (fn returns (ok, msg, result)), recorded on step
+    `st`. `to` names the DID whose node must record the transaction."""
+    to = k.pop("to", None)
+    k.setdefault("timeout", TRANSFER_TIMEOUT)
+    t0 = time.time()
+    ok, msg, res = fn(*a, **k)
+    txid = res.get("transactionID") if isinstance(res, dict) else None
+    st.op(ok, msg, round(time.time() - t0, 2), txid, to=to)
+    return ok, msg, res
+
+
+def machine(host):
+    return host.rsplit(":", 1)[0]
 
 
 def whole_free(host, did):

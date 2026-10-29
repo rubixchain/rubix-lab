@@ -6,19 +6,18 @@ must sync the chain from the sender and validate it from scratch
 (TokenChainIntegrityCheck, core/consensus/checks.go). A chain that only fails
 when the quorum rotates - and not in the single-quorum control beside it -
 points the failure at the rotation and the sync, not at chain depth. This is
-the per-hop validation path the stale-chain findings live in, run deep.
+the per-hop validation path the stale-chain findings live in, run deep. The
+time per hop is compared between the start and the end of the chain: if
+validating a longer history costs more, that is where a depth limit will come
+from.
 
 ONE token travels, and every hop checks by its token_id that it arrived. A
 send of whole RBT takes the sender's lowest whole token_id first
-(core/wallet/token_lock.go), so until 2026-10-23, with every holder funded to
-5 RBT, each hop moved a different token and no token went further than one
-hop - and the "credited" check (next holder holds >= 1 RBT) was always true,
-so a transfer whose token never arrived still counted. Now each holder plays
-from a DID on its node that holds no whole token (case_helpers.empty_did).
-
-Holders and quorums are kept disjoint (a DID that served as a quorum cannot
-cleanly spend afterwards - the known ex-quorum bug), so the token can cycle
-through the holders as many times as the hop count needs.
+(core/wallet/token_lock.go), so each holder plays from a DID on its node that
+holds no whole token (case_helpers.empty_did). Holders and quorums are kept
+disjoint (a DID that served as a quorum cannot cleanly spend afterwards - the
+known ex-quorum bug), so the token can cycle through the holders as many times
+as the hop count needs.
 """
 
 import os
@@ -31,10 +30,35 @@ sys.path.insert(0, os.path.join(HERE, "..", "full-test"))
 
 import case_helpers as ch
 import rubix_client as rc
+import steps
 
 SKIP = "SKIP"
 DEFAULT_HOPS = 200
 ARRIVAL_WAIT = 60       # seconds for the token to show at the next holder
+
+PURPOSE = {
+    "CHAIN-01": "How deep a token's history can grow while every hop is still validated and "
+                "accepted - with a new quorum syncing the whole chain at every hop, and with one "
+                "quorum throughout - and whether the time per hop grows with depth.",
+}
+
+STEPS = {
+    "CHAIN-01": [
+        ("S1", "Set-up check",
+         "each holder plays from a DID on its node holding no whole token; each quorum is set up "
+         "and funded for every pledge it may hold (a pledge is held until spent onward); the first "
+         "holder gets exactly one token",
+         "the token to follow is known by its token_id"),
+        ("S2", "Rotating chain",
+         "the token passes along the holders for --chain-hops hops, a different quorum signing "
+         "each hop",
+         "every hop accepted and the token on the next holder within 60s; the time per hop at the "
+         "end of the chain is not much more than at the start"),
+        ("S3", "Single-quorum control",
+         "a new token, the same depth, one quorum signing every hop",
+         "as S2"),
+    ],
+}
 
 
 def _free(host, did):
@@ -88,90 +112,88 @@ def _fund_quorums(quorums, pledges_each, port):
             rc.fund_did(q["host"], q["did"], pledges_each + 10 - have, port)
 
 
-def _run_chain(holders, quorums, hops, port, label, token):
-    """Pass `token` along `holders` (cycling) for `hops` hops. Quorum for hop i
-    is quorums[i % len(quorums)] - pass a single-item list for the control.
-    Returns (hops done, stop) - stop is None when every hop went through, else
-    {hop, src, dst, why, kind}, kind one of wire / refused / lost."""
-    holder = holders[0]
+def _chain(st, holders, quorums, hops, port, label, token):
+    """Pass `token` along `holders` (cycling) for `hops` hops, quorum for hop i
+    quorums[i % len(quorums)], recording every hop on step `st`. Stops at the
+    first hop that is refused or whose token does not arrive."""
+    holder, secs = holders[0], []
     for i in range(hops):
         nxt = holders[(i + 1) % len(holders)]
         q = quorums[i % len(quorums)]
-        stop = {"hop": i + 1, "src": holder["host"], "dst": nxt["host"]}
         ok, msg = rc.quorum_reset(holder["host"], [q["did"]], port)
         if not ok:
-            return i, dict(stop, kind="wire", why="could not wire the quorum: " + ch.node_reason(msg))
-        ok, msg, _r = rc.initiate_transaction(holder["host"], holder["did"], nxt["did"], rbt=1.0,
-                                              memo="{} hop {}".format(label, i + 1),
-                                              timeout=ch.TRANSFER_TIMEOUT)
+            st.skip("hop {}: could not point {} at its quorum: {}".format(
+                i + 1, steps._short(holder["host"]), ch.node_reason(msg)))
+            return
+        # Nothing set aside: a hop the chain cannot pass, for any reason, ends it.
+        ok, _m, _r = ch.send(st, holder, nxt, rbt=1.0, memo="{} hop {}".format(label, i + 1),
+                             set_aside=())
         if not ok:
-            return i, dict(stop, kind="refused", why=ch.node_reason(msg, 200))
-        if not _arrived(nxt, token):
-            return i, dict(stop, kind="lost", why="the sender reported success but token {} "
-                           "never reached the receiver in {}s".format(token, ARRIVAL_WAIT))
+            st.note("stopped at hop {} ({} -> {})".format(i + 1, steps._short(holder["host"]),
+                                                          steps._short(nxt["host"])))
+            break
+        secs.append(st.ops[-1]["secs"] or 0)
+        if not st.check(_arrived(nxt, token), "hop {} ({} -> {}): the sender reported success but "
+                        "token {} never reached the receiver in {}s".format(
+                            i + 1, steps._short(holder["host"]), steps._short(nxt["host"]), token,
+                            ARRIVAL_WAIT)):
+            break
         holder = nxt
-    return hops, None
-
-
-def _said(done, stop, hops):
-    if stop is None:
-        return "{}/{} hops".format(done, hops)
-    return "{}/{} hops - stopped at hop {} ({} -> {}): {}".format(
-        done, hops, stop["hop"], stop["src"], stop["dst"], stop["why"])
+    st.data["hops_done"] = len(secs)
+    if len(secs) >= 40:
+        head, tail = sum(secs[:20]) / 20.0, sum(secs[-20:]) / 20.0
+        st.data["seconds_first_20"], st.data["seconds_last_20"] = round(head, 2), round(tail, 2)
+        st.note("a hop took {:.2f}s at the start and {:.2f}s at the end ({:.1f}x)".format(
+            head, tail, tail / head if head else 0))
 
 
 def chain_01(ctx, ci):
+    run = steps.CaseRun(ctx, "CHAIN-01", STEPS["CHAIN-01"])
     quorums = ctx.quorum_hosts
     holders = [e for e in (ch.empty_did(h, whole_only=True) for h in ctx.senders) if e]
-    if len(holders) < 3 or len(quorums) < 2:
-        return SKIP, "needs at least three holders with an empty DID on their node and two " \
-            "quorums ({} holders, {} quorums)".format(len(holders), len(quorums)), ""
     hops = max(2, int(getattr(ctx.args, "chain_hops", DEFAULT_HOPS)))
     port = ctx.port
+    seeded = {}
 
-    _fund_quorums(quorums, -(-hops // len(quorums)), port)
-    token = _seed(holders[0], port)
-    if not token:
-        return SKIP, "could not hand the first holder exactly one token to follow", ""
-    rot_done, rot_stop = _run_chain(holders, quorums, hops, port, "CHAIN-01 rotating", token)
-    time.sleep(ch.SETTLE)
+    def setup():
+        if len(holders) < 3 or len(quorums) < 2:
+            return False, "needs at least three holders with an empty DID on their node and two " \
+                          "quorums ({} holders, {} quorums)".format(len(holders), len(quorums))
+        for q in quorums:
+            ok, why = steps.quorum_ready(q, 0, port)
+            if not ok:
+                return ok, why
+        _fund_quorums(quorums, -(-hops // len(quorums)), port)
+        seeded["token"] = _seed(holders[0], port)
+        return bool(seeded["token"]), "could not hand the first holder exactly one token to follow"
+    s1 = run.step("S1", lambda st: None, nodes=quorums, watch=False, require=[setup])
+    if s1.outcome != steps.PASS:
+        return run.verdict()
 
-    # Control: every holder empty again, a new token, the same depth through ONE quorum.
-    _clear(holders, quorums[0], quorums[-1], port)
-    _fund_quorums(quorums[:1], hops, port)
-    token2 = _seed(holders[0], port)
-    if not token2:
-        return SKIP, "could not hand the first holder one token for the control chain", \
-            "rotating quorum: " + _said(rot_done, rot_stop, hops)
-    ctl_done, ctl_stop = _run_chain(holders, quorums[:1], hops, port, "CHAIN-01 control", token2)
+    token = seeded["token"]
+    rot = run.step("S2", lambda st: _chain(st, holders, quorums, hops, port, "CHAIN-01 rotating", token),
+                   nodes=holders + quorums, must_accept=True)
 
-    note = "{} holders, tokens {} and {} | rotating quorum: {} | single-quorum control: {}".format(
-        len(holders), token, token2, _said(rot_done, rot_stop, hops), _said(ctl_done, ctl_stop, hops))
-    stops = [s for s in (rot_stop, ctl_stop) if s]
-    if not stops:
-        return True, "a {}-hop chain held with a new quorum at every hop, and in the " \
-            "single-quorum control".format(hops), note
-    lost = [s for s in stops if s["kind"] == "lost"]
-    if lost:
-        s = lost[0]
-        return False, "a transfer was reported successful but its token never reached the next " \
-            "holder (hop {}, {}): held by nobody - the sender's push to the receiver runs once, " \
-            "after the transfer returns, and is not retried (core/transaction.go:537, " \
-            ":600)".format(s["hop"], s["dst"]), note
-    unreachable = [s for s in stops if "did not exist with the peer" in s["why"]
-                   or "getPeer" in s["why"]]
-    if unreachable:
-        s = unreachable[0]
-        return False, "hop {} could not reach a holder's node over IPFS ({}: {}) - a node that " \
-            "cannot be reached, not chain depth".format(s["hop"], s["src"], s["why"][:120]), note
-    if rot_stop and not ctl_stop:
-        return False, "the chain fails only when the quorum rotates: {} of {} hops with rotation, " \
-            "all {} with one quorum".format(rot_done, hops, hops), note
-    if ctl_stop and not rot_stop:
-        return False, "the single-quorum control failed ({} of {} hops) while every rotated hop " \
-            "went through".format(ctl_done, hops), note
-    return False, "the chain fails at depth regardless of the quorum ({} rotating, {} control " \
-        "of {} hops)".format(rot_done, ctl_done, hops), note
+    # Control: every holder empty again, a new token, one quorum.
+    def control_setup():
+        _clear(holders, quorums[0], quorums[-1], port)
+        _fund_quorums(quorums[:1], hops, port)
+        seeded["token2"] = _seed(holders[0], port)
+        return bool(seeded["token2"]), "could not hand the first holder one token for the control chain"
+    ctl = run.step("S3", lambda st: _chain(st, holders, quorums[:1], hops, port, "CHAIN-01 control",
+                                           seeded["token2"]),
+                   nodes=holders + quorums[:1], must_accept=True, require=[control_setup])
+
+    r_ok, c_ok = rot.outcome == steps.PASS, ctl.outcome == steps.PASS
+    if not r_ok and c_ok:
+        where = "the chain fails only when the quorum rotates ({} of {} hops with rotation, all {} " \
+                "with one quorum)".format(rot.data.get("hops_done", 0), hops, hops)
+        rot.summary = where + "; " + rot.summary
+    elif not r_ok and not c_ok and rot.outcome != steps.NOT_RUN and ctl.outcome != steps.NOT_RUN:
+        rot.summary = "both chains stopped ({} rotating, {} control of {} hops); ".format(
+            rot.data.get("hops_done", 0), ctl.data.get("hops_done", 0), hops) + rot.summary
+    return run.verdict(passed="a {}-hop chain held with a new quorum at every hop, and in the "
+                              "single-quorum control".format(hops))
 
 
 CASES = {"CHAIN-01": chain_01}

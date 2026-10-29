@@ -1,17 +1,21 @@
-"""quorum_cases.py - what one quorum can carry.
+"""quorum_cases.py - what one quorum can carry, and how it says no.
 
 One quorum signs every transaction (QuorumRequired = 1,
 core/quorum_initiator.go:17; quorumAddresses[0] in core/transaction.go), so its
-capacity is a ceiling on everything the fleet does at once.
+capacity is a ceiling on everything the fleet does at once. These cases find
+that ceiling and check that Rubix meets it GENTLY: past what a quorum can take,
+the rest must be refused with a stated reason in good time, leaving nothing
+Locked and the quorum able to sign again (master/steps.py).
 
-QCAP-01 climbs a ladder of senders, on different machines, all transferring at
-the same moment through ONE quorum - first whole RBT, then a fractional amount -
-and saves the highest rung of each that went through in full
-(lab-limits.json). The two differ in what the quorum does: it pledges exactly
-the transfer value (core/consensus/consensus.go), so a whole amount pledges
-whole tokens while a fractional one makes the quorum split its own tokens for
-every transfer at once. The node- and fleet-level cases later give themselves
-enough quorums that the quorum is never what they hit.
+What is kept out of the way so the limit found is Rubix's, not the lab's:
+senders sit on machines other than the quorum's (they would share its CPU),
+one sender per node until every node is used, wallets of whole tokens the
+faucet paid (no second-hand part tokens), DIDs that were quorums earlier are
+not senders where a clean one is free and their refusals are counted apart,
+every sending node is checked to sign with the step's quorum, the quorum holds
+Free RBT for every pledge the step can make, every machine is watched for a
+CPU / memory / disk ceiling, and nodes that cannot receive are left out of the
+run (fleet_health).
 """
 
 import os
@@ -25,116 +29,95 @@ sys.path.insert(0, os.path.join(HERE, "..", "full-test"))
 import case_helpers as ch
 import rubix_client as rc
 import db_client as db
+import steps
 
 SKIP = "SKIP"
 
-# Senders the QCAP-01 unit takes: the top of the default ladder. 220 senders +
-# 1 quorum fit the 234-node pool.
+# Senders the QCAP-01 unit takes; rungs above this use a second DID on the same
+# nodes (labelled so). 220 senders + 1 quorum fit the 234-node pool.
 QCAP_SENDERS = 220
 
-# Refusals that come from the sender's own tokens and would happen with no load
-# at all - counted apart, not against the quorum. Both are known product bugs
-# (case_evidence.KNOWN_PRODUCT_BUGS): a former quorum spending a token it once
-# pledged (core/consensus/checks.go:308), and a second-hand part token whose
-# whole-token genesis the sender cannot supply.
+# Kept for older callers; the markers live in case_helpers.
 NOT_THE_QUORUM = ch.SENDERS_OWN_TOKENS
 
+PURPOSE = {
+    "QCAP-01": "How many transfers ONE quorum signs at the same moment - whole RBT, and a "
+               "fractional amount that makes the quorum split its own tokens for every pledge - "
+               "and whether, past that, Rubix refuses the rest gently and recovers.",
+    "QCAP-02": "Whether a quorum's pledge boundary is exactly its Free holding: up to it a "
+               "transfer is signed and the quorum pledges exactly the value; one unit over is "
+               "refused for quorum liquidity, at once, with nothing on either side changed.",
+    "QCAP-03a": "Whether a quorum that has pledged RBT can spend its OTHER RBT without touching "
+                "what it pledged.",
+    "QCAP-03b": "Whether pledged RBT is unspendable until released, how long the release takes "
+                "once the receiver spends onward, and what the quorum can spend after it.",
+}
 
-def _rung_line(label, n, s):
-    counted = n - s["aside"]
-    line = "{} {}: {}/{} in p50 {:.1f}s p95 {:.1f}s max {:.1f}s".format(
-        label, n, s["ok"], counted, s["p50"], s["p95"], s["max"])
-    if s["failed"]:
-        line += " - refused: " + s["reasons"]
-    if s["aside"]:
-        line += " - {} sender(s) refused for their own tokens, not counted: {}".format(
-            s["aside"], s["aside_reasons"])
-    return line
-
-
-def _climb(ctx, senders, rungs, label, amount_of):
-    """One ladder. Each rung: every sender pays the next in a ring, all at the
-    same moment, the same amount (so balances stay level). Returns (limit,
-    lines, rows, stopped) - limit is the highest rung that went through in
-    full with every lower rung also in full."""
-    lines, rows = [], []
-    limit, clean, stopped = 0, True, ""
-    for i, n in enumerate(rungs):
-        amount = amount_of()
-        jobs = [{"host": a["host"], "did": a["did"], "to": b["did"], "rbt": amount,
-                 "memo": "QCAP-01 {} rung {}".format(label, n)} for a, b in ch.ring(senders[:n])]
-        s = ch.summarize(ch.burst(jobs), set_aside=NOT_THE_QUORUM)
-        counted = n - s["aside"]
-        tag = label if amount == 1.0 else "{} ({:.3f} each)".format(label, amount)
-        rows.append({"senders": n, "amount": amount, "ok": s["ok"], "failed": s["failed"],
-                     "not_counted": s["aside"], "p50": s["p50"], "p95": s["p95"],
-                     "max": s["max"], "reasons": s["reasons"]})
-        lines.append(_rung_line(tag, n, s))
-        print("    QCAP-01 " + _rung_line(tag, n, s))
-        if s["failed"] == 0 and counted > 0 and clean:
-            limit = n
-        else:
-            clean = False
-        if counted and 100.0 * s["ok"] / counted < ctx.args.ladder_stop:
-            stopped = " ({} stopped: under {:.0f}% went through at {})".format(
-                label, ctx.args.ladder_stop, n)
-            break
-        if i < len(rungs) - 1:
-            time.sleep(ctx.args.ladder_settle)
-    return limit, lines, rows, stopped
-
-
-def _said(limit, rungs):
-    if not limit:
-        return "not even {} at once in full".format(rungs[0])
-    return "{} at once in full{}".format(
-        limit, " (the top of the ladder - the real limit is higher)" if limit == rungs[-1] else "")
-
-
-def qcap_01(ctx, ci):
-    senders = ctx.senders
-    rungs = ch.ladder(ctx.args.quorum_ladder, len(senders))
-    if not rungs:
-        return SKIP, "not enough senders for the ladder", \
-            "the unit has {} senders; the ladder starts at {}".format(
-                len(senders), ctx.args.quorum_ladder.split(",")[0])
-    quorum = ctx.quorum_hosts[0]["host"] if ctx.quorum_hosts else "?"
-
-    whole, w_lines, w_rows, w_stop = _climb(ctx, senders, rungs, "whole", lambda: 1.0)
-    time.sleep(ctx.args.ladder_settle)
-    # One deliberately untidy amount per rung, the same for every sender.
-    frac, f_lines, f_rows, f_stop = _climb(ctx, senders, rungs, "fractional",
-                                           lambda: ch.rand_value(0.101, 0.899))
-
-    if whole:
-        ch.save_limit("quorum_senders", whole, {"quorum": quorum, "rungs": w_rows})
-    if frac:
-        ch.save_limit("quorum_senders_fractional", frac, {"quorum": quorum, "rungs": f_rows})
-    table = " | ".join(w_lines + f_lines) + w_stop + f_stop
-    actual = "one quorum signed whole-RBT transfers {}; fractional transfers {}".format(
-        _said(whole, rungs), _said(frac, rungs))
-    if not whole:
-        return False, actual, table
-    return True, actual, table
-
-
-# ---------------------------------------------------------------------------
-# QCAP-02 - the pledge boundary
-#
-# A quorum must pledge at least the transfer value (core/consensus/checks.go),
-# and it pledges EXACTLY the value by splitting its own tokens
-# (core/consensus/consensus.go). So a quorum holding H can sign a transfer of
-# any value up to H and no more: at H+one unit the initiator gets back
-# "insufficient quorum liquidity" (core/transaction.go:253/278).
-#
-# This measures where that line actually is. Each quorum is tested ONCE, with a
-# value derived from its OWN free holding read from the database - a pledge is
-# held until the receiver spends onward, so a quorum that has signed one
-# transfer cannot be reused for the next value. Five quorums, five offsets
-# around each one's holding: -0.1, -0.001, 0 (exactly), +0.001, +0.1.
-# ---------------------------------------------------------------------------
-
-QCAP2_OFFSETS = (-0.1, -0.001, 0.0, 0.001, 0.1)
+STEPS = {
+    "QCAP-01": [
+        ("S1", "Set-up check",
+         "Set the quorum up and fund it for the largest rung; point every sender's node at it "
+         "and read the lists back; take senders from machines other than the quorum's",
+         "the quorum is set up and answers; every sending node signs with it"),
+        ("S2", "Whole-RBT rung (one per rung)",
+         "n senders, one per node across the machines, send 1 RBT each at the same instant "
+         "through the one quorum - a ring, so each also receives one",
+         "all n accepted and each on its receiver's node; past the quorum's limit the rest "
+         "refused with a stated reason within 60s, nothing left Locked, no node restarted"),
+        ("S3", "Recovery after the whole-RBT ladder",
+         "one ordinary 1 RBT transfer through the same quorum",
+         "goes through in normal time - the quorum signs again"),
+        ("S4", "Fractional rung (one per rung)",
+         "the same senders all send one fractional amount at the same instant, so the quorum "
+         "splits its own tokens for every pledge at once",
+         "as S2; a refusal leaves no token Locked and the quorum's token_denom counter right"),
+        ("S5", "Recovery after the fractional ladder",
+         "one ordinary fractional transfer through the same quorum",
+         "goes through in normal time"),
+    ],
+    "QCAP-02": [
+        ("S1", "Set-up check",
+         "Set the five quorums up; give each sender a DID on its node holding no part token "
+         "(a fraction is then split from its own whole token), funded for the value",
+         "every quorum set up; every sender wired to its quorum and funded"),
+        ("S2", "Pay at the boundary (one quorum per offset)",
+         "read the quorum's Free holding H, then pay H-0.1, H-0.001, H, H+0.001 or H+0.1 "
+         "through it, one transfer",
+         "up to H: accepted, and the quorum's Pledged rises by exactly the value; over H: "
+         "refused for insufficient quorum liquidity within 60s, the quorum's Free and the "
+         "sender's wallet unchanged, nothing Locked"),
+    ],
+    "QCAP-03a": [
+        ("S1", "The quorum pledges",
+         "A pays B 20 RBT through Q", "accepted; Q's Pledged rises by 20"),
+        ("S2", "The quorum spends its free RBT",
+         "while the 20 are pledged, Q pays C 15 of its free RBT through a second quorum Q2",
+         "accepted and credited; the tokens Q pledged are untouched (same token_ids, still "
+         "Pledged)"),
+    ],
+    "QCAP-03b": [
+        ("S1", "Set-up check",
+         "Q and B play from DIDs on their nodes holding no whole token; Q is set up and given "
+         "exactly 20 RBT; A signs through Q, Q and B through Q2",
+         "set up and wired"),
+        ("S2", "The quorum pledges all it has",
+         "A pays B 20 RBT through Q", "accepted; B holds exactly the 20 tokens A paid"),
+        ("S3", "Spend what is pledged",
+         "Q tries to send 20 RBT while all of it is pledged",
+         "refused with a stated reason within 60s; the pledge intact, nothing Locked"),
+        ("S4", "Release by spending onward",
+         "B sends the 20 tokens A paid it on to C; then wait for Q's pledge to be released",
+         "accepted, B's paid tokens gone; Q's pledge released within 120s (a quorum releases "
+         "when a later transaction spends a token it pledged for, core/callback.go)"),
+        ("S5", "Spend a released whole token",
+         "Q sends 1 RBT - one of the whole tokens it had pledged",
+         "accepted by the product's own rule; the known ex-quorum bug (checks.go:308) refuses "
+         "it - counted apart, not as the step's result"),
+        ("S6", "Spend a split of a released token",
+         "Q sends 0.5 RBT, which splits a released whole token",
+         "accepted and credited"),
+    ],
+}
 
 
 def _free(host, did):
@@ -159,87 +142,183 @@ def _whole_wallet(entry):
     return None
 
 
+def _top_up(entry, amount, port):
+    """Set-up, not a test: make `entry` hold `amount` Free RBT."""
+    have = _free(entry["host"], entry["did"]) or 0.0
+    if have < amount:
+        rc.fund_did(entry["host"], entry["did"], amount - have, port)
+
+
+def _wire_all(hosts, quorum_did, port):
+    """Point every host at the quorum, then read every list back. (ok, why)."""
+    bad = []
+
+    def one(h):
+        rc.quorum_reset(h, [quorum_did], port)
+        return h, steps.wired(h, quorum_did, port)
+    for h, (ok, why) in ch.run_parallel(one, sorted(set(hosts)), workers=40):
+        if not ok:
+            bad.append(why)
+    return (not bad), ("{} node(s) do not sign with the step's quorum, e.g. {}".format(
+        len(bad), bad[0]) if bad else "")
+
+
+def _senders(ctx, q, n, port):
+    """Up to n senders: one per node on machines other than the quorum's, then -
+    for rungs above that - a second DID on the same nodes, each a DID that was
+    never a quorum, funded with 3 whole RBT."""
+    qm = ch.machine(q["host"])
+    first = [s for s in ctx.senders if ch.machine(s["host"]) != qm]
+    out = list(first[:n])
+    if len(out) < n:
+        for s in first:
+            for d in (s.get("dids") or []):
+                if len(out) >= n:
+                    break
+                if d == s["did"]:
+                    continue
+                try:
+                    if db.ex_pledged_free_value(s["host"], d) > 0:
+                        continue
+                except Exception:
+                    continue
+                e = dict(s, did=d)
+                _top_up(e, 3, port)
+                out.append(e)
+            if len(out) >= n:
+                break
+    return out
+
+
+def _climb(run, sid, rec_sid, q, senders, rungs, amount_of, port, label):
+    """One ladder. Climbs while every rung PASSes; stops at the first that does
+    not. Returns (highest rung in full, the stopping step or None)."""
+    limit, stop = 0, None
+    per_node = len(set(s["host"] for s in senders))
+    for n in rungs:
+        amount = amount_of()
+        group = senders[:n]
+        _top_up(q, n * amount + 5, port)
+        jobs = [{"host": a["host"], "did": a["did"], "to": b["did"], "rbt": amount,
+                 "memo": "QCAP-01 {} rung {}".format(label, n)} for a, b in ch.ring(group)]
+        st = run.step(sid, lambda st, jobs=jobs: st.add(ch.burst(jobs), jobs, set_aside=ch.ASIDE),
+                      nodes=group + [q],
+                      label="{} at once, {:.3f} RBT each{}".format(
+                          n, amount, " (2 DIDs on some nodes)" if n > per_node else ""),
+                      require=[lambda n=n, amount=amount: steps.holds(q, n * amount)])
+        if st.outcome == steps.PASS:
+            limit = n
+            time.sleep(ctx_settle(run))
+            continue
+        stop = st
+        break
+    a, b = senders[0], senders[1]
+    amount = amount_of()
+    run.step(rec_sid, lambda st: ch.send(st, a, b, rbt=amount, memo="QCAP-01 recovery"),
+             nodes=[a, b, q], required=False, must_accept=True)
+    return limit, stop
+
+
+def ctx_settle(run):
+    return getattr(run.ctx.args, "ladder_settle", 0) or 0
+
+
+def qcap_01(ctx, ci):
+    run = steps.CaseRun(ctx, "QCAP-01", STEPS["QCAP-01"])
+    if not ctx.quorum_hosts or len(ctx.senders) < 2:
+        return SKIP, "needs a quorum and senders", ""
+    q, port = ctx.quorum_hosts[0], ctx.port
+    rungs = ch.ladder(ctx.args.quorum_ladder, 2 * len(ctx.senders))
+    if not rungs:
+        return SKIP, "not enough senders for the ladder", ""
+    senders = _senders(ctx, q, rungs[-1], port)
+    rungs = [n for n in rungs if n <= len(senders)]
+
+    _top_up(q, rungs[-1] + 10, port)
+    s1 = run.step("S1", lambda st: None, nodes=[q],
+                  require=[lambda: steps.quorum_ready(q, rungs[-1], port),
+                           lambda: _wire_all([s["host"] for s in senders], q["did"], port)])
+    if s1.outcome == steps.NOT_RUN:
+        return run.verdict()
+
+    whole, w_stop = _climb(run, "S2", "S3", q, senders, rungs, lambda: 1.0, port, "whole")
+    frac, f_stop = _climb(run, "S4", "S5", q, senders, rungs, lambda: ch.rand_value(0.101, 0.899),
+                          port, "fractional")
+
+    def keep(key, value, stop):
+        # A limit is saved only when Rubix set it: a ladder stopped by a machine
+        # at a ceiling, or by the lab, says nothing about the quorum.
+        if stop is None or stop.outcome in (steps.LIMIT, steps.DAMAGE, steps.WRONG):
+            if value:
+                ch.save_limit(key, value, {"quorum": q["host"], "stopped_at": stop.sid if stop else "",
+                                           "outcome": stop.outcome if stop else "top of ladder"})
+    keep("quorum_senders", whole, w_stop)
+    keep("quorum_senders_fractional", frac, f_stop)
+
+    def said(n, stop):
+        if stop is None:
+            return "{} at once in full (the top of the ladder - the real limit is higher)".format(n)
+        return "{} at once in full, then {} at {}".format(n, stop.outcome, stop.sid)
+    return run.verdict(passed="one quorum signed whole-RBT transfers {}; fractional {}".format(
+        said(whole, w_stop), said(frac, f_stop)), limit="the quorum's limit, met gently")
+
+
 def qcap_02(ctx, ci):
+    run = steps.CaseRun(ctx, "QCAP-02", STEPS["QCAP-02"])
+    offsets = (-0.1, -0.001, 0.0, 0.001, 0.1)
     quorums, senders, recv = ctx.quorum_hosts, ctx.senders, ctx.receivers
-    n = min(len(quorums), len(senders), len(recv), len(QCAP2_OFFSETS))
+    n = min(len(quorums), len(senders), len(recv), len(offsets))
     if n < 1:
         return SKIP, "needs a quorum, a sender and a receiver on different nodes", ""
+    port = ctx.port
+    payers = [(_whole_wallet(s) or s) for s in senders[:n]]
 
-    lines, problems, boundary_ok = [], [], 0
+    def setup(st):
+        for i in range(n):
+            ok, msg = rc.quorum_setup(quorums[i]["host"], quorums[i]["did"], port)
+            st.check(ok, "quorum {} set up: {}".format(steps._short(quorums[i]["host"]), msg))
+    s1 = run.step("S1", setup, nodes=quorums[:n], watch=False,
+                  require=[lambda i=i: steps.wired(payers[i]["host"], quorums[i]["did"], port)
+                           for i in range(n)])
+    if s1.outcome != steps.PASS:
+        return run.verdict()
+
     for i in range(n):
-        q, s, r = quorums[i], senders[i], recv[i]
-        offset = QCAP2_OFFSETS[i]
+        q, s, r, offset = quorums[i], payers[i], recv[i], offsets[i]
         held = _free(q["host"], q["did"])
         if held is None:
-            problems.append("could not read quorum {}'s holding".format(q["host"].split(".")[-1]))
             continue
         value = round(held + offset, 3)
         if value <= 0:
-            lines.append("holding {:.3f}, offset {:+.3f}: value not positive, skipped".format(
-                held, offset))
             continue
-        # The quorums can hold more than quorum_fund (a poorest DID may already
-        # be rich), so the unit's flat `fund` left the two rungs above the
-        # holding unfunded on 2026-10-22. Fund the sender for THIS value.
-        s = _whole_wallet(s) or s
-        sender_free = _free(s["host"], s["did"]) or 0.0
-        if sender_free < value + 1.0:
-            ok, msg = rc.fund_did(s["host"], s["did"], value + 2.0 - sender_free, ctx.port)
-            sender_free = _free(s["host"], s["did"]) or 0.0
-        if sender_free < value + 0.1:
-            lines.append("holding {:.3f}, value {:.3f}: sender holds only {:.3f}, skipped".format(
-                held, value, sender_free))
-            continue
-        # The sender's node already points at this quorum (prepare_unit). Fire
-        # one transfer of `value` and see whether the quorum will pledge it.
-        ok, msg, _r = rc.initiate_transaction(s["host"], s["did"], r["did"], rbt=value,
-                                              memo="QCAP-02 boundary", timeout=ch.TRANSFER_TIMEOUT)
-        reason = ch.node_reason(msg)
-        should_pass = value <= held + 1e-9
-        liquidity = "insufficient quorum liquidity" in reason
-        known = (not ok) and any(k in reason for k in ch.SENDERS_OWN_TOKENS + ch.CLOCK_AHEAD)
-        verdict = "went through" if ok else ("refused (liquidity)" if liquidity
-                                             else "refused: " + reason)
-        lines.append("holding {:.3f}, value {:.3f} ({:+.3f}): {}".format(held, value, offset, verdict))
-        # The boundary holds when value<=holding goes through and value>holding
-        # is refused for liquidity (not for some other reason).
-        if known:
-            lines[-1] += " - not measured: a known bug on the sender's side, not the boundary"
-        elif should_pass and ok:
-            boundary_ok += 1
-        elif (not should_pass) and liquidity:
-            boundary_ok += 1
-        elif should_pass and not ok:
-            problems.append("value {:.3f} <= holding {:.3f} was refused: {}".format(
-                value, held, reason))
-        elif (not should_pass) and ok:
-            problems.append("value {:.3f} > holding {:.3f} went through - the quorum pledged "
-                            "more than it holds".format(value, held))
-        elif not should_pass and not liquidity:
-            problems.append("value {:.3f} > holding {:.3f} refused, but not for liquidity: "
-                            "{}".format(value, held, reason))
-    note = "{} quorum(s) at the boundary | {}".format(n, " | ".join(lines))
-    if problems:
-        return False, "; ".join(problems[:3]), note
-    if not boundary_ok:
-        return SKIP, "no quorum could be measured (sender funding or reads)", note
-    return True, "the pledge boundary is exactly the quorum's holding on {} quorum(s)".format(
-        boundary_ok), note
+        over = value > held + 1e-9
+        _top_up(s, value + 2.0, port)
 
-
-# ---------------------------------------------------------------------------
-# QCAP-03 - a quorum spending its own RBT
-#
-# A quorum's pledged tokens are held until the receiver spends onward
-# (core/callback.go). These two cases check what the quorum can do with the
-# REST of its wallet in the meantime. Both wire their own quorums (A pays
-# through Q; Q pays through a second quorum Q2), because the runner points every
-# node at ONE quorum and here Q is both a signer and a sender.
-# ---------------------------------------------------------------------------
-
-def _wire(host, quorum_did, port):
-    ok, msg = rc.quorum_reset(host, [quorum_did], port)
-    return ok, msg
+        def body(st, q=q, s=s, r=r, value=value, over=over):
+            free0, pledged0 = _free(q["host"], q["did"]), db.pledged_value(q["host"], q["did"])
+            ok, msg, _r = ch.send(st, s, r, rbt=value, memo="QCAP-02 boundary")
+            reason = steps.node_reason(msg)
+            if ok and not over:
+                got = 0.0
+                for _ in range(10):
+                    got = db.pledged_value(q["host"], q["did"]) - pledged0
+                    if got >= value - steps.TOL:
+                        break
+                    time.sleep(1)
+                st.check(abs(got - value) <= 0.002, "the quorum pledged {:.3f} for a {:.3f} transfer "
+                         "- it should pledge exactly the value".format(got, value))
+            if not ok and over and not st.ops[-1]["aside"]:
+                st.check("insufficient quorum liquidity" in reason,
+                         "refused, but not for quorum liquidity: " + reason[:160])
+                time.sleep(2)
+                free1 = _free(q["host"], q["did"])
+                st.check(free0 is None or free1 is None or abs(free1 - free0) <= steps.TOL,
+                         "the quorum's Free moved {:+.3f} on a refusal".format((free1 or 0) - (free0 or 0)))
+        run.step("S2", body, nodes=[q, s, r], expect_refusal=over, must_accept=not over,
+                 label="holding {:.3f}, value {:.3f} ({:+.3f})".format(held, value, offset),
+                 require=[lambda s=s, value=value: steps.holds(s, value + 0.1)])
+    return run.verdict(passed="the pledge boundary is the quorum's Free holding",
+                       limit="a boundary refused gently")
 
 
 def _as_quorum(entry, floor, port):
@@ -247,61 +326,47 @@ def _as_quorum(entry, floor, port):
     ok, msg = rc.quorum_setup(entry["host"], entry["did"], port)
     if not ok:
         return False, "quorum setup failed: " + str(msg)
-    have = _free(entry["host"], entry["did"]) or 0.0
-    if have < floor:
-        ok, msg = rc.fund_did(entry["host"], entry["did"], floor - have, port)
-        if not ok:
-            return False, "funding failed: " + str(msg)
+    _top_up(entry, floor, port)
     return True, ""
 
 
 def qcap_03a(ctx, ci):
+    run = steps.CaseRun(ctx, "QCAP-03a", STEPS["QCAP-03a"])
     if len(ctx.senders) < 5:
         return SKIP, "needs five nodes (A, B, C, Q, Q2)", ""
     A, B, C, Q, Q2 = ctx.senders[:5]
     port, V, W = ctx.port, 20.0, 15.0
+    ready = [lambda: _as_quorum(Q, 100, port), lambda: _as_quorum(Q2, 100, port),
+             lambda: (rc.quorum_reset(A["host"], [Q["did"]], port)[0], "A not wired"),
+             lambda: (rc.quorum_reset(Q["host"], [Q2["did"]], port)[0], "Q not wired"),
+             lambda: steps.wired(A["host"], Q["did"], port),
+             lambda: steps.wired(Q["host"], Q2["did"], port)]
+    held = {}
 
-    for q in (Q, Q2):
-        ok, why = _as_quorum(q, 100, port)
-        if not ok:
-            return SKIP, "could not set up quorum {}: {}".format(q["host"].split(".")[-1], why), ""
-    for host, qdid in ((A["host"], Q["did"]), (Q["host"], Q2["did"])):
-        ok, msg = _wire(host, qdid, port)
-        if not ok:
-            return SKIP, "could not wire quorum: " + str(msg), ""
+    def pledge(st):
+        p0 = db.pledged_value(Q["host"], Q["did"])
+        ch.send(st, A, B, rbt=V, memo="QCAP-03a A->B")
+        time.sleep(ch.SETTLE)
+        held["ids"] = set(t for t, _v, _s, _p in db.token_rows(Q["host"], Q["did"], status=db.PLEDGED))
+        got = db.pledged_value(Q["host"], Q["did"]) - p0
+        st.check(abs(got - V) <= 0.002, "Q's Pledged rose by {:.3f}, not {:.3f}".format(got, V))
+    s1 = run.step("S1", pledge, nodes=[A, B, Q], require=ready, must_accept=True)
+    if s1.outcome != steps.PASS:
+        return run.verdict()
 
-    # A pays B through Q: Q pledges V.
-    ok, msg, _r = rc.initiate_transaction(A["host"], A["did"], B["did"], rbt=V,
-                                          memo="QCAP-03a A->B", timeout=ch.TRANSFER_TIMEOUT)
-    if not ok:
-        return SKIP, "the A->B transfer that makes Q pledge did not go through: {}".format(
-            ch.node_reason(msg)), ""
-    pledged_ids = set(t for t, _v, _st, _p in db.token_rows(Q["host"], Q["did"], status=db.PLEDGED))
-    pledged_before = db.pledged_value(Q["host"], Q["did"])
-
-    # Q pays C through Q2 while V is pledged: must use Q's FREE tokens.
-    ok, msg, _r = rc.initiate_transaction(Q["host"], Q["did"], C["did"], rbt=W,
-                                          memo="QCAP-03a Q->C", timeout=ch.TRANSFER_TIMEOUT)
-    if not ok:
-        return False, "the quorum could not spend its own free RBT while a pledge was " \
-            "outstanding: {}".format(ch.node_reason(msg)), \
-            "Q held a pledge of {:.3f} and tried to send {:.3f} of its free RBT".format(
-                pledged_before, W)
-    time.sleep(ch.SETTLE)
-    still = set(t for t, _v, _st, _p in db.token_rows(Q["host"], Q["did"], status=db.PLEDGED))
-    touched = pledged_ids - still
-    credited, _c = rc.wait_for_balance(C["host"], C["did"], W - ch.TOL, port, attempts=20)
-    note = "Q pledged {:.3f} (tokens {}), then sent {:.3f} of its free RBT".format(
-        pledged_before, len(pledged_ids), W)
-    if touched:
-        return False, "the quorum spent {} token(s) it had pledged".format(len(touched)), note
-    if not credited:
-        return False, "the receiver was never credited the quorum's {:.3f}".format(W), note
-    return True, "a quorum spent its free RBT without touching the {:.3f} it had pledged".format(
-        pledged_before), note
+    def spend(st):
+        ch.send(st, Q, C, rbt=W, memo="QCAP-03a Q->C")
+        time.sleep(ch.SETTLE)
+        still = set(t for t, _v, _s, _p in db.token_rows(Q["host"], Q["did"], status=db.PLEDGED))
+        touched = held["ids"] - still
+        st.check(not touched, "Q spent {} token(s) it had pledged".format(len(touched)))
+    run.step("S2", spend, nodes=[Q, C, Q2], must_accept=True)
+    return run.verdict(passed="a quorum spent its free RBT without touching the {:.0f} it had "
+                              "pledged".format(V))
 
 
 def qcap_03b(ctx, ci):
+    run = steps.CaseRun(ctx, "QCAP-03b", STEPS["QCAP-03b"])
     if len(ctx.senders) < 5:
         return SKIP, "needs five nodes (A, B, C, Q, Q2)", ""
     A, B, C, Q, Q2 = ctx.senders[:5]
@@ -309,137 +374,98 @@ def qcap_03b(ctx, ci):
     # The pledge is released when a LATER transaction spends a token of the
     # pledged one (core/callback.go). B's onward send takes its lowest whole
     # token_ids first (core/wallet/token_lock.go), so a B that already holds
-    # tokens spends its own older ones and Q's pledge is never touched - which
-    # is what "not released" meant on 2026-10-22. B must hold no whole token
-    # before A pays it: a DID on B's node that holds none. Q likewise plays
-    # from an empty DID funded with exactly V, so pledging V leaves it nothing
-    # to send - draining a full Q instead pushed its whole wallet through Q2,
-    # whose pledges for that (held until C spends onward) left Q2 short for
-    # B's spend.
+    # tokens spends its own older ones and Q's pledge is never touched. B and Q
+    # play from DIDs holding no whole token; Q is given exactly V.
     B = ch.empty_did(B, whole_only=True)
     Q = ch.empty_did(Q, whole_only=True)
     if B is None or Q is None:
         return SKIP, "no DID on {}'s node is free of whole tokens - the case follows the exact " \
             "tokens pledged and paid".format("B" if B is None else "Q"), ""
+    state = {}
 
-    ok, why = _as_quorum(Q2, 100, port)
-    if not ok:
-        return SKIP, "could not set up quorum {}: {}".format(Q2["host"].split(".")[-1], why), ""
-    ok, msg = rc.quorum_setup(Q["host"], Q["did"], port)
-    if not ok:
-        return SKIP, "could not set up quorum {}: {}".format(Q["host"].split(".")[-1], msg), ""
-    for host, qdid in ((A["host"], Q["did"]), (Q["host"], Q2["did"]), (B["host"], Q2["did"])):
-        ok, msg = _wire(host, qdid, port)
-        if not ok:
-            return SKIP, "could not wire quorum: " + str(msg), ""
-    ok, msg = rc.fund_did(Q["host"], Q["did"], V, port)
-    if not ok:
-        return SKIP, "could not fund Q to the pledge amount: " + str(msg), ""
+    def setup(st):
+        ok, msg = rc.quorum_setup(Q["host"], Q["did"], port)
+        st.check(ok, "Q set up: {}".format(msg))
+        for host, qdid in ((A["host"], Q["did"]), (Q["host"], Q2["did"]), (B["host"], Q2["did"])):
+            rc.quorum_reset(host, [qdid], port)
+        ok, msg = rc.fund_did(Q["host"], Q["did"], V, port)
+        st.check(ok, "Q funded with {:.0f}: {}".format(V, msg))
+    s1 = run.step("S1", setup, nodes=[Q], watch=False,
+                  require=[lambda: _as_quorum(Q2, 100, port)])
+    if s1.outcome != steps.PASS or not all(steps.wired(h, d, port)[0] for h, d in (
+            (A["host"], Q["did"]), (Q["host"], Q2["did"]), (B["host"], Q2["did"]))):
+        return run.verdict()
 
-    # A pays B through Q: Q pledges ~all of its V.
-    ok, msg, _r = rc.initiate_transaction(A["host"], A["did"], B["did"], rbt=V,
-                                          memo="QCAP-03b A->B", timeout=ch.TRANSFER_TIMEOUT)
-    if not ok:
-        return SKIP, "the A->B transfer that makes Q pledge did not go through: {}".format(
-            ch.node_reason(msg)), ""
-    time.sleep(ch.SETTLE)
-    steps = []
-    # The tokens A paid B - the ones B must spend onward to release Q.
-    paid = set()
-    for _ in range(20):
-        paid = set(ch.whole_free(B["host"], B["did"]))
-        if len(paid) >= int(V):
-            break
-        time.sleep(2)
-    if len(paid) < int(V):
-        return SKIP, "B never showed the {:.0f} whole tokens A paid it ({} arrived)".format(
-            V, len(paid)), ""
-
-    # 1. Q tries to send V while its value is pledged - should be refused.
-    ok, msg, _r = rc.initiate_transaction(Q["host"], Q["did"], C["did"], rbt=V,
-                                          memo="QCAP-03b pledged send", timeout=ch.TRANSFER_TIMEOUT)
-    steps.append("while pledged: " + ("WENT THROUGH (unexpected)" if ok else "refused, as it should be"))
-    refused_while_pledged = not ok
-
-    # 2. B spends the token onward to C - this releases Q's pledge. Time it.
-    ok, msg, _r = rc.initiate_transaction(B["host"], B["did"], C["did"], rbt=V,
-                                          memo="QCAP-03b release", timeout=ch.TRANSFER_TIMEOUT)
-    released, wait_s = False, None
-    onward_ok, onward_why = ok, ch.node_reason(msg)
-    if ok:
-        time.sleep(2)
-    still_held = paid & set(ch.whole_free(B["host"], B["did"])) if ok else paid
-    if ok and not still_held:
-        t0 = time.time()
-        for _ in range(60):
-            if db.pledged_value(Q["host"], Q["did"]) < V - ch.TOL:
-                released, wait_s = True, round(time.time() - t0, 1)
+    def pledge(st):
+        ok, _m, _r = ch.send(st, A, B, rbt=V, memo="QCAP-03b A->B")
+        paid = set()
+        for _ in range(20):
+            paid = set(ch.whole_free(B["host"], B["did"]))
+            if len(paid) >= int(V):
                 break
             time.sleep(2)
-    if not onward_ok:
-        steps.append("B's onward spend was refused: " + onward_why)
-    elif still_held:
-        steps.append("B's onward spend did not move the {} token(s) A paid it".format(len(still_held)))
-    else:
-        steps.append("pledge released {}".format(
-            "after {:.0f}s".format(wait_s) if released else "NOT within 120s"))
+        state["paid"] = paid
+        if ok:
+            st.check(len(paid) == int(V), "B holds {} whole tokens, not the {:.0f} A paid".format(
+                len(paid), V))
+    s2 = run.step("S2", pledge, nodes=[A, B, Q], must_accept=True)
+    if s2.outcome != steps.PASS:
+        return run.verdict()
 
-    # 3. After release Q's tokens are Free but their last chain role is
-    #    "unpledge". A whole-RBT send hits the ex-quorum bug (checks.go:308); a
-    #    sub-1 send splits and bypasses it (CLAUDE.md known bug).
-    whole = split = None
-    if released:
-        time.sleep(ch.SETTLE)
-        ok, msg, _r = rc.initiate_transaction(Q["host"], Q["did"], C["did"], rbt=1.0,
-                                              memo="QCAP-03b whole after release",
-                                              timeout=ch.TRANSFER_TIMEOUT)
-        whole = (ok, ch.node_reason(msg))
-        steps.append("whole-RBT send after release: " + ("went through" if ok
-                     else "refused: " + whole[1]))
-        ok, msg, _r = rc.initiate_transaction(Q["host"], Q["did"], C["did"], rbt=0.5,
-                                              memo="QCAP-03b split after release",
-                                              timeout=ch.TRANSFER_TIMEOUT)
-        split = (ok, ch.node_reason(msg))
-        steps.append("fractional send after release: " + ("went through" if ok
-                     else "refused: " + split[1]))
+    def spend_pledged(st):
+        p0 = db.pledged_value(Q["host"], Q["did"])
+        ch.send(st, Q, C, rbt=V, memo="QCAP-03b pledged send")
+        st.check(db.pledged_value(Q["host"], Q["did"]) >= p0 - steps.TOL,
+                 "Q's pledge shrank when it tried to spend it")
+    run.step("S3", spend_pledged, nodes=[Q, C, Q2], expect_refusal=True)
 
-    note = " | ".join(steps)
-    # The case is about describing the behaviour, not a single pass/fail: it
-    # confirms the refuse-while-pledged rule and records the release time and
-    # the known ex-quorum bug after release.
-    if not refused_while_pledged:
-        return False, "a quorum sent RBT whose value it had entirely pledged", note
-    if not onward_ok or still_held:
-        return SKIP, "the release could not be tested: " + steps[-1], note
-    if not released:
-        # A node with several quorum DIDs set up checks only one of them, picked
-        # by Go map order, when a later transaction arrives (core/fullnode.go:69,
-        # CheckTxnsPresentInUnpledgeSequenceInfo filters on quorum_did,
-        # core/wallet/pledge.go:497) - and quorums set up in earlier cases stay
-        # set up on their nodes until a restart.
-        return False, "the pledge was not released after the receiver spent the pledged tokens " \
-            "onward (if Q's node has other quorum DIDs set up, the release checks one of them " \
-            "at random - core/fullnode.go:69)", note
-    def outcome(r):
-        return "went through" if r and r[0] else "refused ({})".format(r[1][:80] if r else "not tried")
-    return True, "pledged RBT is unspendable until released ({:.0f}s); after the release a " \
-        "whole-RBT send {} and a fractional send {}".format(
-            wait_s or 0, outcome(whole), outcome(split)), note
+    def release(st):
+        ok, _m, _r = ch.send(st, B, C, rbt=V, memo="QCAP-03b release")
+        if not ok:
+            return
+        time.sleep(2)
+        left = state["paid"] & set(ch.whole_free(B["host"], B["did"]))
+        if left:
+            st.skip("B's onward send did not move the {} token(s) A paid it, so it cannot release "
+                    "Q's pledge".format(len(left)))
+            return
+        t0, released = time.time(), False
+        for _ in range(60):
+            if db.pledged_value(Q["host"], Q["did"]) < V - steps.TOL:
+                released = True
+                break
+            time.sleep(2)
+        state["released"] = released
+        st.data["release_seconds"] = round(time.time() - t0, 1) if released else None
+        st.check(released, "Q's pledge was not released within 120s of the onward spend (if Q's "
+                           "node has other quorum DIDs set up, the release checks one of them at "
+                           "random - core/fullnode.go:69)")
+        if released:
+            st.note("released after {:.0f}s".format(time.time() - t0))
+    run.step("S4", release, nodes=[B, C, Q, Q2], must_accept=True)
+    if not state.get("released"):
+        return run.verdict()
+
+    run.step("S5", lambda st: ch.send(st, Q, C, rbt=1.0, memo="QCAP-03b whole after release"),
+             nodes=[Q, C], must_accept=True)
+    run.step("S6", lambda st: ch.send(st, Q, C, rbt=0.5, memo="QCAP-03b split after release"),
+             nodes=[Q, C], must_accept=True)
+    return run.verdict(passed="pledged RBT is unspendable until released, and released once the "
+                              "receiver spends onward")
 
 
 CASES = {"QCAP-01": qcap_01, "QCAP-02": qcap_02, "QCAP-03a": qcap_03a, "QCAP-03b": qcap_03b}
 ORDER = ["QCAP-01", "QCAP-02", "QCAP-03a", "QCAP-03b"]
 NEEDS = {
     # Ring: every sender pays the next, so it also receives - no receivers of
-    # its own. The quorum is funded for every pledge of both ladders at once
-    # (about 1,700 RBT on the default ladder) in case none is released between
-    # rungs: a pledge is held until the receiver spends that token onward.
+    # its own. The case tops the quorum up before each rung for what the rung
+    # can pledge (a pledge is held until the receiver spends that token onward).
     "QCAP-01": {"senders": QCAP_SENDERS, "receivers": 0, "quorums": 1, "fund": 3,
-                "quorum_fund": 2000, "exclusive": True},
+                "quorum_fund": 500, "exclusive": True},
     # Five quorums, each topped to ~123 whole from the faucet (poorest DIDs, so
-    # the floor sets the holding rather than a big prior balance); senders hold
-    # enough to cover a value just over that.
-    "QCAP-02": {"senders": 5, "receivers": 5, "quorums": 5, "fund": 135,
+    # the floor sets the holding rather than a big prior balance); the case
+    # funds each sender for the value it pays.
+    "QCAP-02": {"senders": 5, "receivers": 5, "quorums": 5, "fund": 5,
                 "quorum_fund": 123, "quorum_pick": "poorest"},
     # Five nodes the case wires itself (A, B, C, Q, Q2); no runner quorum.
     "QCAP-03a": {"senders": 5, "receivers": 0, "quorums": 0, "fund": 60},
