@@ -2,10 +2,17 @@
 # Rubix lab - this machine's nodes at a glance, and each node's live log.
 #
 # Starts on a status table: every node's service, API, DIDs, peers, log size
-# and last log line, refreshed every 5 seconds. Keys (they work at any time):
+# and last log line, refreshed every 5 seconds. While a test run uses one of
+# this machine's nodes, it follows that node's live log by itself - the first
+# of them, when the run uses several here - and goes back to the table when
+# the run is done with them. (The controller says which in nodes/in-test, a
+# line "slot role unit" per node in use: controller/test-plan/full-test/
+# node_screens.py.) Keys (they work at any time; a key takes the console out
+# of that for 5 minutes, or until "a"):
 #   0-8   follow that node's live log
 #   j     the same node's service events (journalctl: starts, crashes, restarts)
 #   s     back to the status table
+#   a     back to following what the test uses
 #   q     leave - the nodes keep running (they are services, not this window)
 #
 # It opens by itself on the machine's screen at login (--install writes the
@@ -22,6 +29,9 @@ set -uo pipefail
 LAB="$HOME/Desktop/rubix/rubix-lab"
 NODES="$LAB/nodes"
 SELF="$LAB/systems/console/rubix-console.sh"
+IN_TEST="$NODES/in-test"
+STALE=600            # an in-test older than this is left by a run that died
+HAND=300             # seconds a key keeps the console in the viewer's hands
 
 if [ "${1:-}" = "--install" ]; then
   entry="[Desktop Entry]
@@ -126,36 +136,78 @@ FOLLOW=""
 stop_follow() {
   if [ -n "$FOLLOW" ]; then kill "$FOLLOW" 2>/dev/null; wait "$FOLLOW" 2>/dev/null; FOLLOW=""; fi
 }
-follow() {   # $1 = slot, $2 = log | journal
+follow() {   # $1 = slot, $2 = log | journal, $3 = why it is shown (optional)
   local api=$((20000 + ${INDEX[$1]}))
   stop_follow; clear_screen
   if [ "$2" = "journal" ]; then
-    printf '%s== node %s (port %s): service events ==   0-8 node log  s status  q leave%s\n' "$GREEN" "$1" "$api" "$OFF"
+    printf '%s== node %s (port %s): service events ==   0-8 node log  s status  a test  q leave%s\n' "$GREEN" "$1" "$api" "$OFF"
     journalctl -u "rubixgoplatform@$1" -n 30 -f --no-pager &
   else
-    printf '%s== node %s (port %s): live log ==   0-8 other node  j service events  s status  q leave%s\n' "$GREEN" "$1" "$api" "$OFF"
+    printf '%s== node %s (port %s): live log ==   0-8 other node  j service events  s status  a test  q leave%s\n' "$GREEN" "$1" "$api" "$OFF"
+    [ -n "${3:-}" ] && printf '%s%s%s\n' "$DIM" "$3" "$OFF"
     tail -n 40 -F "$NODES/node$1/log.txt" 2>&1 &
   fi
   FOLLOW=$!
 }
+
+in_test() {   # the "slot role unit" lines of the nodes a test run uses now
+  local age
+  [ -f "$IN_TEST" ] || return 0
+  age=$(( $(date +%s) - $(stat -c %Y "$IN_TEST" 2>/dev/null || echo 0) ))
+  [ "$age" -le "$STALE" ] && cat "$IN_TEST" 2>/dev/null
+  return 0
+}
+
+# Follow the node the test uses: the one already followed while it is still in
+# use, else the first listed. None in use: back to the table.
+AUTO=""
+auto_follow() {
+  local s role unit first="" keep="" slots=()
+  while read -r s role unit; do
+    case "$s" in ''|*[!0-9]*) continue ;; esac
+    [ -n "${INDEX[$s]+set}" ] || continue
+    slots+=("$s")
+    [ -z "$first" ] && first="$s $role $unit"
+    [ "$s $role $unit" = "$AUTO" ] && keep="$AUTO"
+  done <<<"$(in_test)"
+  local want="${keep:-$first}"
+  if [ -z "$want" ]; then
+    if [ -n "$AUTO" ] || [ "$MODE" != "status" ]; then
+      AUTO=""; stop_follow; MODE="status"; show_status; tick=0
+    fi
+    return
+  fi
+  [ "$want" = "$AUTO" ] && return
+  AUTO="$want"
+  set -- $want
+  local others=() o
+  for o in "${slots[@]}"; do [ "$o" = "$1" ] || others+=("$o"); done
+  CUR="$1"; MODE="log"
+  follow "$1" log "The test is using this node: $2, ${*:3}.${others[*]:+  Also in use here: nodes ${others[*]}.}"
+}
 show_status() {
   clear_screen
   status_table
-  printf '\n%sKeys: 0-8 follow a node'"'"'s log   j its service events   s this table   q leave (the nodes keep running)%s\n' "$DIM" "$OFF"
+  printf '\n%sKeys: 0-8 follow a node'"'"'s log   j its service events   s this table   a follow the test   q leave (the nodes keep running)%s\n' "$DIM" "$OFF"
+  printf '%sWhile a test uses a node here, its live log shows by itself.%s\n' "$DIM" "$OFF"
 }
 
 trap 'stop_follow; printf "%s\n" "$OFF"; exit 0' INT TERM HUP
-MODE="status"; CUR="${SLOTS[0]}"; tick=0
+MODE="status"; CUR="${SLOTS[0]}"; tick=0; HAND_UNTIL=0
 show_status
 while true; do
   if read -rsn1 -t 1 key; then
+    # A key puts the viewer in charge for HAND seconds; "a" hands back now.
+    AUTO=""; HAND_UNTIL=$(( $(date +%s) + HAND ))
     case "$key" in
       [0-9]) if [ -n "${INDEX[$key]+set}" ]; then CUR="$key"; MODE="log"; follow "$CUR" log; fi ;;
       j|J) MODE="journal"; follow "$CUR" journal ;;
       s|S) stop_follow; MODE="status"; show_status; tick=0 ;;
+      a|A) HAND_UNTIL=0 ;;
       q|Q) stop_follow; exit 0 ;;
     esac
   fi
+  [ "$(date +%s)" -ge "$HAND_UNTIL" ] && auto_follow
   if [ "$MODE" = "status" ]; then
     tick=$((tick + 1))
     [ "$tick" -ge 5 ] && { show_status; tick=0; }

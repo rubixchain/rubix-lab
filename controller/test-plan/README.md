@@ -57,6 +57,7 @@ next, each sized by what QCAP-01 measured.
 | `master/steps.py` | A case as defined steps: preconditions, the checks after each step, the outcome rules |
 | `master/case_book.py` → `master/CASE-BOOK.md` | Every case and its steps, from the modules' `PURPOSE` and `STEPS` |
 | `full-test/fleet_health.py` | Over SSH: machine CPU / memory / disk / restarts while a step runs; nodes that cannot receive |
+| `full-test/node_screens.py` | Over SSH: tells each machine's node console which of its nodes the run is using, so its screen shows that node's live log (`systems/console/rubix-console.sh`) |
 | `full-test/test_runner.py` | Runs the suite: picks participants per case, prepares them, runs, reports |
 | `full-test/rubix_client.py` | API client, including faucet funding |
 | `custom/unpledged_spend.py` | A separate probe for the ex-quorum spend bug |

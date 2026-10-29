@@ -106,7 +106,8 @@ python3 check-nodes.py                      # one row per node
 ./restart-nodes.sh --host <ip> --slot 3     # one node (add --force to bounce a running one)
 cd exec-update && ./update-exec.sh <branch> --all --include-fixed   # deploy a build everywhere
 
-Node console - one machine's nodes, keys 0-8 switch live logs, s status, q back:
+Node console - one machine's nodes, keys 0-8 switch live logs, s status, q back.
+While a test run uses a node, the screen shows that node's log by itself (a back to that):
 ./fleet-console.sh                                 # pick a machine from the list
 ./install-console.sh --include-fixed --close-old   # put it on the machines (once, no sudo)
 

@@ -51,6 +51,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import node_screens
 import rubix_client as rc
 import run_lock
 import test_runner as tr
@@ -146,6 +147,16 @@ def assign_roles(ready, quorum_count, port=None, pairs=None):
             quorum_count + 2, quorum_count, len(ready)))
     quorum_hosts = ready[:quorum_count]
     rest = ready[quorum_count:]
+    if port is not None:
+        # A DID that was a quorum holds tokens whose last chain role is
+        # "unpledge", and core refuses to let it spend them ("failed to get
+        # quorum DID for token ...", core/consensus/checks.go:309 - still on
+        # vaishnav/custom-testnet). Quorums are funded high, so "richest sends"
+        # picked exactly those: senders 4, 5 and 7 on 2026-10-29. Clean DIDs
+        # first (a stable sort, so they stay spread over the machines), the
+        # way test_runner.allocate() picks.
+        taint = tr._ex_pledged(rest)
+        rest = sorted(rest, key=lambda e: taint.get(e["did"], 0.0) > 0)
     if pairs:
         rest = rest[:2 * pairs]
 
@@ -282,6 +293,9 @@ def main():
     write_roles_file(ROLES_PATH, quorum_hosts, senders, receivers)
     print("Quorum: {}  Senders: {}  Receivers: {}".format(
         len(quorum_hosts), len(senders), len(receivers)))
+    # Each machine's screen follows the node the smoke test uses (node_screens.py).
+    node_screens.begin()
+    node_screens.use("smoke test", quorum_hosts, senders, receivers)
 
     print("\n== Common: quorum setup + funding ==")
     setup_quorums(quorum_hosts, args, report)
@@ -298,6 +312,7 @@ def main():
     ctx = SmokeContext(args.port, quorum_hosts, senders, receivers, sender_quorum, args)
     for case_fn in TEST_CASES:
         case_fn(ctx, report)
+    node_screens.end()
 
     print()
     report.save(rc.new_report_path("smoke_test"))

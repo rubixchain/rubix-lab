@@ -67,6 +67,7 @@ import db_client as db
 import case_evidence
 import fleet as fleet_inventory
 import report_builder
+import node_screens
 import run_events
 import run_lock
 
@@ -596,6 +597,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
 
     def run_one(unit):
         run_events.unit_started(unit)
+        node_screens.take(unit)
         try:
             sender_quorum = prepare_unit(unit, args) if unit.needs_nodes else {}
         except Exception as e:
@@ -727,6 +729,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                 if exc:
                     skip_all(unit, "runner error", "{}: {}".format(type(exc).__name__, exc))
                 run_events.unit_done(unit, exc)
+                node_screens.give(unit)
 
 
 # ---------------------------------------------------------------------------
@@ -1198,8 +1201,11 @@ def main():
     started = time.time()
     started_at = datetime.datetime.now()
     NO_DELAY_RERUN.update(getattr(module, "NO_DELAY_RERUN", None) or ())
+    # Each machine's screen follows the node the run is using (node_screens.py).
+    node_screens.begin()
     run_units(units, pool_nodes, fleet, module.CASES, master, case_info, args)
     duration = time.time() - started
+    node_screens.end()
 
     report = CatalogueReport()
     by_id = {}
