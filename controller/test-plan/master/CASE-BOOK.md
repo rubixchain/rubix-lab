@@ -214,7 +214,7 @@ What a transfer, and the fleet around it, are left with when the sender, the quo
 
 | Step | What the lab does | What Rubix must do |
 |---|---|---|
-| **S1** Set-up check | pick A (sender), B (receiver) and Q (quorum) on three machines with nine nodes each; set Q up and fund it; point A and B at Q | Q set up and funded; A and B sign with Q |
+| **S1** Set-up check | pick A (sender, a DID holding no token it pledged as a quorum earlier), B (receiver) and Q (quorum) on three machines with nine nodes each; set Q up and fund it; point A and B at Q | Q set up and funded; A and B sign with Q |
 | **S2** Kill the sender right after it starts | A sends 1 RBT to B; A's unit is stopped on its log line 'Starting transaction', then started again | the transfer either goes through - and reaches B once B is up - or is refused with a stated reason within 120s; afterwards value conserved across A, B and Q, nothing Locked, the machine's other nodes still answering and able to receive, and an ordinary transfer goes through again |
 | **S3** Kill the sender right after consensus | as S2, stopped on 'Publishing transaction to network' | the transfer either goes through - and reaches B once B is up - or is refused with a stated reason within 120s; afterwards value conserved across A, B and Q, nothing Locked, the machine's other nodes still answering and able to receive, and an ordinary transfer goes through again |
 | **S4** Kill the quorum when it takes the request | as S2, Q stopped on 'Consensus request parsed successfully' | the transfer either goes through - and reaches B once B is up - or is refused with a stated reason within 120s; afterwards value conserved across A, B and Q, nothing Locked, the machine's other nodes still answering and able to receive, and an ordinary transfer goes through again |
@@ -229,6 +229,6 @@ The fleet's state after the run: what the run created, lost, locked or doubled.
 | Step | What the lab does | What Rubix must do |
 |---|---|---|
 | **S1** Read every node | as AUDIT-START S1 | every node readable |
-| **S2** Nothing created or lost | add up every DID's RBT as at the start | equals the 400,000 minted, and has not moved since AUDIT-START |
+| **S2** Nothing created or lost during the run | add up every DID's RBT as at the start | has not moved since AUDIT-START (a gap to the 400,000 minted that AUDIT-START already found is reported, not failed again; without an AUDIT-START reading: equals 400,000) |
 | **S3** One owner per token | look for a token Free under two DIDs | none |
 | **S4** Known issues | as AUDIT-START S5, plus what the run committed and burnt for FT | reported, not failed |

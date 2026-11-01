@@ -138,6 +138,7 @@ EP_QUORUM_SETUP = "/rubix/v1/quorums/setup"
 EP_QUORUM_ADD = "/rubix/v1/quorums/add"
 EP_QUORUM_LIST = "/rubix/v1/quorums"
 EP_QUORUM_REMOVE_ALL = "/rubix/v1/quorums/remove_all"   # GET, truncates quorum_manager
+EP_QUORUM_STATUS = "/rubix/v1/quorums/status"   # GET ?quorumAddress=<did>, server/basic.go
 EP_TRANSACTION = "/rubix/v1/tx"  # confirmed setup.go:69 - NOT /rubix/v1/transaction
 EP_FT_MINT = "/rubix/v1/fts/mint"
 EP_FT_BALANCE = "/rubix/v1/dids/{did}/balances/ft"
@@ -834,6 +835,11 @@ FAUCET_CHUNK = int(os.environ.get("RUBIX_FAUCET_CHUNK", "1000"))
 # depend on it working.
 _FAUCET_LOCK = threading.Lock()
 
+# Each time a draw found the faucet quorum without its setup and set it up
+# again: (time, what the status check said, set up afterwards). Each one is a
+# restart of the faucet quorum's node; the runner reports them.
+FAUCET_REARMS = []
+
 # Values are rounded to 3dp (math/math.go FloatPrecision).
 TOLERANCE = 0.0015
 
@@ -883,9 +889,29 @@ def _only_did(host, port, what, timeout):
     return dids[0], ""
 
 
-def faucet_ready(timeout=DEFAULT_TIMEOUT):
+def faucet_quorum_armed(timeout=DEFAULT_TIMEOUT):
+    """(set up, the node's answer): whether the faucet quorum can sign, asked
+    the way a faucet transfer reaches it - the faucet node asks the quorum's
+    node over p2p (GET /rubix/v1/quorums/status). The quorum's node answers from
+    the same in-memory map a pledge request reads (c.qc, core/ping.go
+    CheckQuorumStatusResponse, core/quorum_initiator.go:90), which a restart
+    empties. On 2026-10-29 the kernel killed the faucet quorum for memory in
+    the middle of a run; it came back without its setup, and every later draw
+    was refused "Quorum is not setup" - five cases never ran."""
+    url = "{}{}?quorumAddress={}".format(base_url(FAUCET_HOST, FAUCET_PORT), EP_QUORUM_STATUS,
+                                         FAUCET_QUORUM_DID)
+    ok, payload = http_json("GET", url, timeout)
+    if not ok or not isinstance(payload, dict):
+        return False, "the status check did not answer: {}".format(payload)
+    return bool(payload.get("status")), str(payload.get("message") or "")
+
+
+def faucet_ready(timeout=DEFAULT_TIMEOUT, arm=False):
     """(ok, note). Reads both faucet DIDs from their nodes, then checks the
-    faucet node has the faucet quorum as its one and only quorum."""
+    faucet node has the faucet quorum as its one and only quorum, and that the
+    faucet quorum is set up on its node. arm=True sets it up again when it is
+    not (what controller/faucet-setup.py does) and records it in FAUCET_REARMS;
+    the web UI calls this without arm, so it only reads."""
     global FAUCET_DID, FAUCET_QUORUM_DID
     faucet, note = _only_did(FAUCET_HOST, FAUCET_PORT, "faucet", timeout)
     if not faucet:
@@ -906,6 +932,16 @@ def faucet_ready(timeout=DEFAULT_TIMEOUT):
     ok, detail, note = get_rbt_balance_detail(FAUCET_HOST, FAUCET_DID, FAUCET_PORT, timeout)
     if not ok or not detail:
         return False, "cannot read the faucet balance: {}".format(note)
+    armed, why = faucet_quorum_armed(timeout)
+    if not armed and arm:
+        quorum_setup(FAUCET_QUORUM_HOST, FAUCET_QUORUM_DID, FAUCET_QUORUM_PORT, timeout)
+        armed, _now = faucet_quorum_armed(timeout)
+        FAUCET_REARMS.append((time.time(), why, armed))
+    if not armed:
+        return False, ("the faucet quorum {}... on {}:{} is not set up on its node ({}) - quorum "
+                       "setup lives in the node's memory and goes with a restart; re-run "
+                       "controller/faucet-setup.py".format(FAUCET_QUORUM_DID[:16], FAUCET_QUORUM_HOST,
+                                                            FAUCET_QUORUM_PORT, why))
     return True, "faucet holds {:.3f} RBT free".format(detail["balance"])
 
 
@@ -930,7 +966,7 @@ def fund_did(host, did, amount, port=DEFAULT_PORT, timeout=None):
     """
     n = _whole(amount)
     with _FAUCET_LOCK:
-        ok, note = faucet_ready()
+        ok, note = faucet_ready(arm=True)
         if not ok:
             return False, note
         if did in (FAUCET_DID, FAUCET_QUORUM_DID):
@@ -940,10 +976,17 @@ def fund_did(host, did, amount, port=DEFAULT_PORT, timeout=None):
             chunk = min(FAUCET_CHUNK, n - sent)
             ok0, detail0, _ = get_rbt_balance_detail(host, did, port)
             before = detail0["balance"] if ok0 and detail0 else 0.0
-            ok, msg, _ = initiate_transaction(
-                FAUCET_HOST, FAUCET_DID, did, rbt=float(chunk),
-                memo="faucet {} RBT".format(chunk), port=FAUCET_PORT,
-                timeout=timeout or transfer_timeout(chunk))
+            for attempt in (1, 2):
+                ok, msg, _ = initiate_transaction(
+                    FAUCET_HOST, FAUCET_DID, did, rbt=float(chunk),
+                    memo="faucet {} RBT".format(chunk), port=FAUCET_PORT,
+                    timeout=timeout or transfer_timeout(chunk))
+                # Refused at the pledge request, before anything moved: the
+                # faucet quorum's node restarted since this draw began. Set it
+                # up again and send the chunk once more.
+                if ok or attempt == 2 or "Quorum is not setup" not in str(msg) \
+                        or not faucet_ready(arm=True)[0]:
+                    break
             # The receiver credits 1-2s after the sender returns, longer for a
             # big chunk. Wait on the receiver whatever the faucet answered: a
             # client timeout does not stop the node, and a transfer that went

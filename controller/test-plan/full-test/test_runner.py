@@ -269,6 +269,11 @@ def resolve_ci(tid, master, case_info):
 #                its quorum, which is cheapest against the poorest one
 #   same_node    every DID from ONE node (sender, receiver and quorum on the
 #                same machine); needs a node holding that many DIDs
+#   empty_dids   sender nodes that must hold a DID with nothing to spend, for a
+#                case that follows ONE token (case_helpers.empty_did); the sender
+#                seats go to such nodes first
+#   empty_whole_only  True (default): "nothing" = no Free whole token, parts
+#                allowed; False: no Free RBT at all
 #   exclusive    run with nothing else running, at its place in the catalogue:
 #                units before it finish first, units after it wait for it
 #   first        run before everything else, alone (the opening fleet audit)
@@ -284,7 +289,13 @@ NO_DELAY_RERUN = set()
 
 UNIT_DEFAULTS = {"senders": 1, "receivers": 1, "quorums": 1, "fund": 0,
                  "quorum_fund": None, "quorum_pick": "richest",
-                 "same_node": False, "exclusive": False, "first": False, "last": False}
+                 "same_node": False, "empty_dids": 0, "empty_whole_only": True,
+                 "exclusive": False, "first": False, "last": False}
+
+# The faucet pair's and the fullnodes' node PIDs (check_fixed).
+FIXED = {"roles": [], "pids": {}}
+# What check_fixed and regate_deaf found between units, for the report.
+RUN_WARNINGS = []
 
 # Added to a unit's `fund`. Being generous costs one faucet transfer; being
 # short costs a failure that says nothing about the product.
@@ -410,6 +421,25 @@ def _ex_pledged(entries):
         return dict(ex.map(one, entries))
 
 
+def _empty_dids(entries, whole_only, funded):
+    """{node host: [its DIDs holding nothing to spend]} - see db.empty_dids.
+    `funded`: the unit tops its senders up, so the entry's own DID will not stay
+    empty and does not count. Unreadable counts as none."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(e):
+        try:
+            found = db.empty_dids(e["host"], e.get("dids") or [e["did"]], whole_only)
+        except Exception:
+            found = []
+        return e["host"], [d for d in found if not (funded and d == e["did"])]
+
+    if not entries:
+        return {}
+    with ThreadPoolExecutor(max_workers=min(40, len(entries))) as ex:
+        return dict(ex.map(one, entries))
+
+
 def _spread(candidates, k, used):
     """The first k of `candidates` (already in preference order), at most one
     per machine while unused machines are left, then whatever is left. `used`
@@ -492,15 +522,25 @@ def allocate(unit, free_nodes, port):
                 best[e["host"]] = e
         taint = _ex_pledged(list(best.values()))
         dirty = lambda e: taint.get(e["did"], 0.0) > 0
+        # A case that follows ONE token plays from a DID holding nothing on a
+        # sender's node (case_helpers.empty_did), so the nodes that have one
+        # sit in the sender seats first and are kept out of the quorum seats.
+        # Until 2026-10-29 the case looked only after the richest nodes had
+        # been picked, and RACE-01, QCAP-03b and CHAIN-01 found none.
+        empty = (_empty_dids(list(best.values()), s["empty_whole_only"], s["fund"])
+                 if s["empty_dids"] else {})
+        spare = lambda e: bool(empty.get(e["host"]))
         used = set()
         if s["quorum_pick"] == "poorest":
-            unit.quorums = _spread(sorted(best.values(), key=lambda e: (not dirty(e), bal[e["did"]])),
+            unit.quorums = _spread(sorted(best.values(),
+                                          key=lambda e: (spare(e), not dirty(e), bal[e["did"]])),
                                    s["quorums"], used)
         else:
-            unit.quorums = _spread(sorted(best.values(), key=lambda e: (not dirty(e), -bal[e["did"]])),
+            unit.quorums = _spread(sorted(best.values(),
+                                          key=lambda e: (spare(e), not dirty(e), -bal[e["did"]])),
                                    s["quorums"], used)
         rest = sorted((e for e in best.values() if e not in unit.quorums),
-                      key=lambda e: (dirty(e), -bal[e["did"]]))
+                      key=lambda e: (not spare(e), dirty(e), -bal[e["did"]]))
         if unit.wants_all:
             # every node sends; receivers are the poorest of the clean ones
             unit.receivers = _spread(sorted(rest, key=lambda e: (dirty(e), bal[e["did"]])),
@@ -515,6 +555,12 @@ def allocate(unit, free_nodes, port):
         # from these is the known bug, not the case.
         unit.dirty_spenders = ["{} ({:.3f} RBT)".format(e["host"].split(".")[-1], taint[e["did"]])
                                for e in unit.senders + unit.receivers if dirty(e)]
+        if sum(1 for e in unit.senders if spare(e)) < s["empty_dids"]:
+            raise RuntimeError(
+                "needs {} sender node(s) holding a DID with no Free {}RBT (the case follows one "
+                "token); {} of the {} free node(s) hold one".format(
+                    s["empty_dids"], "whole " if s["empty_whole_only"] else "",
+                    sum(1 for v in empty.values() if v), len(best)))
     unit.hosts = {e["host"] for e in unit.quorums + unit.senders + unit.receivers}
 
 
@@ -584,6 +630,8 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
     busy = set()
     pending = list(units)
     running = {}
+    ran = set()         # units that ran since check_fixed last read the fixed nodes
+    deaf = set()        # pool nodes found deaf after a unit (regate_deaf)
 
     def say(line):
         with print_lock:
@@ -605,8 +653,12 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                      "{} ({})".format(e, unit.describe()))
             return
         receivers = unit.receivers or unit.senders
+        # The audits read every DID they read at the start; a unit that sends
+        # drives only nodes that can still receive.
         unit.ctx = CaseContext(args.port, unit.quorums, unit.senders, receivers,
-                               sender_quorum, args, fleet=fleet)
+                               sender_quorum, args,
+                               fleet=[e for e in fleet if e["host"] not in deaf]
+                               if unit.needs_nodes else fleet)
         say("  -> {:<22} {}".format(unit.name, unit.describe()))
         if unit.dirty_spenders:
             say("     note: not enough clean nodes free - {} hold(s) tokens pledged as a "
@@ -711,6 +763,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                         continue
                     busy |= unit.hosts
                     pending.remove(unit)
+                    ran.add(unit.name)
                     running[ex.submit(run_one, unit)] = unit
                     continue
                 if unit.exclusive:
@@ -722,6 +775,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                     pending = []
                 break
             done, _ = wait(list(running), return_when=FIRST_COMPLETED)
+            finished = []
             for fut in done:
                 unit = running.pop(fut)
                 busy -= unit.hosts
@@ -730,6 +784,10 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                     skip_all(unit, "runner error", "{}: {}".format(type(exc).__name__, exc))
                 run_events.unit_done(unit, exc)
                 node_screens.give(unit)
+                finished.append(unit.name)
+            check_fixed(sorted(ran), say)
+            ran = set(u.name for u in running.values())
+            regate_deaf(pool_nodes, deaf, finished, say)
 
 
 # ---------------------------------------------------------------------------
@@ -1029,9 +1087,7 @@ def health_gate(nodes):
     Shared by test_runner and smoke_test."""
     import fleet_health
     deaf, unsynced = fleet_health.deaf_nodes([n["host"] for n in nodes])
-    fixed = [(fleet_inventory.split(h)[0], role) for h, role in
-             [(rc.FAUCET_HOST, "faucet"), (rc.FAUCET_QUORUM_HOST, "faucet quorum")] +
-             [(h, "fullnode") for h in rc.FULLNODE_HOSTS] if h]
+    fixed = fixed_roles()
     off, read = fleet_health.clock_skew([n["machine"] for n in nodes] + [m for m, _r in fixed])
     fix_clock = "fix: ssh -t rubix@{} 'sudo timedatectl set-ntp true && sudo systemctl restart systemd-timesyncd'"
     kept, excluded, late = [], [], {}
@@ -1061,6 +1117,80 @@ def health_gate(nodes):
                                                 fleet_health.CLOCK_TOL * 1000,
                                                 read[worst] * 1000, worst))
     return kept, excluded
+
+
+# ---------------------------------------------------------------------------
+# The faucet pair and the fullnodes
+#
+# Every unit depends on them, yet no case step watches their machines (a step
+# watches its participants'). On 2026-10-29 the kernel killed the faucet quorum
+# for memory while FT-01 ran, and the run showed it only as five units the
+# faucet could not fund. Their node's MainPID is read when the run starts and
+# after each unit; a change is a restart, reported with the units that ran.
+# ---------------------------------------------------------------------------
+
+def fixed_roles():
+    """[(machine, role)] of the faucet pair and the fullnodes - one node each."""
+    return [(fleet_inventory.split(h)[0], role) for h, role in
+            [(rc.FAUCET_HOST, "faucet"), (rc.FAUCET_QUORUM_HOST, "faucet quorum")] +
+            [(h, "fullnode") for h in rc.FULLNODE_HOSTS] if h]
+
+
+def fixed_pids(roles):
+    """{machine: MainPID of its one node (slot 0)}, for the machines that answered."""
+    import fleet_health
+    from concurrent.futures import ThreadPoolExecutor
+    machines = [m for m, _r in roles]
+    if not machines:
+        return {}
+    with ThreadPoolExecutor(max_workers=len(machines)) as ex:
+        samples = list(ex.map(lambda m: fleet_health.read_machine(m, [(0, 0)], timeout=15),
+                              machines))
+    return dict((m, s["pid.0"]) for m, s in zip(machines, samples)
+                if s and s.get("pid.0") not in (None, "", "0"))
+
+
+def check_fixed(during, say=print):
+    """Read the faucet pair's and the fullnodes' node PIDs again; report and
+    record each that changed since the last reading. `during` names the units
+    that ran since then."""
+    if not FIXED["roles"]:
+        return
+    role = dict(FIXED["roles"])
+    for m, pid in fixed_pids(FIXED["roles"]).items():
+        was = FIXED["pids"].get(m)
+        FIXED["pids"][m] = pid
+        if was and pid != was:
+            line = ("the {} on {} restarted while {} ran (its node's MainPID changed) - "
+                    "'journalctl -k' on it shows whether the kernel killed it for memory".format(
+                        role[m], m, ", ".join(during) or "no unit"))
+            RUN_WARNINGS.append(line)
+            say("  WARNING: " + line)
+
+
+def regate_deaf(pool_nodes, deaf, after, say=print):
+    """After units finish, leave out the pool nodes that can no longer receive,
+    as health_gate does at the start. A node the kernel kills can take its
+    machine's other nodes' IPFS with it (core/shutdown_manager.go), and the IPFS
+    auto-restart never registers their p2p listeners again
+    (core/ipfs_recovery.go): on 2026-10-29 FT-01 left all nine of .116's nodes
+    deaf, and later units were still given them. `deaf` collects them for the
+    fleet a unit drives (run_one)."""
+    import fleet_health
+    found, _unsynced = fleet_health.deaf_nodes([n["host"] for n in pool_nodes])
+    if not found:
+        return
+    deaf.update(found)
+    pool_nodes[:] = [n for n in pool_nodes if n["host"] not in deaf]
+    by_machine = {}
+    for h in found:
+        by_machine.setdefault(fleet_inventory.split(h)[0], []).append(h)
+    for m, hosts in sorted(by_machine.items()):
+        line = ("after {}, {} node(s) on {} could no longer receive (their IPFS lost its p2p "
+                "listener) - left out of the rest of the run (fix: restart-nodes.sh --host {} "
+                "--force)".format(", ".join(after), len(hosts), m, m))
+        RUN_WARNINGS.append(line)
+        say("  WARNING: " + line)
 
 
 def fullnode_reason_key(reason):
@@ -1209,13 +1339,17 @@ def main():
     _all_hosts, specs = load_fleet(args.hosts)
     # Every RBT a case spends comes from the faucet, so a misconfigured faucet
     # would fail every case on funding. Stop here instead.
-    faucet_ok, faucet_note = rc.faucet_ready()
+    faucet_ok, faucet_note = rc.faucet_ready(arm=True)
     run_events.phase("faucet", faucet_ok, faucet_note)
     if not faucet_ok:
         sys.exit("ERROR: faucet not ready - {}".format(faucet_note))
     print("Faucet: {}... on {}:{}, quorum {}... on {}:{} - {}".format(
         rc.FAUCET_DID[:16], rc.FAUCET_HOST, rc.FAUCET_PORT, rc.FAUCET_QUORUM_DID[:16],
         rc.FAUCET_QUORUM_HOST, rc.FAUCET_QUORUM_PORT, faucet_note))
+    if rc.FAUCET_REARMS:
+        print("  the faucet quorum was not set up on its node (it restarted since "
+              "controller/faucet-setup.py last ran) - set it up again")
+    rearms_at_start = len(rc.FAUCET_REARMS)
     print("Fullnodes: {}".format(", ".join(case_evidence.FULLNODE_HOSTS) or
                                  "none in hosts.txt - fullnode acceptance not checked"))
 
@@ -1243,9 +1377,18 @@ def main():
     NO_DELAY_RERUN.update(getattr(module, "NO_DELAY_RERUN", None) or ())
     # Each machine's screen follows the node the run is using (node_screens.py).
     node_screens.begin()
+    FIXED["roles"] = fixed_roles()
+    FIXED["pids"] = fixed_pids(FIXED["roles"])
     run_units(units, pool_nodes, fleet, module.CASES, master, case_info, args)
     duration = time.time() - started
     node_screens.end()
+    # Restarts of the faucet pair and the fullnodes, nodes gone deaf, and every
+    # draw that found the faucet quorum without its setup.
+    RUN_WARNINGS.extend(
+        "{} a faucet draw found the faucet quorum not set up ({}) and {}".format(
+            time.strftime("%H:%M:%S", time.localtime(at)), why,
+            "set it up again" if armed else "could NOT set it up again")
+        for at, why, armed in rc.FAUCET_REARMS[rearms_at_start:])
 
     report = CatalogueReport()
     by_id = {}
@@ -1307,6 +1450,10 @@ def main():
                                     " - not waited on (database unreadable): " +
                                     ", ".join(sorted(rc._UNREADABLE)))),
             ("Fullnodes", ", ".join(case_evidence.FULLNODE_HOSTS) or "not checked"),
+            ("During the run", "; ".join(RUN_WARNINGS) or (
+                "no restart of the faucet pair or the fullnodes; no node went deaf" if FIXED["pids"]
+                else "the faucet pair's and the fullnodes' machines could not be read over SSH; "
+                     "no node seen going deaf")),
             ("Scale knobs", "quorum ladder {} | stop below {}% | whole wallet {} | "
                             "parts target {} | asset hops {} | scale {}".format(
                                 args.quorum_ladder, args.ladder_stop, args.whole_wallet,
@@ -1373,6 +1520,12 @@ def main():
                 label, sum(cases.values()),
                 ", ".join("{} ({})".format(c, n) for c, n in sorted(cases.items()))))
             print("    {}".format(case_evidence.KNOWN_BUG_EXPLANATION.get(label, "")))
+
+    if RUN_WARNINGS:
+        print()
+        print("During the run (the faucet pair, the fullnodes, deaf nodes):")
+        for line in RUN_WARNINGS:
+            print("  " + line)
 
     timing_ids = set(getattr(module, "TIMING_CASES", set()))
     print()

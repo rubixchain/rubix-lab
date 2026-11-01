@@ -200,7 +200,9 @@ CASES = {"CHAIN-01": chain_01}
 ORDER = ["CHAIN-01"]
 NEEDS = {
     # Holders cycle; quorums rotate. Disjoint, so holders stay spendable. The
-    # holders play from an empty DID on their nodes, so they are not funded.
-    "CHAIN-01": {"senders": 30, "receivers": 0, "quorums": 10, "fund": 0, "quorum_fund": 20},
+    # holders play from an empty DID on their nodes, so they are not funded;
+    # nodes holding one take the holder seats first, at least three.
+    "CHAIN-01": {"senders": 30, "receivers": 0, "quorums": 10, "fund": 0, "quorum_fund": 20,
+                 "empty_dids": 3},
 }
 NO_DELAY_RERUN = {"CHAIN-01"}

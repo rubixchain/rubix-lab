@@ -241,7 +241,8 @@ def race_02(ctx, ci):
 CASES = {"RACE-01": race_01, "RACE-02": race_02}
 ORDER = ["RACE-01", "RACE-02"]
 NEEDS = {
-    "RACE-01": {"senders": 1, "receivers": 24, "quorums": 1, "fund": 0, "quorum_fund": 100},
+    "RACE-01": {"senders": 1, "receivers": 24, "quorums": 1, "fund": 0, "quorum_fund": 100,
+                "empty_dids": 1, "empty_whole_only": False},
     # Exclusive: it grabs a whole node and a whole machine from the fleet and
     # wires their quorums, so nothing else may be using those nodes.
     "RACE-02": {"senders": 2, "receivers": 0, "quorums": 0, "fund": 0, "exclusive": True},

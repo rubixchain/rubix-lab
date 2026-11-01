@@ -708,8 +708,12 @@ def sc_01(ctx, ci):
 CASES = {"FT-01": ft_01, "NFT-01": nft_01, "SC-01": sc_01}
 ORDER = ["FT-01", "NFT-01", "SC-01"]
 NEEDS = {
+    # Alone: on 2026-10-29 FT-01 S5's 1,800-FT hops grew Rubix processes to
+    # 5-14 GB and the kernel killed them - the faucet quorum among them - while
+    # four other units ran beside it.
     "assets": {"cases": ["FT-01", "NFT-01", "SC-01"], "senders": OWNERS,
-               "receivers": RECEIVERS, "quorums": 2, "fund": 30, "quorum_fund": 200},
+               "receivers": RECEIVERS, "quorums": 2, "fund": 30, "quorum_fund": 200,
+               "exclusive": True},
 }
 # Stock builders and capacity measures: a delayed rerun would build the stock twice.
 NO_DELAY_RERUN = set(ORDER)

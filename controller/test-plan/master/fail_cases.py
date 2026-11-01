@@ -80,8 +80,9 @@ PURPOSE = {
 STEPS = {
     "FAIL-01": [
         ("S1", "Set-up check",
-         "pick A (sender), B (receiver) and Q (quorum) on three machines with nine nodes each; set Q "
-         "up and fund it; point A and B at Q",
+         "pick A (sender, a DID holding no token it pledged as a quorum earlier), B (receiver) and "
+         "Q (quorum) on three machines with nine nodes each; set Q up and fund it; point A and B "
+         "at Q",
          "Q set up and funded; A and B sign with Q"),
         ("S2", "Kill the sender right after it starts",
          "A sends 1 RBT to B; A's unit is stopped on its log line 'Starting transaction', then started "
@@ -160,6 +161,20 @@ def _wait_up(host, attempts=30, delay=2):
     return False
 
 
+def _clean(entries):
+    """The first entry whose DID holds no token it pledged as a quorum earlier,
+    or None. A sends every transfer and every recovery probe: an ex-quorum's
+    send is refused by a known product bug (core/consensus/checks.go:309), so on
+    2026-10-29 every step's probe failed on that, not on the kill."""
+    for e in entries:
+        try:
+            if db.ex_pledged_free_value(e["host"], e["did"]) <= 0:
+                return e
+        except Exception:
+            continue
+    return None
+
+
 def fail_01(ctx, ci):
     run = steps.CaseRun(ctx, "FAIL-01", STEPS["FAIL-01"], budget=BUDGET)
     if not db.available():
@@ -170,7 +185,16 @@ def fail_01(ctx, ci):
     machines = sorted(by_machine, key=lambda m: -len(by_machine[m]))
     if len(machines) < 3:
         return SKIP, "needs DIDs on at least three machines", ""
-    A, B, Q = by_machine[machines[0]][0], by_machine[machines[1]][0], by_machine[machines[2]][0]
+    A = None
+    for m in machines:
+        A = _clean(by_machine[m])
+        if A:
+            break
+    if A is None:
+        return SKIP, "no DID in the fleet is free of tokens it pledged as a quorum earlier - A's " \
+                     "sends would meet the known checks.go:309 refusal, not the kill", ""
+    rest = [m for m in machines if m != fleet_inventory.split(A["host"])[0]]
+    B, Q = by_machine[rest[0]][0], by_machine[rest[1]][0]
     port = ctx.port
 
     def setup():

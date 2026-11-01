@@ -369,18 +369,21 @@ def qcap_03b(ctx, ci):
     run = steps.CaseRun(ctx, "QCAP-03b", STEPS["QCAP-03b"])
     if len(ctx.senders) < 5:
         return SKIP, "needs five nodes (A, B, C, Q, Q2)", ""
-    A, B, C, Q, Q2 = ctx.senders[:5]
     port, V = ctx.port, 20.0
     # The pledge is released when a LATER transaction spends a token of the
     # pledged one (core/callback.go). B's onward send takes its lowest whole
     # token_ids first (core/wallet/token_lock.go), so a B that already holds
     # tokens spends its own older ones and Q's pledge is never touched. B and Q
-    # play from DIDs holding no whole token; Q is given exactly V.
-    B = ch.empty_did(B, whole_only=True)
-    Q = ch.empty_did(Q, whole_only=True)
-    if B is None or Q is None:
-        return SKIP, "no DID on {}'s node is free of whole tokens - the case follows the exact " \
-            "tokens pledged and paid".format("B" if B is None else "Q"), ""
+    # play from DIDs holding no whole token, on the first two nodes that have
+    # one (NEEDS empty_dids puts them first); Q is given exactly V.
+    nodes = ctx.senders[:5]
+    empty = [(e, ch.empty_did(e, whole_only=True)) for e in nodes]
+    empty = [(e, x) for e, x in empty if x]
+    if len(empty) < 2:
+        return SKIP, "{} of the five nodes hold a DID free of whole tokens, B and Q need two - " \
+            "the case follows the exact tokens pledged and paid".format(len(empty)), ""
+    (b_node, B), (q_node, Q) = empty[:2]
+    A, C, Q2 = [e for e in nodes if e is not b_node and e is not q_node]
     state = {}
 
     def setup(st):
@@ -469,7 +472,7 @@ NEEDS = {
                 "quorum_fund": 123, "quorum_pick": "poorest"},
     # Five nodes the case wires itself (A, B, C, Q, Q2); no runner quorum.
     "QCAP-03a": {"senders": 5, "receivers": 0, "quorums": 0, "fund": 60},
-    "QCAP-03b": {"senders": 5, "receivers": 0, "quorums": 0, "fund": 60},
+    "QCAP-03b": {"senders": 5, "receivers": 0, "quorums": 0, "fund": 60, "empty_dids": 2},
 }
 # Raw capacity / boundary / wiring: a delayed rerun would measure the fullnodes
 # or re-run the manual wiring, not the product.

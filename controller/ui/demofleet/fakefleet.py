@@ -333,6 +333,10 @@ class FakeFleet(object):
                 if did not in st["setup"]:
                     st["setup"].append(did)
                 return True, dict(ok, message="quorum setup done")
+            if path == "/rubix/v1/quorums/status":
+                if (query.get("quorumAddress") or [""])[0] in st["setup"]:
+                    return True, dict(ok, message="Quorum is setup")
+                return True, {"status": False, "message": "Quorum is not setup"}
             m = re.match(r"^/rubix/v1/dids/([^/]+)/balances/(rbt|ft|nft)$", path)
             if m:
                 did, kind = m.groups()

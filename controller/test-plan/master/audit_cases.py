@@ -28,7 +28,9 @@ in the pool plus the faucet DID and the faucet quorum:
 
 AUDIT-START fixes what it can (quarantine) and re-audits. AUDIT-END reports the
 run's true end state and does not change the fleet. Both fail only on value not
-conserved or a double spend; everything else is reported.
+conserved or a double spend - AUDIT-START against the 400,000 minted, AUDIT-END
+against AUDIT-START, so a loss from before the run fails once, not twice;
+everything else is reported.
 """
 
 import os
@@ -273,9 +275,10 @@ STEPS = {
     ],
     "AUDIT-END": [
         ("S1", "Read every node", "as AUDIT-START S1", "every node readable"),
-        ("S2", "Nothing created or lost",
+        ("S2", "Nothing created or lost during the run",
          "add up every DID's RBT as at the start",
-         "equals the 400,000 minted, and has not moved since AUDIT-START"),
+         "has not moved since AUDIT-START (a gap to the 400,000 minted that AUDIT-START already "
+         "found is reported, not failed again; without an AUDIT-START reading: equals 400,000)"),
         ("S3", "One owner per token", "look for a token Free under two DIDs", "none"),
         ("S4", "Known issues", "as AUDIT-START S5, plus what the run committed and burnt for FT",
          "reported, not failed"),
@@ -340,11 +343,20 @@ def audit_end(ctx, ci):
     r = got["r"]
 
     def totals(st):
-        _total_check(st, r)
-        if _START and not _START.get("unreadable"):
-            moved = round(r["held"] - _START["held"], 3)
-            st.check(abs(moved) <= TOL, "the fleet total moved {:+.3f} RBT during this run ({:.3f} -> "
-                                        "{:.3f})".format(moved, _START["held"], r["held"]))
+        # Judged on this run alone: a gap to the minted total that was there at
+        # AUDIT-START is that audit's finding. Until 2026-10-29 both audits
+        # failed on the same old loss, so AUDIT-END counted it twice.
+        if not _START or _START.get("unreadable"):
+            _total_check(st, r)
+            return
+        moved = round(r["held"] - _START["held"], 3)
+        st.check(abs(moved) <= TOL, "the fleet total moved {:+.3f} RBT during this run ({:.3f} -> "
+                                    "{:.3f}; controller/test-plan/custom/lost_rbt.py shows where)".format(
+                                        moved, _START["held"], r["held"]))
+        gap = r["held"] - r["expected"]
+        if abs(gap) > TOL:
+            st.note("{:+.3f} RBT against the {:.3f} minted, as at AUDIT-START - from before this "
+                    "run".format(gap, r["expected"]))
     run.step("S2", totals, watch=False)
     run.step("S3", lambda st: st.check(not r["doubled_text"], r["doubled_text"]), watch=False)
 
