@@ -85,9 +85,10 @@ def _arrived(entry, token_id, wait=ARRIVAL_WAIT):
     return False
 
 
-def _seed(holder, port):
-    """One whole token from the faucet to an empty holder; its token_id, or None."""
-    ok, _m = rc.fund_did(holder["host"], holder["did"], 1, port)
+def _seed(holder, quorum, port):
+    """One whole token to an empty holder from its node's own DID
+    (case_helpers.give_exact); its token_id, or None."""
+    ok, _m = ch.give_exact(holder, 1, quorum, port)
     if not ok:
         return None
     tokens = ch.whole_free(holder["host"], holder["did"])
@@ -95,14 +96,18 @@ def _seed(holder, port):
 
 
 def _clear(holders, wire_to, sink, port):
-    """Hand any whole token a holder still has to `sink`, so the next chain
-    starts with every holder empty. The sender is pointed at `wire_to`, never
-    at the sink itself."""
+    """Hand any whole token a holder still has back to its node's own DID
+    (`sink` only when that is unknown), so the next chain starts with every
+    holder empty. The sender is pointed at `wire_to`. Until 2026-11-03 it went
+    to a quorum that had validated the token's hops, and that quorum's node
+    recorded the transfer against another token and lost the RBT
+    (RUBIX-ISSUES.md R-32) - a finding with its own case, not this one's."""
     for h in holders:
         n = len(ch.whole_free(h["host"], h["did"]))
         if n:
+            back = h.get("node_did") if h.get("node_did") not in (None, h["did"]) else sink["did"]
             rc.quorum_reset(h["host"], [wire_to["did"]], port)
-            rc.initiate_transaction(h["host"], h["did"], sink["did"], rbt=float(n),
+            rc.initiate_transaction(h["host"], h["did"], back, rbt=float(n),
                                     memo="CHAIN-01 clear", timeout=ch.TRANSFER_TIMEOUT)
 
 
@@ -180,7 +185,7 @@ def chain_01(ctx, ci):
         if len(holders) < 3:
             return False, "needs at least three holders with an empty DID on their node, found " \
                           "{}: {}".format(len(holders), "; ".join(why_not[:3]))
-        seeded["token"] = _seed(holders[0], port)
+        seeded["token"] = _seed(holders[0], quorums[0], port)
         return bool(seeded["token"]), "could not hand the first holder exactly one token to follow"
     s1 = run.step("S1", lambda st: None, nodes=quorums, watch=False, require=[setup])
     if s1.outcome != steps.PASS:
@@ -194,7 +199,7 @@ def chain_01(ctx, ci):
     def control_setup():
         _clear(holders, quorums[0], quorums[-1], port)
         _fund_quorums(quorums[:1], hops, port)
-        seeded["token2"] = _seed(holders[0], port)
+        seeded["token2"] = _seed(holders[0], quorums[0], port)
         return bool(seeded["token2"]), "could not hand the first holder one token for the control chain"
     ctl = run.step("S3", lambda st: _chain(st, holders, quorums[:1], hops, port, "CHAIN-01 control",
                                            seeded["token2"]),

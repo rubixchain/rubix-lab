@@ -21,15 +21,15 @@ failing on the fleet.
 
 | ID | Issue | Status | Last seen |
 |---|---|---|---|
-| R-01 | Concurrent pledges/splits on one DID deadlock on `token_denom` | CONFIRMED | 2026-11-02 |
-| R-02 | `token_denom` counter left wrong after a failed pledge | CONFIRMED | 2026-11-02 |
-| R-03 | Quorum nodes grow until the kernel kills them | SUSPECTED cause | 2026-11-02 |
-| R-04 | A quorum killed mid-transfer leaves the sender's token stuck | CONFIRMED | 2026-11-02 |
-| R-05 | A quorum holding exactly the value is refused (float compare) | CONFIRMED | 2026-11-02 |
+| R-01 | Concurrent pledges/splits on one DID deadlock on `token_denom` | CONFIRMED | 2026-11-03 |
+| R-02 | `token_denom` counter left wrong after a failed pledge | CONFIRMED | 2026-11-03 |
+| R-03 | Rubix nodes grow with large transactions until the kernel kills them | SUSPECTED cause | 2026-11-03 |
+| R-04 | A quorum killed mid-transfer leaves the sender's token stuck | CONFIRMED (twice) | 2026-11-03 |
+| R-05 | A quorum holding exactly the value is refused (float compare) | CONFIRMED (twice) | 2026-11-03 |
 | R-06 | Transfer reports success, receiver never gets the tokens | CONFIRMED | 2026-11-02 |
-| R-07 | NFT and contract chains fork on simultaneous executes | CONFIRMED | 2026-10-29 |
-| R-08 | A former quorum cannot spend tokens it pledged | CONFIRMED | 2026-11-02 |
-| R-09 | Failures leave tokens Locked | CONFIRMED | 2026-11-02 |
+| R-07 | NFT and contract chains fork on simultaneous executes | CONFIRMED | 2026-11-03 |
+| R-08 | A former quorum cannot spend tokens it pledged | CONFIRMED | 2026-11-03 |
+| R-09 | Failures leave tokens Locked | CONFIRMED | 2026-11-03 |
 | R-10 | After an IPFS auto-restart the node is deaf | CONFIRMED | 2026-10-29 |
 | R-11 | One node's shutdown kills every IPFS on the machine | SUSPECTED | 2026-10-22 |
 | R-12 | Peer requests swallow connection failures | CONFIRMED | 2026-10-22 |
@@ -49,6 +49,10 @@ failing on the fleet.
 | R-26 | Signatures over unhashed data fail on Go 1.25+ | CONFIRMED | 2026-10-14 |
 | R-27 | `CreateDID` has no idempotency | CODE | - |
 | R-28 | Quorum nodes keep Free copies of other DIDs' tokens | to check | 2026-11-02 |
+| R-29 | Concurrent pledges on one quorum lose their token locks (~400 at once) | SUSPECTED cause | 2026-11-03 |
+| R-30 | The pledge lock plans from `token_denom` counters and never checks what it locked | CONFIRMED code path | 2026-11-03 |
+| R-31 | A faucet-minted whole token refused by the allowlist, naming another minter | SUSPECTED | 2026-11-03 |
+| R-32 | A transfer recorded by the receiver's node but never credited to the receiver | SUSPECTED | 2026-11-03 |
 
 ---
 
@@ -58,7 +62,8 @@ failing on the fleet.
 - **Seen:** every run since 2026-10-21. On 2026-11-02: QCAP-01 fractional rung
   of 20 at once (8 refusals), WALLET-PREP (8), COMBO-01 (2). Refusals:
   `PersistPreConsensus: failed to update token_denom ... deadlock detected
-  (SQLSTATE 40P01)` and `PledgeV2: decrement token_denom ...`.
+  (SQLSTATE 40P01)` and `PledgeV2: decrement token_denom ...`. On 2026-11-03:
+  21 refusals - QCAP-01 (13), WALLET-PREP (3), FT-01 (3), COMBO-01 (2).
 - **Cause:** every `token_denom` writer updates one row per denomination in Go
   map order, which is random, so two transactions on one DID lock the rows in
   different orders (`core/wallet/persist_genesis_tx.go:209`,
@@ -81,8 +86,23 @@ failing on the fleet.
 - **Confirm with:** provoke R-01, then compare each denomination's counter with
   its Free rows on the quorum.
 
-### R-03 Quorum nodes grow until the kernel kills them
-- **Seen:** 2026-11-02 the faucet quorum (.106) was OOM-killed at 14:00:31,
+### R-03 Rubix nodes grow with large transactions until the kernel kills them
+- **Seen 2026-11-03 (memory read after each batch of units):** the faucet
+  quorum went 0.0 GB at the start -> 0.2 GB after QCAP-01 (1,600 one-token
+  transfers) -> 2.5 -> 13.3 GB during the wallets unit (a 2,421-token faucet
+  draw in 1,000-token chunks, then 1,000- and 2,000-token transfers) ->
+  restarted -> 5.9 -> 8.0 GB -> back to 0.1 GB once the wallets unit ended, with
+  no restart (`journalctl -k` on .106: OOM-killed at 12:29:19, anon-rss
+  14.30 GB - the third kill in three runs). The four fullnodes did the same, 0.1 -> ~3 GB -> 0.1 GB, in the
+  same window. Pool nodes in FT-01 S5 (8 owners passing 1,300-1,700-FT series
+  hop to hop at once): Rubix processes reached 11-13 GB per machine (.112, .139,
+  .140), machines ran out of memory and swapped, and 6 nodes restarted (.118
+  slot 7, .124 slot 1 - which also went deaf - .136 slot 3, .137 slot 1, .140
+  slot 0, .144 slot 3); the senders' API dropped the connection
+  (`RemoteDisconnected`). **So the trigger is transactions carrying many tokens,
+  not the number of transactions, and the memory is held while they are
+  processed and released afterwards** - a backlog, not a slow leak.
+- **Seen before:** 2026-11-02 the faucet quorum (.106) was OOM-killed at 14:00:31,
   anon-rss 14.27 GB, ~14 min into the run and a few minutes after a 2,000-RBT
   transfer. 2026-10-29: the faucet quorum at 14.2 GB, 24 s after a 2,000-FT
   transfer, plus .111 (13.2 GB), .116 (5.6 GB), .121 (five kills, 2.6-5.1 GB).
@@ -117,6 +137,9 @@ failing on the fleet.
   token 60001_1211 (rbt) chain mismatch after sync ... local latest f6995f0e !=
   expected 43537334` (`core/consensus/checks.go:944`; 532c413b). It happens on
   every attempt through that quorum. Kills of the sender (S2, S3) recovered.
+  **Reproduced 2026-11-03** on a different token (60001_121106: `local latest
+  03ac7725 != expected 43537334`), after S1 had checked that the same three
+  nodes made an ordinary transfer before any kill.
 - **Cause:** the quorum writes the in-flight transaction into its token chain
   before consensus completes, and nothing undoes it when the transaction never
   completes. Where it writes it has not been located yet.
@@ -129,13 +152,39 @@ failing on the fleet.
 
 ### R-05 A quorum holding exactly the value is refused (float compare)
 - **Seen:** QCAP-02, 2026-11-02: `CollectRBTTokens: insufficient balance:
-  current balance 125.92999999999999, transfer amount 125.93`.
-- **Cause:** `core/parts/parts.go:68-80` (532c413b) adds token values as
+  current balance 125.92999999999999, transfer amount 125.93`. Again, word for
+  word, on 2026-11-03.
+- **Cause:** the quorum first locks the tokens it picks for the amount
+  (`ReqPledgeToken` -> `w.LockTokensForSplit(did, value)`,
+  `core/consensus/consensus.go:31`), then `CollectRBTTokens`
+  (`core/parts/parts.go:68-80`) adds up the values of THOSE locked tokens as
   float64, in Go map order, and compares `totalBalance < transferAmount` with no
-  rounding to the 3 decimal places Rubix supports.
-- **Fix needed:** compare in integer thousandths, or round both sides to 3dp
-  before comparing. Check the other float balance sums for the same mistake.
-- **Confirm with:** quorums each holding exactly H (several fractional H), pay H.
+  rounding to 3dp. The locked tokens came to exactly 125.930 in decimal; their
+  float sum is 125.92999999999999, so it refused. ("current balance" in the
+  message is the value of the locked tokens, not the wallet: the wallet held
+  125.931, which the balance API reports correctly because `GetRbtByDid`
+  rounds after every addition, `core/token.go:101-103`.) All 532c413b.
+- **In plain words:** computers store decimals in binary, where 0.1 or 0.7
+  cannot be held exactly (like 1/3 = 0.333... in decimal), so adding them leaves
+  tiny errors: `0.7 + 0.1 = 0.7999999999999999`. Rubix shows balances rounded to
+  3 decimals, but this check compares the raw sum with the amount without
+  rounding, so "125.930 vs 125.930" becomes "125.92999999999999 < 125.93 - not
+  enough".
+- **Not lab-specific - any Rubix network:** a transfer with a decimal amount can
+  be refused "insufficient balance" whenever the tokens Rubix picks add up to
+  exactly the amount and the binary sum lands a hair below it. A larger wallet
+  does not help (only the picked tokens are counted), and it is random (the
+  tokens are added in Go map order, so a retry may pass). Whole-RBT amounts are
+  safe. Seen on a quorum's pledge; the sender's transfer and FT minting call the
+  same function (not yet proven there).
+- **Fix needed:** compare in integer thousandths, or round the sum to 3dp
+  (`rubixmath.FloatPrecision`) before comparing. Check the other float sums
+  that feed a comparison (`core/transaction_builder.go:94, :211`, `core/ft.go:94`
+  also call `CollectRBTTokens`), and say "value of the selected tokens" in the
+  message.
+- **Confirm with:** quorums each holding exactly H (several fractional H), pay H;
+  and senders paying fractional amounts that need an exact combination of
+  parts - the sender path goes through the same check.
 
 ### R-06 Transfer reports success, receiver never gets the tokens
 - **Seen:** 2026-11-02 LOAD-01 at 200 senders: tx `f3fb1ceb` accepted, recorded
@@ -161,7 +210,10 @@ failing on the fleet.
   The owner and the subscriber hold different 6th blocks, still different at
   the reconcile. 2026-10-21: an execute built on an older tip was accepted by a
   quorum that had not seen the newer one (fullnodes: tx `2a9ca7c3` expects
-  prev `d6b6cbb7`, local latest `26c901a0`). Not run on 2026-11-02 (skipped).
+  prev `d6b6cbb7`, local latest `26c901a0`). 2026-11-03: 2 NFTs and 2 contracts
+  forked at position 6; other racing pairs were refused, two of them with a raw
+  SQL error from the quorum (`PledgeV2: failed to insert tokenchain records for
+  incoming tx: duplicate key value violates unique constraint "tokenchain_pkey"`).
 - **Cause:** each quorum validates against its own view of the chain and syncs
   from the initiator. Two executes signed by two different quorums on the same
   tip never see each other; nothing orders executes per token.
@@ -183,7 +235,10 @@ failing on the fleet.
 - **Confirm with:** `custom/unpledged_spend.py` (exists).
 
 ### R-09 Failures leave tokens Locked
-- **Seen:** 23.176 RBT parked Locked on 4 DIDs (AUDIT-START 2026-11-02). Failed
+- **Seen:** 2026-11-03 FT-01: after the S5 sends failed (R-03), 1,500 FTs stayed
+  Locked on .137:20100 and 1,300 on .144:20300, so S8 found those holders
+  showing 200 FTs where 1,500 / 1,300 / 1,700 should be.
+  23.176 RBT parked Locked on 4 DIDs (AUDIT-START 2026-11-02). Failed
   FT sends left 500 FTs Locked on two senders (FT-01, 2026-10-29). A pledge
   that failed mid-way left 0.576 RBT Locked on its quorum (QCAP-01,
   2026-10-22). A refused FT mint left 0.8 RBT Locked (2026-10-01).
@@ -399,6 +454,87 @@ failing on the fleet.
   and can mislead anything that counts tokens by DID.
 - **Confirm with:** after one transfer, read the quorum's `tokens` rows for the
   sender's DID.
+
+## F. Found 2026-11-03
+
+### R-29 Concurrent pledges on one quorum lose their token locks
+- **Seen:** QCAP-01, 400 one-RBT transfers at once through one quorum: 27
+  refused `PledgeV2 failed: PledgeV2: 1 token(s) not locked by this referenceID
+  "<id>": | [60001_10696]` (one token each). 398/398 went through at 400 on
+  2026-11-02, and 298/298 at 300 this run.
+- **Cause (not proven):** the quorum locks the pledge's tokens under the
+  request's reference (`ReqPledgeToken` -> `LockTokensForSplit`,
+  `core/consensus/consensus.go:31`); `PledgeV2` later re-reads them with
+  `token_status = Locked AND lock_reference_id = <reference>` and refuses when
+  one is missing (`core/pledge_v2.go:99-135`). Between the two, the token's lock
+  changed. The path that changes it under load is not found yet - candidates:
+  the initiator's retry (`core/transaction.go:113`, TOCTOU `maxRetries = 3`)
+  asking again with a new reference, or a release path. All 532c413b.
+- **Fix needed:** once found, keep a pledge's lock until PledgeV2 has run (or
+  re-lock under the same reference); the refusal should say the quorum was busy.
+- **Confirm with:** 300, 400, 500 one-RBT transfers through one quorum; for each
+  refusal, follow its reference ID through the quorum's log.
+
+### R-30 The pledge lock plans from `token_denom` counters and never checks what it locked
+- **Seen:** QCAP-02 2026-11-03: a quorum (121:20100) holding 184.045 Free,
+  asked to pledge 184.045, refused `CollectRBTTokens: insufficient balance:
+  current balance 179.6, transfer amount 184.045` - it locked only 179.6 of it.
+- **Cause:** `lockTokensForSplitOnce` (`core/wallet/token_lock.go`, after :500;
+  532c413b) plans which denominations to take from the `token_denom` COUNTERS
+  (`GetTokenDenomArray` -> `SelectTokensFromTokenDenomForLocking`), then for
+  each denomination locks up to that many Free rows (`LIMIT count FOR UPDATE
+  SKIP LOCKED`), and never checks that it got the planned number. When a
+  counter is higher than the real Free rows (R-02), or rows are skipped as
+  locked, it locks less than the amount and the pledge is refused although the
+  wallet holds enough. R-02 thus turns into refused valid transfers.
+- **Fix needed:** plan from the Free rows themselves (or check the locked total
+  and re-plan from rows when it falls short); fix R-02 so the counters stop
+  drifting.
+- **Confirm with:** a quorum whose counter is above its Free rows (AUDIT lists
+  them), asked to pledge exactly its Free holding.
+
+### R-31 A faucet-minted whole token refused by the allowlist, naming another minter
+- **Seen:** LOAD-01 at 100 senders, 2026-11-03: `ValidateMinterAllowlist: token
+  60001_103300 minter bafybmibumfrj54sor3kmtt6epchysdjqldogc4gki77h4nkhbz7hbdx5ve
+  not authorised for level 60001 number 103300`. Token 60001_103300 is in the
+  faucet DID's range (1-2,150,000), and the faucet DID is
+  `bafybmih6fkweeuo...`, not the minter named.
+- **Cause (not known):** the quorum took a different DID as the token's minter -
+  perhaps from a copy of the token's chain that does not start at the genesis
+  (see R-28), or a holder recorded as the minter. Not the fixed part-token bug
+  (that was part tokens; this is a whole token).
+- **Fix needed:** to be decided once the quorum's chain for the token is read.
+- **Confirm with:** read token 60001_103300's chain (height 0) on the quorum that
+  refused and on the sender; send the token again through another quorum.
+
+### R-32 A transfer recorded by the receiver's node but never credited to the receiver
+- **Seen:** CHAIN-01 2026-11-03, the clean-up between the two chains: a holder
+  (124:20800) sent its leftover whole token to quorum 10 (.118:20000), tx
+  `04b85c403d62bd12405331212f21fa69374915a1a12645cbe6b414201d44f135`. The sender
+  reported success and the receiver's node recorded the transaction
+  (`lost_rbt.py --tx`: on .110:20000 - the quorum that signed it - .118:20000
+  and .124:20800), but the receiver's Free balance never rose; `lost_rbt.py`
+  counts no RBT as undelivered. It is the whole -1.000 RBT of this run
+  (AUDIT-END, and the runner's fleet ledger "UNEXPLAINED -1.000").
+- **Read on the two nodes (2026-11-03):** the sender (.124:20800) has token
+  **60001_156063** with status 4 (Transferred) under this transaction - the
+  token CHAIN-01 had just passed along 200 hops. The receiver (.118:20000)
+  linked the transaction to a DIFFERENT token, **60001_106727**, Free under quorum
+  10's own DID (`...aulyoa`) - a token it already held, so its balance did not
+  change. The receiver recorded the transfer against the wrong token and never
+  took 60001_156063.
+- **Likely cause (not proven):** quorum 10 had validated hops of 60001_156063,
+  so its node already held a copy row of it under an earlier holder's DID
+  (R-28; the token is on that list on .106, .107 and .108). The receive path
+  then mis-matched the incoming token.
+- **Still to read:** which token the transaction itself carries (a fullnode's
+  `transactions.info` for this ID), and the receiver's row for 60001_156063.
+- **Fix needed:** once confirmed, the receiver must persist exactly the tokens
+  the transaction carries and take over any copy row for them (owner DID,
+  status Free).
+- **Confirm with:** pass a token through quorum Q, then send that token to Q
+  itself; read Q's `tokens` row for it. For this run:
+  `lost_rbt.py --tx 04b85c40...` and Q's row for the token.
 
 ## E. Not reachable on the lab, or fixed
 

@@ -55,6 +55,7 @@ import importlib.util
 import json
 import os
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -296,8 +297,10 @@ FIXED = {"roles": [], "pids": {}, "rss": {}}
 # What check_fixed and regate_deaf found between units, for the report.
 RUN_WARNINGS = []
 
-# Added to a unit's `fund`. Being generous costs one faucet transfer; being
-# short costs a failure that says nothing about the product.
+# Added to a unit's `fund`: the case's need again, at least this much. Being
+# generous costs one faucet transfer; being short costs a draw in the middle of
+# a case, where a faucet that is restarting (RUBIX-ISSUES.md R-03) makes a step
+# NOT RUN that says nothing about the product. Doubled on 2026-11-03.
 FUND_SAFETY_MARGIN = 10
 
 
@@ -306,7 +309,7 @@ def unit_targets(spec, quorum_floor):
     before it starts; prepare_unit draws only the shortfall from the faucet.
     The web UI shows the same figures as the faucet draw before a run."""
     floor = spec["quorum_fund"] if spec["quorum_fund"] is not None else quorum_floor
-    want = spec["fund"] + FUND_SAFETY_MARGIN if spec["fund"] else 0
+    want = spec["fund"] + max(FUND_SAFETY_MARGIN, spec["fund"]) if spec["fund"] else 0
     return floor, want
 
 
@@ -626,8 +629,17 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
         try:
             sender_quorum = prepare_unit(unit, args) if unit.needs_nodes else {}
         except Exception as e:
+            why = "{} ({})".format(e, unit.describe())
+            if not getattr(unit, "first_try", None):
+                # Funding and quorum setup are the lab's plumbing (the faucet, a
+                # node mid-restart), not the case: try the unit once more, after
+                # the others, with fresh participants.
+                unit.first_try = why
+                say("  -> {:<22} could not be prepared - it runs again after the other "
+                    "units: {}".format(unit.name, e))
+                return
             skip_all(unit, "participants could not be prepared",
-                     "{} ({})".format(e, unit.describe()))
+                     "{} - and on the first try: {}".format(why, unit.first_try))
             return
         receivers = unit.receivers or unit.senders
         # The audits read every DID they read at the start; a unit that sends
@@ -762,6 +774,15 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                 run_events.unit_done(unit, exc)
                 node_screens.give(unit)
                 finished.append(unit.name)
+                if not exc and getattr(unit, "first_try", None) and not unit.rows \
+                        and not getattr(unit, "retried", False):
+                    # Back in the queue ahead of the "last" units (they wait for
+                    # every ordinary unit, so behind them it would never start).
+                    unit.retried = True
+                    unit.quorums, unit.senders, unit.receivers = [], [], []
+                    unit.hosts, unit.dirty_spenders = set(), []
+                    at = next((i for i, u in enumerate(pending) if u.spec["last"]), len(pending))
+                    pending.insert(at, unit)
             check_fixed(sorted(ran), say)
             ran = set(u.name for u in running.values())
             regate_deaf(pool_nodes, deaf, finished, say)
@@ -1137,16 +1158,103 @@ def check_fixed(during, say=print):
         return
     role = dict(FIXED["roles"])
     when = "at the start" if during is None else "after " + (", ".join(during) or "no unit")
-    for m, (pid, mb) in fixed_pids(FIXED["roles"]).items():
-        FIXED["rss"].setdefault(m, []).append((when, mb))
-        was = FIXED["pids"].get(m)
-        FIXED["pids"][m] = pid
-        if was and pid != was:
-            line = ("the {} on {} restarted while {} ran (its node's MainPID changed) - "
-                    "'journalctl -k' on it shows whether the kernel killed it for memory".format(
-                        role[m], m, ", ".join(during) or "no unit"))
-            RUN_WARNINGS.append(line)
-            say("  WARNING: " + line)
+    with _FIXED_LOCK:       # a planned faucet restart changes a PID on purpose
+        for m, (pid, mb) in fixed_pids(FIXED["roles"]).items():
+            FIXED["rss"].setdefault(m, []).append((when, mb))
+            was = FIXED["pids"].get(m)
+            FIXED["pids"][m] = pid
+            if was and pid != was:
+                line = ("the {} on {} restarted while {} ran (its node's MainPID changed) - "
+                        "'journalctl -k' on it shows whether the kernel killed it for "
+                        "memory".format(role[m], m, ", ".join(during) or "no unit"))
+                RUN_WARNINGS.append(line)
+                say("  WARNING: " + line)
+
+
+# ---------------------------------------------------------------------------
+# Keeping the faucet up
+#
+# Every RBT a case holds comes from the faucet, so the faucet is lab plumbing,
+# not something under test: a case must never fail or skip because of it. Its
+# quorum is set up as a quorum, so it handles every transaction the fleet
+# publishes, and its Rubix process grows with large ones until the kernel kills
+# it - 14.2-14.3 GB on 2026-10-29, 11-02 and 11-03 (RUBIX-ISSUES.md R-03). A
+# kill in the middle of a draw lost three units on 2026-11-02. So a watcher
+# reads the faucet pair's memory every FAUCET_WATCH_EVERY seconds and, past
+# --faucet-mem-limit, restarts that node while holding the faucet lock (no
+# draw is in flight; the next one waits), sets the quorum up again, and says so
+# in the report. The memory readings stay in "During the run", so R-03 is still
+# recorded.
+# ---------------------------------------------------------------------------
+
+FAUCET_WATCH_EVERY = 30
+_FIXED_LOCK = threading.Lock()      # check_fixed and a planned faucet restart, one at a time
+FAUCET_RESTARTS = []                # (time, role, machine, GB before, ready afterwards, note)
+
+
+def _faucet_nodes():
+    """[(role, ip, api port)] of the faucet pair."""
+    return [(role, h, p) for role, h, p in (("faucet", rc.FAUCET_HOST, rc.FAUCET_PORT),
+                                            ("faucet quorum", rc.FAUCET_QUORUM_HOST,
+                                             rc.FAUCET_QUORUM_PORT)) if h]
+
+
+def restart_faucet_node(role, host, port, gb, say=print):
+    """Restart one faucet node on purpose and set the faucet quorum up again.
+    Holds the faucet lock, so no draw is in flight and the next one waits."""
+    import subprocess
+    import fleet_health
+    slot = (port - rc.DEFAULT_PORT) // 100
+    with rc._FAUCET_LOCK, _FIXED_LOCK:
+        rearms = len(rc.FAUCET_REARMS)
+        try:
+            p = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                                "{}@{}".format(fleet_health.SSH_USER, host),
+                                "sudo -n systemctl restart rubixgoplatform@{}".format(slot)],
+                               capture_output=True, text=True, timeout=120)
+            sent = p.returncode == 0
+            note = "" if sent else (p.stderr or p.stdout or "").strip()[:160]
+        except Exception as e:
+            sent, note = False, "{}: {}".format(type(e).__name__, e)
+        ready = False
+        if sent:
+            deadline = time.time() + 180
+            while time.time() < deadline:
+                if rc.http_json("GET", rc.base_url(host, port) + rc.EP_PEER_ID, 5)[0]:
+                    break
+                time.sleep(5)
+            ready, note = rc.faucet_ready_wait()
+            # This restart is reported here, not as a draw that found the quorum down.
+            del rc.FAUCET_REARMS[rearms:]
+            pids = fixed_pids([(host, role)])
+            if host in pids:
+                FIXED["pids"][host] = pids[host][0]
+        FAUCET_RESTARTS.append((time.time(), role, host, gb, ready, note))
+    line = "{} the {} on {} was restarted on purpose at {:.1f} GB of memory, between faucet " \
+           "draws - {}".format(time.strftime("%H:%M:%S"), role, host, gb,
+                               "set up again" if ready else "NOT ready afterwards: " + note)
+    RUN_WARNINGS.append(line)
+    say("  NOTE: " + line)
+    return ready
+
+
+def faucet_watch(limit_gb, say=print):
+    """Start the watcher; returns a threading.Event that stops it."""
+    import fleet_health
+    stop = threading.Event()
+    if not limit_gb or limit_gb <= 0:
+        return stop
+
+    def loop():
+        while not stop.wait(FAUCET_WATCH_EVERY):
+            for role, host, port in _faucet_nodes():
+                slot = (port - rc.DEFAULT_PORT) // 100
+                s = fleet_health.read_machine(host, [(slot, slot * 100)], timeout=15)
+                gb = float((s or {}).get("rss.node") or 0) / 1024.0 / 1024.0
+                if gb > limit_gb and not stop.is_set():
+                    restart_faucet_node(role, host, port, gb, say)
+    threading.Thread(target=loop, name="faucet-watch", daemon=True).start()
+    return stop
 
 
 def memory_lines():
@@ -1216,11 +1324,19 @@ def build_parser():
     # Nodes are addressed "ip:port" (fleet.py), which carries each node's own
     # port; this is only the default for a bare-IP call.
     p.add_argument("--port", type=int, default=rc.DEFAULT_PORT, help=argparse.SUPPRESS)
-    p.add_argument("--quorum-floor", type=int, default=100,
+    p.add_argument("--quorum-floor", type=int, default=300,
                    help="RBT a quorum is topped up to before its unit starts, unless "
                         "the unit says otherwise. Cases top the signing quorum up "
                         "further when a transfer needs more (a quorum must pledge >= "
-                        "the transfer value, core/consensus/checks.go).")
+                        "the transfer value, core/consensus/checks.go). Generous, so "
+                        "cases seldom draw from the faucet mid-step.")
+    p.add_argument("--faucet-mem-limit", type=float, default=6.0, metavar="GB",
+                   help="restart a faucet node (faucet or faucet quorum) between faucet "
+                        "draws once its Rubix process passes this much memory, and set "
+                        "the quorum up again - read every {}s during the run. The faucet "
+                        "quorum grows with large transactions until the kernel kills it "
+                        "(RUBIX-ISSUES.md R-03); a planned restart keeps that from "
+                        "landing in the middle of a draw. 0 = never.".format(FAUCET_WATCH_EVERY))
     p.add_argument("--rbt-amount", type=float, default=1)
     p.add_argument("--ft-count", type=int, default=10)
     p.add_argument("--ft-token-count", type=int, default=1)
@@ -1375,7 +1491,11 @@ def main():
     node_screens.begin()
     FIXED["roles"] = fixed_roles()
     check_fixed(None)
-    run_units(units, pool_nodes, fleet, module.CASES, master, case_info, args)
+    watching = faucet_watch(args.faucet_mem_limit)
+    try:
+        run_units(units, pool_nodes, fleet, module.CASES, master, case_info, args)
+    finally:
+        watching.set()
     duration = time.time() - started
     node_screens.end()
     # Restarts of the faucet pair and the fullnodes, nodes gone deaf, every

@@ -400,8 +400,8 @@ def qcap_03b(ctx, ci):
         st.check(ok, "Q set up: {}".format(msg))
         for host, qdid in ((A["host"], Q["did"]), (Q["host"], Q2["did"]), (B["host"], Q2["did"])):
             rc.quorum_reset(host, [qdid], port)
-        ok, msg = rc.fund_did(Q["host"], Q["did"], V, port)
-        st.check(ok, "Q funded with {:.0f}: {}".format(V, msg))
+        ok, msg = ch.give_exact(Q, int(V), Q2, port)
+        st.check(ok, "Q given {:.0f} by its node's own DID: {}".format(V, msg))
     s1 = run.step("S1", setup, nodes=[q_node], watch=False,
                   require=[lambda: _as_quorum(Q2, 100, port), wallets])
     if s1.outcome != steps.PASS:

@@ -114,7 +114,7 @@ def empty_did(entry, whole_only=False):
         except Exception:
             continue
         if not [v for _t, v, _st, _p in rows if (v >= 1.0 - 1e-9 or not whole_only)]:
-            return dict(entry, did=did)
+            return dict(entry, did=did, node_did=own)
     return None
 
 
@@ -172,12 +172,39 @@ def make_empty(entry, quorum, port, whole_only=False):
         return None, "emptying a spare DID on {} ({:.3f} RBT to the node's own DID) was " \
                      "refused: {}".format(host, amount, node_reason(msg))
     for _ in range(10):
-        found = empty_did(dict(entry, did=did, dids=[did]), whole_only)
-        if found:
-            return found, ""
+        if empty_did(dict(entry, did=did, dids=[did]), whole_only):
+            return dict(entry, did=did, node_did=own), ""
         time.sleep(1)
     return None, "a spare DID on {} sent {:.3f} RBT away and still holds Free {}RBT".format(
         host, amount, "whole " if whole_only else "")
+
+
+def give_exact(to, k, quorum, port):
+    """(ok, why): exactly k whole RBT to `to`, an empty DID from make_empty,
+    paid by its node's own DID (`node_did`) through `quorum` - a transfer on
+    one node - so a case that needs an exact holding does not draw from the
+    faucet in the middle of a step. The faucet is lab plumbing and its quorum
+    restarts under load (RUBIX-ISSUES.md R-03). Every RBT still came from the
+    faucet first; this only moves it between test DIDs. Falls back to the faucet
+    when the node's own DID cannot pay (too few whole tokens, or the known
+    ex-quorum refusal, core/consensus/checks.go:309)."""
+    payer, host = to.get("node_did"), to["host"]
+    try:
+        enough = payer and payer != to["did"] and len(whole_free(host, payer)) >= k
+    except Exception:
+        enough = False
+    if enough and rc.quorum_reset(host, [quorum["did"]], port)[0]:
+        ok, _msg, _r = rc.initiate_transaction(host, payer, to["did"], rbt=float(k),
+                                               memo="exact holding for the case",
+                                               timeout=TRANSFER_TIMEOUT)
+        if ok:
+            for _ in range(10):
+                if len(whole_free(host, to["did"])) >= k:
+                    return True, ""
+                time.sleep(1)
+            # Sent, so the faucet must not pay again on top of it.
+            return False, "{} RBT sent on {} from its own DID was not credited in 10s".format(k, host)
+    return rc.fund_did(host, to["did"], k, port)
 
 
 def node_reason(msg, limit=300):

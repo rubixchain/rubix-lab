@@ -81,14 +81,14 @@ def _free(entry):
 
 def _wallet(base, k, quorum, port):
     """A wallet on `base`'s node holding exactly k whole tokens and nothing else:
-    an empty DID (emptied first if none is idle, signed by `quorum`), funded
-    with k. (entry or None, why)."""
+    an empty DID (emptied first if none is idle, signed by `quorum`), given k by
+    the node's own DID (case_helpers.give_exact). (entry or None, why)."""
     e, why = ch.make_empty(base, quorum, port)
     if e is None:
         return None, "a {}-token wallet needs an empty DID on the sender's node: {}".format(k, why)
-    ok, msg = rc.fund_did(e["host"], e["did"], k, port)
+    ok, msg = ch.give_exact(e, k, quorum, port)
     if not ok:
-        return None, "the faucet could not fund the wallet: {}".format(msg)
+        return None, "the wallet could not be given {} token(s): {}".format(k, msg)
     time.sleep(ch.SETTLE)
     tokens, held = ch.whole_free(e["host"], e["did"]), _free(e) or 0.0
     if len(tokens) != k or abs(held - k) > ch.TOL:
