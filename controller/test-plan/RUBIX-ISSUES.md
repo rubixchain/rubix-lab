@@ -110,10 +110,12 @@ failing on the fleet.
   .124 slot 1, .126 slot 5, .128 slot 6, .135 slot 0, .144 slot 6), 7 sends
   lost their connection (`RemoteDisconnected`) and all nine of .135's nodes went
   deaf (R-10). WALLET-01's 2,000-RBT sender (.113:20000) took its machine's
-  Rubix to 4.5 GB and 1 GB into swap; that transfer took 64 s. The faucet quorum
-  reached 12.8 GB in the wallets unit; the runner restarted it three times
-  (12.8, 6.7, 6.6 GB) and no case lost its funding. Fullnodes 0.1 -> ~2 GB ->
-  0.1 GB in the same window.
+  Rubix to 4.5 GB and 1 GB into swap; that transfer took 64 s. The kernel killed
+  the faucet quorum again at 14:22:30 (`journalctl -k` on .106: anon-rss 14.26 GB,
+  the fourth kill in four runs), in the wallets unit, before the runner's
+  memory watcher could act; the runner restarted it on purpose afterwards at
+  6.7 and 6.6 GB, and no case lost its funding. Fullnodes 0.1 -> ~2 GB -> 0.1 GB
+  in the same window.
 - **Seen before:** 2026-11-02 the faucet quorum (.106) was OOM-killed at 14:00:31,
   anon-rss 14.27 GB, ~14 min into the run and a few minutes after a 2,000-RBT
   transfer. 2026-10-29: the faucet quorum at 14.2 GB, 24 s after a 2,000-FT
