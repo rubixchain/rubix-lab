@@ -406,14 +406,14 @@ def _free_balances(entries, port):
 
 
 def _ex_pledged(entries):
-    """{did: free RBT held in tokens it pledged as a quorum earlier} - see
-    db.ex_pledged_free_value. Unreadable counts as 0.001 so a DID we cannot
-    check sorts after the clean ones but before the known-bad ones."""
+    """{did: RBT held in tokens it pledged as a quorum - still pledged or
+    released} - see db.pledge_taint. Unreadable counts as 0.001 so a DID we
+    cannot check sorts after the clean ones but before the known-bad ones."""
     from concurrent.futures import ThreadPoolExecutor
 
     def one(e):
         try:
-            return e["did"], db.ex_pledged_free_value(e["host"], e["did"])
+            return e["did"], db.pledge_taint(e["host"], e["did"])
         except Exception:
             return e["did"], 0.001
 
@@ -610,6 +610,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
     busy = set()
     pending = list(units)
     running = {}
+    del RUNNING_UNITS[:]
     ran = set()         # units that ran since check_fixed last read the fixed nodes
     deaf = set()        # pool nodes found deaf after a unit (regate_deaf)
 
@@ -651,8 +652,8 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
         say("  -> {:<22} {}".format(unit.name, unit.describe()))
         if unit.dirty_spenders:
             say("     note: not enough clean nodes free - {} hold(s) tokens pledged as a "
-                "quorum earlier; their 'failed to get quorum DID' refusals are the "
-                "known product bug".format(", ".join(unit.dirty_spenders)))
+                "quorum (still pledged or released); their 'failed to get quorum DID' "
+                "refusals are the known product bug".format(", ".join(unit.dirty_spenders)))
         _run_cases(unit)
 
     def _unpaced_dids(unit):
@@ -753,6 +754,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
                     busy |= unit.hosts
                     pending.remove(unit)
                     ran.add(unit.name)
+                    RUNNING_UNITS.append(unit)
                     running[ex.submit(run_one, unit)] = unit
                     continue
                 if unit.exclusive:
@@ -768,6 +770,8 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
             for fut in done:
                 unit = running.pop(fut)
                 busy -= unit.hosts
+                if unit in RUNNING_UNITS:
+                    RUNNING_UNITS.remove(unit)
                 exc = fut.exception()
                 if exc:
                     skip_all(unit, "runner error", "{}: {}".format(type(exc).__name__, exc))
@@ -1183,11 +1187,14 @@ def check_fixed(during, say=print):
 # reads the faucet pair's memory every FAUCET_WATCH_EVERY seconds and, past
 # --faucet-mem-limit, restarts that node while holding the faucet lock (no
 # draw is in flight; the next one waits), sets the quorum up again, and says so
-# in the report. The memory readings stay in "During the run", so R-03 is still
-# recorded.
+# in the report. A draw also checks before each of its chunks
+# (rc.FAUCET_BEFORE_CHUNK): on 2026-11-03 the watcher waited minutes for a
+# multi-chunk draw while the faucet quorum grew from under 6 GB to the kernel's
+# kill at 14.26 GB. The memory readings stay in "During the run", so R-03 is
+# still recorded.
 # ---------------------------------------------------------------------------
 
-FAUCET_WATCH_EVERY = 30
+FAUCET_WATCH_EVERY = 10
 _FIXED_LOCK = threading.Lock()      # check_fixed and a planned faucet restart, one at a time
 FAUCET_RESTARTS = []                # (time, role, machine, GB before, ready afterwards, note)
 
@@ -1199,13 +1206,40 @@ def _faucet_nodes():
                                              rc.FAUCET_QUORUM_PORT)) if h]
 
 
-def restart_faucet_node(role, host, port, gb, say=print):
-    """Restart one faucet node on purpose and set the faucet quorum up again.
-    Holds the faucet lock, so no draw is in flight and the next one waits."""
+def _faucet_reading(host, port):
+    """(MainPID, Rubix memory in GB) of one faucet node; (None, 0.0) unread."""
+    import fleet_health
+    slot = (port - rc.DEFAULT_PORT) // 100
+    s = fleet_health.read_machine(host, [(slot, slot * 100)], timeout=15) or {}
+    return s.get("pid.{}".format(slot)) or None, float(s.get("rss.node") or 0) / 1024.0 / 1024.0
+
+
+def restart_faucet_node(role, host, port, limit_gb, say=print):
+    """Restart one faucet node on purpose if its Rubix memory is past
+    `limit_gb`, and set the faucet quorum up again. Holds the faucet lock, so
+    no draw is in flight and the next one waits; a draw calls this between its
+    chunks while holding the lock (it is reentrant). The node is read again
+    once the lock is held - the watcher's reading may be minutes old by then -
+    and a MainPID that changed since the last reading is reported as a restart
+    of its own. On 2026-11-03 the kernel killed the faucet quorum at 14:22:30
+    while the watcher waited for a draw; at 14:24:05 the watcher bounced the
+    new process on its old reading and recorded the new PID, so the kill showed
+    nowhere."""
     import subprocess
     import fleet_health
     slot = (port - rc.DEFAULT_PORT) // 100
     with rc._FAUCET_LOCK, _FIXED_LOCK:
+        pid, gb = _faucet_reading(host, port)
+        was = FIXED["pids"].get(host)
+        if pid and was and pid != was:
+            FIXED["pids"][host] = pid
+            line = ("{} the {} on {} had restarted by itself (its node's MainPID changed) - "
+                    "'journalctl -k' on it shows whether the kernel killed it for "
+                    "memory".format(time.strftime("%H:%M:%S"), role, host))
+            RUN_WARNINGS.append(line)
+            say("  WARNING: " + line)
+        if gb <= limit_gb:
+            return True
         rearms = len(rc.FAUCET_REARMS)
         try:
             p = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
@@ -1231,16 +1265,23 @@ def restart_faucet_node(role, host, port, gb, say=print):
                 FIXED["pids"][host] = pids[host][0]
         FAUCET_RESTARTS.append((time.time(), role, host, gb, ready, note))
     line = "{} the {} on {} was restarted on purpose at {:.1f} GB of memory, between faucet " \
-           "draws - {}".format(time.strftime("%H:%M:%S"), role, host, gb,
+           "transfers - {}".format(time.strftime("%H:%M:%S"), role, host, gb,
                                "set up again" if ready else "NOT ready afterwards: " + note)
     RUN_WARNINGS.append(line)
     say("  NOTE: " + line)
     return ready
 
 
+def faucet_check(limit_gb, say=print):
+    """Before each chunk of a faucet draw (rc.FAUCET_BEFORE_CHUNK): restart a
+    faucet node past `limit_gb`. The draw holds the faucet lock for all its
+    chunks, so the watcher alone could only act once the draw was over."""
+    for role, host, port in _faucet_nodes():
+        restart_faucet_node(role, host, port, limit_gb, say)
+
+
 def faucet_watch(limit_gb, say=print):
     """Start the watcher; returns a threading.Event that stops it."""
-    import fleet_health
     stop = threading.Event()
     if not limit_gb or limit_gb <= 0:
         return stop
@@ -1248,11 +1289,10 @@ def faucet_watch(limit_gb, say=print):
     def loop():
         while not stop.wait(FAUCET_WATCH_EVERY):
             for role, host, port in _faucet_nodes():
-                slot = (port - rc.DEFAULT_PORT) // 100
-                s = fleet_health.read_machine(host, [(slot, slot * 100)], timeout=15)
-                gb = float((s or {}).get("rss.node") or 0) / 1024.0 / 1024.0
-                if gb > limit_gb and not stop.is_set():
-                    restart_faucet_node(role, host, port, gb, say)
+                pid, gb = _faucet_reading(host, port)
+                was = FIXED["pids"].get(host)
+                if (gb > limit_gb or (pid and was and pid != was)) and not stop.is_set():
+                    restart_faucet_node(role, host, port, limit_gb, say)
     threading.Thread(target=loop, name="faucet-watch", daemon=True).start()
     return stop
 
@@ -1272,9 +1312,84 @@ def memory_lines():
     return out
 
 
+# ---------------------------------------------------------------------------
+# Nodes that can no longer receive
+#
+# A node whose IPFS restarted on its own is deaf until the node restarts (R-10),
+# and one node's kill can take its machine's other IPFS daemons with it (R-11):
+# on 2026-11-03 FT-01's memory crash (R-03) left all nine of .135's nodes deaf,
+# and NFT-01 S6, FT-01 S6/S7 and all of SC-01 did not run. Restarting them is
+# the lab's job, like the faucet's (user, 2026-11-03: plumbing must not cost a
+# case), so the runner restarts such a machine's nodes - before a step that
+# needs them, and between units - whenever no other running unit has a node
+# there. The deafness stays recorded where it happened.
+# ---------------------------------------------------------------------------
+
+RUNNING_UNITS = []      # units running now (run_units keeps it)
+
+
+def heal_machines(machines, ctx=None, why="", say=print):
+    """Restart every node of each pool machine in `machines` (restart-nodes.sh
+    --force: all stopped, then all started - R-11) when no running unit other
+    than ctx's has a node there, wait for their p2p listeners, and set up again
+    the quorums ctx's unit uses on them (quorum setup lives in memory, R-15).
+    Returns (machines whose nodes all receive again, a line saying what was
+    done or why not)."""
+    import subprocess
+    import fleet_health
+    script = os.path.join(HERE, "..", "..", "restart-nodes.sh")
+    roles = fleet_health._roles()
+    busy = set(fleet_inventory.split(h)[0] for u in list(RUNNING_UNITS)
+               if getattr(u, "ctx", None) is not ctx or ctx is None for h in u.hosts)
+    healed, said = [], []
+    for m in machines:
+        if roles.get(m):
+            said.append("{} is the {} - not restarted by the runner".format(m, roles[m]))
+            continue
+        if m in busy:
+            said.append("{} not restarted: another running unit has nodes there".format(m))
+            continue
+        try:
+            subprocess.run(["bash", script, "--host", m, "--force", "--attempts", "20"],
+                           capture_output=True, text=True, timeout=300)
+        except Exception as e:
+            said.append("{} could not be restarted: {}: {}".format(m, type(e).__name__, e))
+            continue
+        hosts = ["{}:{}".format(m, fleet_inventory.API_BASE + index)
+                 for _slot, index in fleet_health.machines_of(["{}:{}".format(
+                     m, fleet_inventory.API_BASE)])[m]]
+        deadline, still = time.time() + 90, hosts
+        while still and time.time() < deadline:
+            time.sleep(10)
+            still = list(fleet_health.deaf_nodes(hosts)[0])
+        if still:
+            said.append("restarted {}'s nodes, but {} still cannot receive".format(m, len(still)))
+            continue
+        healed.append(m)
+        rearmed = [q for q in (getattr(ctx, "quorum_hosts", None) or [])
+                   if fleet_inventory.split(q["host"])[0] == m]
+        for q in rearmed:
+            rc.quorum_setup(q["host"], q["did"])
+        line = ("{} restarted the nodes of {} - they could no longer receive (IPFS without its "
+                "p2p listener){}{}".format(time.strftime("%H:%M:%S"), m,
+                                           " - " + why if why else "",
+                                           "; quorum(s) {} set up again".format(", ".join(
+                                               q["host"] for q in rearmed)) if rearmed else ""))
+        RUN_WARNINGS.append(line)
+        say("  NOTE: " + line)
+        said.append(line)
+    return healed, "; ".join(said)
+
+
+def heal_for_step(machines, ctx, label):
+    """steps.HEAL: before a step whose participants cannot receive."""
+    return heal_machines(machines, ctx, "before " + label)
+
+
 def regate_deaf(pool_nodes, deaf, after, say=print):
-    """After units finish, leave out the pool nodes that can no longer receive,
-    as health_gate does at the start. A node the kernel kills can take its
+    """After units finish, restart the machines whose nodes can no longer
+    receive (heal_machines) and leave out the nodes that still cannot, as
+    health_gate does at the start. A node the kernel kills can take its
     machine's other nodes' IPFS with it (core/shutdown_manager.go), and the IPFS
     auto-restart never registers their p2p listeners again
     (core/ipfs_recovery.go): on 2026-10-29 FT-01 left all nine of .116's nodes
@@ -1284,11 +1399,15 @@ def regate_deaf(pool_nodes, deaf, after, say=print):
     found, _unsynced = fleet_health.deaf_nodes([n["host"] for n in pool_nodes])
     if not found:
         return
-    deaf.update(found)
-    pool_nodes[:] = [n for n in pool_nodes if n["host"] not in deaf]
     by_machine = {}
     for h in found:
         by_machine.setdefault(fleet_inventory.split(h)[0], []).append(h)
+    healed, _said = heal_machines(sorted(by_machine), None, "after " + ", ".join(after), say)
+    for m in healed:
+        del by_machine[m]
+    found = [h for hosts in by_machine.values() for h in hosts]
+    deaf.update(found)
+    pool_nodes[:] = [n for n in pool_nodes if n["host"] not in deaf]
     for m, hosts in sorted(by_machine.items()):
         line = ("after {}, {} node(s) on {} could no longer receive (their IPFS lost its p2p "
                 "listener) - left out of the rest of the run (fix: restart-nodes.sh --host {} "
@@ -1330,13 +1449,15 @@ def build_parser():
                         "further when a transfer needs more (a quorum must pledge >= "
                         "the transfer value, core/consensus/checks.go). Generous, so "
                         "cases seldom draw from the faucet mid-step.")
-    p.add_argument("--faucet-mem-limit", type=float, default=6.0, metavar="GB",
+    p.add_argument("--faucet-mem-limit", type=float, default=4.0, metavar="GB",
                    help="restart a faucet node (faucet or faucet quorum) between faucet "
-                        "draws once its Rubix process passes this much memory, and set "
-                        "the quorum up again - read every {}s during the run. The faucet "
-                        "quorum grows with large transactions until the kernel kills it "
-                        "(RUBIX-ISSUES.md R-03); a planned restart keeps that from "
-                        "landing in the middle of a draw. 0 = never.".format(FAUCET_WATCH_EVERY))
+                        "transfers once its Rubix process passes this much memory, and "
+                        "set the quorum up again - read every {}s during the run and "
+                        "before every chunk of a draw. The faucet quorum grows with large "
+                        "transactions until the kernel kills it, at ~14.3 GB, and it has "
+                        "grown from under 6 GB to that within a draw (RUBIX-ISSUES.md "
+                        "R-03); a planned restart keeps that from landing in the middle "
+                        "of a draw. 0 = never.".format(FAUCET_WATCH_EVERY))
     p.add_argument("--rbt-amount", type=float, default=1)
     p.add_argument("--ft-count", type=int, default=10)
     p.add_argument("--ft-token-count", type=int, default=1)
@@ -1492,10 +1613,18 @@ def main():
     FIXED["roles"] = fixed_roles()
     check_fixed(None)
     watching = faucet_watch(args.faucet_mem_limit)
+    if args.faucet_mem_limit > 0:
+        rc.FAUCET_BEFORE_CHUNK = lambda: faucet_check(args.faucet_mem_limit)
+    steps_mod = sys.modules.get("steps")    # master/steps.py, loaded with the case modules
+    if steps_mod is not None:
+        steps_mod.HEAL = heal_for_step
     try:
         run_units(units, pool_nodes, fleet, module.CASES, master, case_info, args)
     finally:
         watching.set()
+        rc.FAUCET_BEFORE_CHUNK = None
+        if steps_mod is not None:
+            steps_mod.HEAL = None
     duration = time.time() - started
     node_screens.end()
     # Restarts of the faucet pair and the fullnodes, nodes gone deaf, every

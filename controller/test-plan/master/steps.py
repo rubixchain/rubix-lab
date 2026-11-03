@@ -66,9 +66,18 @@ SKIP = "SKIP"
 
 REFUSE_BUDGET = 60      # seconds: a refusal later than this is not gentle
 SETTLE_MAX = 45         # seconds locks get to clear after a step
-DELIVERY_WAIT = 60      # seconds an accepted transfer gets to land on its receiver
+DELIVERY_WAIT = 60      # seconds an accepted transfer gets to land on its receiver,
+DELIVERY_PER_RBT = 0.1  # plus this per RBT of the largest one: on 2026-11-03 a 2,000-RBT
+                        # transfer landed after more than 60 s (WALLET-01)
 TOL = 0.0015
 HELD = (db.FREE, db.LOCKED, db.COMMITTED, db.PLEDGED, db.QUORUM_PLEDGED, db.BURNT_FOR_FT)
+
+# Set by test_runner: HEAL(machines, ctx, label) -> (machines whose nodes receive
+# again, what was done) restarts the nodes of machines where a step's
+# participants cannot receive, when no other running unit uses them
+# (test_runner.heal_machines). None (validate_cases, the demo) = the step is
+# NOT RUN, as before.
+HEAL = None
 
 # A reason that tells the user nothing about what Rubix decided: the
 # connection dropped, the database or the Go runtime failed underneath, or
@@ -193,6 +202,18 @@ def snapshot(entries):
             for part in ex.map(one, items):
                 merged.update(part or {})
     return merged
+
+
+def _deaf(w, hosts):
+    """The hosts whose IPFS had no p2p listener in the watch's first sample."""
+    out = []
+    for m, rows in (w.samples.items() if w else ()):
+        if rows:
+            for slot, index in w.slots[m]:
+                h = "{}:{}".format(m, 20000 + index)
+                if h in hosts and rows[0].get("ear.{}".format(slot)) == "0":
+                    out.append(h)
+    return out
 
 
 def _new_locks(before, after):
@@ -342,18 +363,24 @@ class CaseRun(object):
                 entries.append(e)
         hosts = sorted(set(e["host"] for e in entries))
         w = fleet_health.Watch(hosts).start() if (watch and hosts) else None
-        deaf = []
-        if w:
-            for m, rows in w.samples.items():
-                if rows:
-                    for slot, index in w.slots[m]:
-                        h = "{}:{}".format(m, 20000 + index)
-                        if h in hosts and rows[0].get("ear.{}".format(slot)) == "0":
-                            deaf.append(h)
+        deaf = _deaf(w, hosts)
+        healing = ""
+        if deaf and HEAL:
+            # Restarting them is the lab's job: an earlier step's crash must not
+            # cost this one. The deafness stays recorded where it happened.
+            healed, healing = HEAL(sorted(set(h.rsplit(":", 1)[0] for h in deaf)), self.ctx,
+                                   "{} {}".format(self.case, st.sid))
+            if healed:
+                w.stop()
+                w = fleet_health.Watch(hosts).start()
+                deaf = _deaf(w, hosts)
+                if not deaf:
+                    st.note(healing)
         if deaf:
             st.not_run = "participant node(s) cannot receive - no IPFS p2p listener: {} " \
-                         "(restart that machine with restart-nodes.sh --force)".format(
-                             ", ".join(_short(h) for h in deaf))
+                         "({})".format(", ".join(_short(h) for h in deaf),
+                                       healing or "restart that machine with restart-nodes.sh "
+                                                  "--force")
             w.stop()
             return self._done(st, {})
         before = snapshot(entries)
@@ -389,13 +416,19 @@ class CaseRun(object):
         return self._done(st, machines)
 
     def _undelivered(self, st):
-        """Accepted operations whose transaction never reached the receiver's node."""
+        """Accepted operations whose transaction never reached the receiver's node,
+        within DELIVERY_WAIT plus DELIVERY_PER_RBT per RBT of the largest one. A
+        delivery that took more than 5 s is recorded (data "delivered_after_s")."""
         want = {}
         for o in st.accepted:
             host = self.host_of.get(o["to"]) if o["to"] else None
             if o["txid"] and host:
                 want.setdefault(host, set()).add(o["txid"])
-        deadline = time.time() + DELIVERY_WAIT
+        txids = set(t for ids in want.values() for t in ids)
+        largest = max([float(o.get("rbt") or 0) for o in rc.OPS if o.get("txid") in txids] or [0])
+        st.delivery_wait = int(DELIVERY_WAIT + DELIVERY_PER_RBT * largest)
+        t0 = time.time()
+        deadline = t0 + st.delivery_wait
         while want and time.time() < deadline:
             for host in list(want):
                 try:
@@ -406,6 +439,8 @@ class CaseRun(object):
                     del want[host]
             if want:
                 time.sleep(2)
+        if txids and not want and time.time() - t0 > 5:
+            st.data["delivered_after_s"] = round(time.time() - t0, 1)
         return [(h, t) for h, ids in want.items() for t in ids]
 
     def _settle(self, entries, before):
@@ -454,8 +489,9 @@ class CaseRun(object):
                 len(st.accepted)))
         if undelivered:
             wrong.append("{} accepted transfer(s) never reached the receiver's node in {}s, e.g. "
-                         "tx {} on {}".format(len(undelivered), DELIVERY_WAIT, undelivered[0][1][:16],
-                                              _short(undelivered[0][0])))
+                         "tx {} on {}".format(len(undelivered),
+                                              getattr(st, "delivery_wait", DELIVERY_WAIT),
+                                              undelivered[0][1][:16], _short(undelivered[0][0])))
         host_of = dict((e["did"], e["host"]) for e in entries)
         for did, rbt, ft, nft in _new_locks(before, after):
             bits = [x for x in ("{:.3f} RBT".format(rbt) if rbt > TOL else "",

@@ -170,7 +170,7 @@ def _clean(entries):
     2026-10-29 every step's probe failed on that, not on the kill."""
     for e in entries:
         try:
-            if db.ex_pledged_free_value(e["host"], e["did"]) <= 0:
+            if db.pledge_taint(e["host"], e["did"]) <= 0:
                 return e
         except Exception:
             continue

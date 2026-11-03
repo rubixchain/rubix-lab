@@ -832,8 +832,14 @@ FAUCET_CHUNK = int(os.environ.get("RUBIX_FAUCET_CHUNK", "1000"))
 
 # One faucet transfer at a time. Units fund in parallel, and many parallel
 # sends from one DID is something the suite TESTS (RBT-N-10) - funding must not
-# depend on it working.
-_FAUCET_LOCK = threading.Lock()
+# depend on it working. Reentrant: FAUCET_BEFORE_CHUNK may restart a faucet node
+# from inside a draw, under this same lock.
+_FAUCET_LOCK = threading.RLock()
+
+# Set by test_runner: called before each chunk of a draw, with the faucet lock
+# held, to restart a faucet node whose memory has grown past the run's limit
+# (RUBIX-ISSUES.md R-03) - a draw of thousands of RBT holds the lock for minutes.
+FAUCET_BEFORE_CHUNK = None
 
 # Each time a draw found the faucet quorum without its setup and set it up
 # again: (time, what the status check said, set up afterwards). Each one is a
@@ -997,6 +1003,11 @@ def fund_did(host, did, amount, port=DEFAULT_PORT, timeout=None):
             return False, "refusing to fund the faucet or its quorum from the faucet"
         sent = 0
         while sent < n:
+            if FAUCET_BEFORE_CHUNK:
+                try:
+                    FAUCET_BEFORE_CHUNK()
+                except Exception:
+                    pass        # a check that cannot read the faucet must not stop the draw
             chunk = min(FAUCET_CHUNK, n - sent)
             ok0, detail0, _ = get_rbt_balance_detail(host, did, port)
             before = detail0["balance"] if ok0 and detail0 else 0.0

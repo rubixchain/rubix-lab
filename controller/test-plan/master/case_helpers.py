@@ -145,9 +145,9 @@ def make_empty(entry, quorum, port, whole_only=False):
         if did == own:
             continue
         try:
-            if db.ex_pledged_free_value(host, did) > 0:
+            if db.pledge_taint(host, did) > 0:
                 continue
-            values = [v for _t, v, _st, _p in db.token_rows(host, did, status=db.FREE)]
+            values =[v for _t, v, _st, _p in db.token_rows(host, did, status=db.FREE)]
         except Exception:
             continue
         whole = [v for v in values if v >= 1.0 - 1e-9]

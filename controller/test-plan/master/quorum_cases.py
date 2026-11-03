@@ -179,7 +179,7 @@ def _senders(ctx, q, n, port):
                 if d == s["did"]:
                     continue
                 try:
-                    if db.ex_pledged_free_value(s["host"], d) > 0:
+                    if db.pledge_taint(s["host"], d) > 0:
                         continue
                 except Exception:
                     continue

@@ -502,6 +502,16 @@ def ex_pledged_free_value(host, did, port=DB_PORT):
     return float(rows[0][0]) if rows else 0.0
 
 
+def pledge_taint(host, did, port=DB_PORT):
+    """RBT this DID holds in tokens it pledged as a quorum - still Pledged, or
+    released and Free (ex_pledged_free_value). Either way its sends can meet the
+    ex-quorum refusal (core/consensus/checks.go:309): a pledge still held is
+    released as soon as the receiver spends onward. On 2026-11-03 COMBO-01's
+    sender had been QCAP-03a's quorum, looked clean when COMBO-01 began (its
+    pledge still held), and was refused four times once the pledge came back."""
+    return pledged_value(host, did, port) + ex_pledged_free_value(host, did, port)
+
+
 def open_pledges(host, port=DB_PORT):
     """tx_ids in unpledge_sequence_info with no matching transactions row.
 
