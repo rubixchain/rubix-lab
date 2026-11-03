@@ -147,25 +147,29 @@ def combo_01(ctx, ci):
                 t0 = time.time()
                 ok, msg, res = rc.initiate_transaction(owner["host"], owner["did"], r["did"],
                                                        memo="COMBO " + label, timeout=ch.TRANSFER_TIMEOUT, **kw)
-                out.append((label, ok, msg, round(time.time() - t0, 2),
-                            res.get("transactionID") if isinstance(res, dict) else None, r, owner, p, parts))
+                secs = round(time.time() - t0, 2)
+                # A refused combination is read again before this owner sends
+                # the next one, which moves the same FTs, NFT and contract.
+                # Until 2026-11-03 the reading came after the owner's whole plan.
+                moved = []
+                if not ok:
+                    time.sleep(2)
+                    if parts["ft"] is not None and _ft_count(owner, p["ft"]) != parts["ft"]:
+                        moved.append("its FTs")
+                    if parts["nft"] is not None and _len(rc.get_nft_chain, owner, p["nft"]) != parts["nft"]:
+                        moved.append("its NFT chain")
+                    if parts["sc"] is not None and _len(rc.get_sc_chain, owner, p["sc"]) != parts["sc"]:
+                        moved.append("its contract chain")
+                out.append((label, ok, msg, secs,
+                            res.get("transactionID") if isinstance(res, dict) else None, r, moved))
             return out
 
         for rows in ch.run_parallel(one, list(enumerate(prepared))):
-            for label, ok, msg, secs, txid, r, owner, p, parts in rows:
+            for label, ok, msg, secs, txid, r, moved in rows:
                 st.op(ok, msg, secs, txid, to=r["did"])
-                if ok:
-                    continue
-                time.sleep(2)
-                moved = []
-                if parts["ft"] is not None and _ft_count(owner, p["ft"]) != parts["ft"]:
-                    moved.append("its FTs")
-                if parts["nft"] is not None and _len(rc.get_nft_chain, owner, p["nft"]) != parts["nft"]:
-                    moved.append("its NFT chain")
-                if parts["sc"] is not None and _len(rc.get_sc_chain, owner, p["sc"]) != parts["sc"]:
-                    moved.append("its contract chain")
-                st.check(not moved, "{} was refused but {} moved anyway - not all or nothing".format(
-                    label, " and ".join(moved)))
+                if not ok:
+                    st.check(not moved, "{} was refused but {} moved anyway - not all or nothing".format(
+                        label, " and ".join(moved)))
     run.step("S2", combos, nodes=owners + list(recv[:len(owners)]) + quorums, must_accept=True,
              require=[(any(p["ft"] or p["nft"] or p["sc"] for p in prepared),
                        "no owner had the assets to combine")])

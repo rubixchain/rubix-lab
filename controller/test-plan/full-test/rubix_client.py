@@ -840,6 +840,10 @@ _FAUCET_LOCK = threading.Lock()
 # restart of the faucet quorum's node; the runner reports them.
 FAUCET_REARMS = []
 
+# Seconds a draw waits for a faucet node that does not answer or has lost its
+# quorum setup - its node restarting (systemd brings it back in ~15s).
+FAUCET_WAIT = 180
+
 # Values are rounded to 3dp (math/math.go FloatPrecision).
 TOLERANCE = 0.0015
 
@@ -936,6 +940,11 @@ def faucet_ready(timeout=DEFAULT_TIMEOUT, arm=False):
     if not armed and arm:
         quorum_setup(FAUCET_QUORUM_HOST, FAUCET_QUORUM_DID, FAUCET_QUORUM_PORT, timeout)
         armed, _now = faucet_quorum_armed(timeout)
+        # One record per restart: faucet_ready_wait tries again while the node
+        # is still coming up.
+        if FAUCET_REARMS and not FAUCET_REARMS[-1][2] \
+                and time.time() - FAUCET_REARMS[-1][0] < FAUCET_WAIT:
+            FAUCET_REARMS.pop()
         FAUCET_REARMS.append((time.time(), why, armed))
     if not armed:
         return False, ("the faucet quorum {}... on {}:{} is not set up on its node ({}) - quorum "
@@ -943,6 +952,21 @@ def faucet_ready(timeout=DEFAULT_TIMEOUT, arm=False):
                        "controller/faucet-setup.py".format(FAUCET_QUORUM_DID[:16], FAUCET_QUORUM_HOST,
                                                             FAUCET_QUORUM_PORT, why))
     return True, "faucet holds {:.3f} RBT free".format(detail["balance"])
+
+
+def faucet_ready_wait(wait=FAUCET_WAIT):
+    """faucet_ready(arm=True), waiting up to `wait` seconds while a faucet node
+    does not answer or its quorum cannot be set up yet - the node restarting.
+    On 2026-11-02 the kernel killed the faucet quorum for memory mid-run, the
+    next draw met the restart ("Connection reset by peer"), and FT-01, NFT-01
+    and SC-01 were skipped unfunded."""
+    deadline = time.time() + wait
+    while True:
+        ok, note = faucet_ready(arm=True)
+        if ok or time.time() >= deadline or not any(
+                k in note for k in ("did not answer", "is not set up on its node")):
+            return ok, note
+        time.sleep(5)
 
 
 def _whole(amount):
@@ -966,7 +990,7 @@ def fund_did(host, did, amount, port=DEFAULT_PORT, timeout=None):
     """
     n = _whole(amount)
     with _FAUCET_LOCK:
-        ok, note = faucet_ready(arm=True)
+        ok, note = faucet_ready_wait()
         if not ok:
             return False, note
         if did in (FAUCET_DID, FAUCET_QUORUM_DID):
@@ -977,15 +1001,22 @@ def fund_did(host, did, amount, port=DEFAULT_PORT, timeout=None):
             ok0, detail0, _ = get_rbt_balance_detail(host, did, port)
             before = detail0["balance"] if ok0 and detail0 else 0.0
             for attempt in (1, 2):
+                rearms = len(FAUCET_REARMS)
                 ok, msg, _ = initiate_transaction(
                     FAUCET_HOST, FAUCET_DID, did, rbt=float(chunk),
                     memo="faucet {} RBT".format(chunk), port=FAUCET_PORT,
                     timeout=timeout or transfer_timeout(chunk))
-                # Refused at the pledge request, before anything moved: the
-                # faucet quorum's node restarted since this draw began. Set it
-                # up again and send the chunk once more.
-                if ok or attempt == 2 or "Quorum is not setup" not in str(msg) \
-                        or not faucet_ready(arm=True)[0]:
+                if ok or attempt == 2:
+                    break
+                # Refused because the faucet quorum's node restarted since the
+                # draw began - "Quorum is not setup" at the pledge request, or
+                # the node gone mid-transfer: wait for it, set it up again, and
+                # send the chunk once more unless the first one landed anyway.
+                if not faucet_ready_wait()[0] or len(FAUCET_REARMS) == rearms:
+                    break
+                ok1, detail1, _ = get_rbt_balance_detail(host, did, port)
+                if ok1 and detail1 and detail1["balance"] >= before + chunk - TOLERANCE:
+                    ok = True
                     break
             # The receiver credits 1-2s after the sender returns, longer for a
             # big chunk. Wait on the receiver whatever the faucet answered: a

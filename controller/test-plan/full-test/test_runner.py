@@ -269,11 +269,9 @@ def resolve_ci(tid, master, case_info):
 #                its quorum, which is cheapest against the poorest one
 #   same_node    every DID from ONE node (sender, receiver and quorum on the
 #                same machine); needs a node holding that many DIDs
-#   empty_dids   sender nodes that must hold a DID with nothing to spend, for a
-#                case that follows ONE token (case_helpers.empty_did); the sender
-#                seats go to such nodes first
-#   empty_whole_only  True (default): "nothing" = no Free whole token, parts
-#                allowed; False: no Free RBT at all
+#   empty_dids   sender nodes that must hold a spare DID the case can empty, for
+#                a case that follows ONE token (case_helpers.make_empty); the
+#                sender seats go to nodes with two or more DIDs first
 #   exclusive    run with nothing else running, at its place in the catalogue:
 #                units before it finish first, units after it wait for it
 #   first        run before everything else, alone (the opening fleet audit)
@@ -289,11 +287,12 @@ NO_DELAY_RERUN = set()
 
 UNIT_DEFAULTS = {"senders": 1, "receivers": 1, "quorums": 1, "fund": 0,
                  "quorum_fund": None, "quorum_pick": "richest",
-                 "same_node": False, "empty_dids": 0, "empty_whole_only": True,
+                 "same_node": False, "empty_dids": 0,
                  "exclusive": False, "first": False, "last": False}
 
-# The faucet pair's and the fullnodes' node PIDs (check_fixed).
-FIXED = {"roles": [], "pids": {}}
+# The faucet pair's and the fullnodes' node PIDs, and their memory after each
+# batch of units: {machine: [(after what, MB)]} (check_fixed).
+FIXED = {"roles": [], "pids": {}, "rss": {}}
 # What check_fixed and regate_deaf found between units, for the report.
 RUN_WARNINGS = []
 
@@ -421,25 +420,6 @@ def _ex_pledged(entries):
         return dict(ex.map(one, entries))
 
 
-def _empty_dids(entries, whole_only, funded):
-    """{node host: [its DIDs holding nothing to spend]} - see db.empty_dids.
-    `funded`: the unit tops its senders up, so the entry's own DID will not stay
-    empty and does not count. Unreadable counts as none."""
-    from concurrent.futures import ThreadPoolExecutor
-
-    def one(e):
-        try:
-            found = db.empty_dids(e["host"], e.get("dids") or [e["did"]], whole_only)
-        except Exception:
-            found = []
-        return e["host"], [d for d in found if not (funded and d == e["did"])]
-
-    if not entries:
-        return {}
-    with ThreadPoolExecutor(max_workers=min(40, len(entries))) as ex:
-        return dict(ex.map(one, entries))
-
-
 def _spread(candidates, k, used):
     """The first k of `candidates` (already in preference order), at most one
     per machine while unused machines are left, then whatever is left. `used`
@@ -522,14 +502,12 @@ def allocate(unit, free_nodes, port):
                 best[e["host"]] = e
         taint = _ex_pledged(list(best.values()))
         dirty = lambda e: taint.get(e["did"], 0.0) > 0
-        # A case that follows ONE token plays from a DID holding nothing on a
-        # sender's node (case_helpers.empty_did), so the nodes that have one
-        # sit in the sender seats first and are kept out of the quorum seats.
-        # Until 2026-10-29 the case looked only after the richest nodes had
-        # been picked, and RACE-01, QCAP-03b and CHAIN-01 found none.
-        empty = (_empty_dids(list(best.values()), s["empty_whole_only"], s["fund"])
-                 if s["empty_dids"] else {})
-        spare = lambda e: bool(empty.get(e["host"]))
+        # A case that follows ONE token plays from an empty DID on a sender's
+        # node, emptying a spare one into the node's own DID when none is idle
+        # (case_helpers.make_empty) - on 2026-11-02 almost no DID in the fleet
+        # was empty. So nodes holding a second DID sit in the sender seats
+        # first and are kept out of the quorum seats.
+        spare = lambda e: bool(s["empty_dids"]) and len(e["dids"]) >= 2
         used = set()
         if s["quorum_pick"] == "poorest":
             unit.quorums = _spread(sorted(best.values(),
@@ -557,10 +535,9 @@ def allocate(unit, free_nodes, port):
                                for e in unit.senders + unit.receivers if dirty(e)]
         if sum(1 for e in unit.senders if spare(e)) < s["empty_dids"]:
             raise RuntimeError(
-                "needs {} sender node(s) holding a DID with no Free {}RBT (the case follows one "
+                "needs {} sender node(s) holding a second DID to empty (the case follows one "
                 "token); {} of the {} free node(s) hold one".format(
-                    s["empty_dids"], "whole " if s["empty_whole_only"] else "",
-                    sum(1 for v in empty.values() if v), len(best)))
+                    s["empty_dids"], sum(1 for e in best.values() if spare(e)), len(best)))
     unit.hosts = {e["host"] for e in unit.quorums + unit.senders + unit.receivers}
 
 
@@ -669,7 +646,7 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
     def _unpaced_dids(unit):
         """Every DID a case may send from in its WITHOUT-delay run: the
         participants, the other DIDs on their nodes (wallet_shapes.second_did,
-        case_helpers.empty_did), and for an exclusive unit the whole fleet -
+        case_helpers.make_empty), and for an exclusive unit the whole fleet -
         LOAD-01, RACE-02 and FAIL-01 drive DIDs straight from ctx.fleet. Until
         2026-10-23 only the participants were unpaced, so LOAD-01's hundreds of
         fleet senders each polled every fullnode's Postgres twice a second on a
@@ -1137,7 +1114,8 @@ def fixed_roles():
 
 
 def fixed_pids(roles):
-    """{machine: MainPID of its one node (slot 0)}, for the machines that answered."""
+    """{machine: (MainPID of its one node (slot 0), its Rubix process's memory in
+    MB)}, for the machines that answered."""
     import fleet_health
     from concurrent.futures import ThreadPoolExecutor
     machines = [m for m, _r in roles]
@@ -1146,18 +1124,21 @@ def fixed_pids(roles):
     with ThreadPoolExecutor(max_workers=len(machines)) as ex:
         samples = list(ex.map(lambda m: fleet_health.read_machine(m, [(0, 0)], timeout=15),
                               machines))
-    return dict((m, s["pid.0"]) for m, s in zip(machines, samples)
+    return dict((m, (s["pid.0"], int(float(s.get("rss.node") or 0) / 1024)))
+                for m, s in zip(machines, samples)
                 if s and s.get("pid.0") not in (None, "", "0"))
 
 
 def check_fixed(during, say=print):
-    """Read the faucet pair's and the fullnodes' node PIDs again; report and
-    record each that changed since the last reading. `during` names the units
-    that ran since then."""
+    """Read the faucet pair's and the fullnodes' node PIDs and memory again;
+    report and record each PID that changed since the last reading. `during`
+    names the units that ran since then; None = the reading at the start."""
     if not FIXED["roles"]:
         return
     role = dict(FIXED["roles"])
-    for m, pid in fixed_pids(FIXED["roles"]).items():
+    when = "at the start" if during is None else "after " + (", ".join(during) or "no unit")
+    for m, (pid, mb) in fixed_pids(FIXED["roles"]).items():
+        FIXED["rss"].setdefault(m, []).append((when, mb))
         was = FIXED["pids"].get(m)
         FIXED["pids"][m] = pid
         if was and pid != was:
@@ -1166,6 +1147,21 @@ def check_fixed(during, say=print):
                         role[m], m, ", ".join(during) or "no unit"))
             RUN_WARNINGS.append(line)
             say("  WARNING: " + line)
+
+
+def memory_lines():
+    """One line per faucet-pair or fullnode machine: its Rubix process's memory
+    at the start and after each batch of units. The faucet quorum always - the
+    kernel killed it at 14 GB on 2026-10-29 and 2026-11-02 - the others when
+    they passed 1 GB."""
+    role = dict(FIXED["roles"])
+    out = []
+    for m, readings in sorted(FIXED["rss"].items()):
+        if role.get(m) != "faucet quorum" and max(mb for _w, mb in readings) < 1024:
+            continue
+        out.append("{} on {}, Rubix memory: {}".format(role.get(m, "node"), m, ", ".join(
+            "{:.1f} GB {}".format(mb / 1024.0, when) for when, mb in readings)))
+    return out
 
 
 def regate_deaf(pool_nodes, deaf, after, say=print):
@@ -1339,7 +1335,7 @@ def main():
     _all_hosts, specs = load_fleet(args.hosts)
     # Every RBT a case spends comes from the faucet, so a misconfigured faucet
     # would fail every case on funding. Stop here instead.
-    faucet_ok, faucet_note = rc.faucet_ready(arm=True)
+    faucet_ok, faucet_note = rc.faucet_ready_wait()
     run_events.phase("faucet", faucet_ok, faucet_note)
     if not faucet_ok:
         sys.exit("ERROR: faucet not ready - {}".format(faucet_note))
@@ -1378,17 +1374,18 @@ def main():
     # Each machine's screen follows the node the run is using (node_screens.py).
     node_screens.begin()
     FIXED["roles"] = fixed_roles()
-    FIXED["pids"] = fixed_pids(FIXED["roles"])
+    check_fixed(None)
     run_units(units, pool_nodes, fleet, module.CASES, master, case_info, args)
     duration = time.time() - started
     node_screens.end()
-    # Restarts of the faucet pair and the fullnodes, nodes gone deaf, and every
-    # draw that found the faucet quorum without its setup.
+    # Restarts of the faucet pair and the fullnodes, nodes gone deaf, every
+    # draw that found the faucet quorum without its setup, and their memory.
     RUN_WARNINGS.extend(
         "{} a faucet draw found the faucet quorum not set up ({}) and {}".format(
             time.strftime("%H:%M:%S", time.localtime(at)), why,
             "set it up again" if armed else "could NOT set it up again")
         for at, why, armed in rc.FAUCET_REARMS[rearms_at_start:])
+    RUN_WARNINGS.extend(memory_lines())
 
     report = CatalogueReport()
     by_id = {}
@@ -1523,7 +1520,7 @@ def main():
 
     if RUN_WARNINGS:
         print()
-        print("During the run (the faucet pair, the fullnodes, deaf nodes):")
+        print("During the run (the faucet pair, the fullnodes, deaf nodes, memory):")
         for line in RUN_WARNINGS:
             print("  " + line)
 

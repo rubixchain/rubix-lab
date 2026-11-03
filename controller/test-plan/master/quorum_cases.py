@@ -97,8 +97,9 @@ STEPS = {
     ],
     "QCAP-03b": [
         ("S1", "Set-up check",
-         "Q and B play from DIDs on their nodes holding no whole token; Q is set up and given "
-         "exactly 20 RBT; A signs through Q, Q and B through Q2",
+         "Q and B play from DIDs on their nodes holding no whole token (a spare DID emptied "
+         "through Q2 into the node's own DID if none is idle); Q is set up and given exactly 20 "
+         "RBT; A signs through Q, Q and B through Q2",
          "set up and wired"),
         ("S2", "The quorum pledges all it has",
          "A pays B 20 RBT through Q", "accepted; B holds exactly the 20 tokens A paid"),
@@ -374,28 +375,39 @@ def qcap_03b(ctx, ci):
     # pledged one (core/callback.go). B's onward send takes its lowest whole
     # token_ids first (core/wallet/token_lock.go), so a B that already holds
     # tokens spends its own older ones and Q's pledge is never touched. B and Q
-    # play from DIDs holding no whole token, on the first two nodes that have
-    # one (NEEDS empty_dids puts them first); Q is given exactly V.
+    # play from DIDs holding no whole token on the first two nodes with a spare
+    # DID (NEEDS empty_dids puts them first), emptied through Q2 if none is
+    # idle (case_helpers.make_empty); Q is given exactly V.
     nodes = ctx.senders[:5]
-    empty = [(e, ch.empty_did(e, whole_only=True)) for e in nodes]
-    empty = [(e, x) for e, x in empty if x]
-    if len(empty) < 2:
-        return SKIP, "{} of the five nodes hold a DID free of whole tokens, B and Q need two - " \
-            "the case follows the exact tokens pledged and paid".format(len(empty)), ""
-    (b_node, B), (q_node, Q) = empty[:2]
+    spare = [e for e in nodes if len(e.get("dids") or []) >= 2]
+    if len(spare) < 2:
+        return SKIP, "{} of the five nodes hold a second DID, B and Q need two - the case " \
+            "follows the exact tokens pledged and paid".format(len(spare)), ""
+    b_node, q_node = spare[:2]
     A, C, Q2 = [e for e in nodes if e is not b_node and e is not q_node]
     state = {}
 
+    def wallets():
+        for key, node in (("B", b_node), ("Q", q_node)):
+            state[key], why = ch.make_empty(node, Q2, port, whole_only=True)
+            if not state[key]:
+                return False, "{} needs a DID with no whole token: {}".format(key, why)
+        return True, ""
+
     def setup(st):
+        B, Q = state["B"], state["Q"]
         ok, msg = rc.quorum_setup(Q["host"], Q["did"], port)
         st.check(ok, "Q set up: {}".format(msg))
         for host, qdid in ((A["host"], Q["did"]), (Q["host"], Q2["did"]), (B["host"], Q2["did"])):
             rc.quorum_reset(host, [qdid], port)
         ok, msg = rc.fund_did(Q["host"], Q["did"], V, port)
         st.check(ok, "Q funded with {:.0f}: {}".format(V, msg))
-    s1 = run.step("S1", setup, nodes=[Q], watch=False,
-                  require=[lambda: _as_quorum(Q2, 100, port)])
-    if s1.outcome != steps.PASS or not all(steps.wired(h, d, port)[0] for h, d in (
+    s1 = run.step("S1", setup, nodes=[q_node], watch=False,
+                  require=[lambda: _as_quorum(Q2, 100, port), wallets])
+    if s1.outcome != steps.PASS:
+        return run.verdict()
+    B, Q = state["B"], state["Q"]
+    if not all(steps.wired(h, d, port)[0] for h, d in (
             (A["host"], Q["did"]), (Q["host"], Q2["did"]), (B["host"], Q2["did"]))):
         return run.verdict()
 

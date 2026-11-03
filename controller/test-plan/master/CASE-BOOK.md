@@ -90,7 +90,7 @@ Whether pledged RBT is unspendable until released, how long the release takes on
 
 | Step | What the lab does | What Rubix must do |
 |---|---|---|
-| **S1** Set-up check | Q and B play from DIDs on their nodes holding no whole token; Q is set up and given exactly 20 RBT; A signs through Q, Q and B through Q2 | set up and wired |
+| **S1** Set-up check | Q and B play from DIDs on their nodes holding no whole token (a spare DID emptied through Q2 into the node's own DID if none is idle); Q is set up and given exactly 20 RBT; A signs through Q, Q and B through Q2 | set up and wired |
 | **S2** The quorum pledges all it has | A pays B 20 RBT through Q | accepted; B holds exactly the 20 tokens A paid |
 | **S3** Spend what is pledged | Q tries to send 20 RBT while all of it is pledged | refused with a stated reason within 60s; the pledge intact, nothing Locked |
 | **S4** Release by spending onward | B sends the 20 tokens A paid it on to C; then wait for Q's pledge to be released | accepted, B's paid tokens gone; Q's pledge released within 120s (a quorum releases when a later transaction spends a token it pledged for, core/callback.go) |
@@ -164,7 +164,7 @@ Whether Rubix ever lets a wallet pay more than it holds when sends race, and whe
 
 | Step | What the lab does | What Rubix must do |
 |---|---|---|
-| **S1** Make a one-token wallet | take a DID on the sender's node that holds no RBT and give it exactly 1 whole token | the wallet holds one whole token, 1.000 RBT |
+| **S1** Make a one-token wallet | take a DID on the sender's node that holds no RBT - emptying a spare one into the node's own DID if none is idle - and give it exactly 1 whole token | the wallet holds one whole token, 1.000 RBT |
 | **S2** One token, many sends | 20 sends of 1 RBT from that wallet to 20 receivers at the same instant | exactly one accepted and on its receiver; the others refused with a stated reason within 60s; the token not left Locked; the wallet empty |
 | **S3** Five tokens, more sends | a wallet with exactly 5 whole tokens sends 1 RBT to 20 receivers at the same instant | no more than 5 accepted, each moving its own token; the rest refused gently; the wallet down by exactly 1 per accepted send; nothing Locked |
 | **S4** One token, fractional sends | a one-token wallet sends 0.3 RBT to 10 receivers at the same instant, so the token must split | at most 3 accepted (0.9 of the 1.0); the wallet down by exactly 0.3 per accepted send; the rest refused gently; nothing Locked |
@@ -194,7 +194,7 @@ How deep a token's history can grow while every hop is still validated and accep
 
 | Step | What the lab does | What Rubix must do |
 |---|---|---|
-| **S1** Set-up check | each holder plays from a DID on its node holding no whole token; each quorum is set up and funded for every pledge it may hold (a pledge is held until spent onward); the first holder gets exactly one token | the token to follow is known by its token_id |
+| **S1** Set-up check | up to 11 holders each play from a DID on its node holding no whole token (a spare one emptied into the node's own DID if none is idle); each quorum is set up and funded for every pledge it may hold (a pledge is held until spent onward); the first holder gets exactly one token | the token to follow is known by its token_id |
 | **S2** Rotating chain | the token passes along the holders for --chain-hops hops, a different quorum signing each hop | every hop accepted and the token on the next holder within 60s; the time per hop at the end of the chain is not much more than at the start |
 | **S3** Single-quorum control | a new token, the same depth, one quorum signing every hop | as S2 |
 

@@ -502,19 +502,6 @@ def ex_pledged_free_value(host, did, port=DB_PORT):
     return float(rows[0][0]) if rows else 0.0
 
 
-def empty_dids(host, dids, whole_only=False, port=DB_PORT):
-    """The DIDs of `dids`, all on this node, holding no Free RBT at all
-    (whole_only: no Free whole token; parts allowed) - one query for the node.
-    case_helpers.empty_did makes the same test for one DID at a time."""
-    rows = query(
-        host,
-        "SELECT DISTINCT did FROM tokens WHERE did = ANY(%s) AND token_type = %s "
-        "AND token_status = %s AND token_value >= %s",
-        (list(dids), TYPE_RBT, FREE, 1.0 - 1e-9 if whole_only else 0.0), port)
-    held = set(d for (d,) in rows)
-    return [d for d in dids if d not in held]
-
-
 def open_pledges(host, port=DB_PORT):
     """tx_ids in unpledge_sequence_info with no matching transactions row.
 

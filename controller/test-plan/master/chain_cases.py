@@ -14,7 +14,8 @@ from.
 ONE token travels, and every hop checks by its token_id that it arrived. A
 send of whole RBT takes the sender's lowest whole token_id first
 (core/wallet/token_lock.go), so each holder plays from a DID on its node that
-holds no whole token (case_helpers.empty_did). Holders and quorums are kept
+holds no whole token, a spare one emptied first if none is idle
+(case_helpers.make_empty). Holders and quorums are kept
 disjoint (a DID that served as a quorum cannot cleanly spend afterwards - the
 known ex-quorum bug), so the token can cycle through the holders as many times
 as the hop count needs.
@@ -35,6 +36,8 @@ import steps
 SKIP = "SKIP"
 DEFAULT_HOPS = 200
 ARRIVAL_WAIT = 60       # seconds for the token to show at the next holder
+HOLDERS = 11            # holders the token cycles through; not a multiple of the 10 quorums,
+                        # so a holder does not meet the same quorum every time round
 
 PURPOSE = {
     "CHAIN-01": "How deep a token's history can grow while every hop is still validated and "
@@ -45,7 +48,8 @@ PURPOSE = {
 STEPS = {
     "CHAIN-01": [
         ("S1", "Set-up check",
-         "each holder plays from a DID on its node holding no whole token; each quorum is set up "
+         "up to 11 holders each play from a DID on its node holding no whole token (a spare one "
+         "emptied into the node's own DID if none is idle); each quorum is set up "
          "and funded for every pledge it may hold (a pledge is held until spent onward); the first "
          "holder gets exactly one token",
          "the token to follow is known by its token_id"),
@@ -150,20 +154,32 @@ def _chain(st, holders, quorums, hops, port, label, token):
 def chain_01(ctx, ci):
     run = steps.CaseRun(ctx, "CHAIN-01", STEPS["CHAIN-01"])
     quorums = ctx.quorum_hosts
-    holders = [e for e in (ch.empty_did(h, whole_only=True) for h in ctx.senders) if e]
     hops = max(2, int(getattr(ctx.args, "chain_hops", DEFAULT_HOPS)))
     port = ctx.port
-    seeded = {}
+    seeded, holders, why_not = {}, [], []
 
     def setup():
-        if len(holders) < 3 or len(quorums) < 2:
-            return False, "needs at least three holders with an empty DID on their node and two " \
-                          "quorums ({} holders, {} quorums)".format(len(holders), len(quorums))
+        if len(quorums) < 2:
+            return False, "needs two quorums, has {}".format(len(quorums))
         for q in quorums:
             ok, why = steps.quorum_ready(q, 0, port)
             if not ok:
                 return ok, why
         _fund_quorums(quorums, -(-hops // len(quorums)), port)
+        # Holders play from a DID holding no whole token on their node, a spare
+        # one emptied through the first quorum if none is idle. HOLDERS of them
+        # are enough: the token cycles through the holders.
+        for h in ctx.senders:
+            if len(holders) >= HOLDERS:
+                break
+            e, why = ch.make_empty(h, quorums[0], port, whole_only=True)
+            if e:
+                holders.append(e)
+            else:
+                why_not.append(why)
+        if len(holders) < 3:
+            return False, "needs at least three holders with an empty DID on their node, found " \
+                          "{}: {}".format(len(holders), "; ".join(why_not[:3]))
         seeded["token"] = _seed(holders[0], port)
         return bool(seeded["token"]), "could not hand the first holder exactly one token to follow"
     s1 = run.step("S1", lambda st: None, nodes=quorums, watch=False, require=[setup])
@@ -201,7 +217,7 @@ ORDER = ["CHAIN-01"]
 NEEDS = {
     # Holders cycle; quorums rotate. Disjoint, so holders stay spendable. The
     # holders play from an empty DID on their nodes, so they are not funded;
-    # nodes holding one take the holder seats first, at least three.
+    # nodes with a spare DID take the holder seats first, at least three.
     "CHAIN-01": {"senders": 30, "receivers": 0, "quorums": 10, "fund": 0, "quorum_fund": 20,
                  "empty_dids": 3},
 }

@@ -43,7 +43,8 @@ PURPOSE = {
 STEPS = {
     "RACE-01": [
         ("S1", "Make a one-token wallet",
-         "take a DID on the sender's node that holds no RBT and give it exactly 1 whole token",
+         "take a DID on the sender's node that holds no RBT - emptying a spare one into the node's "
+         "own DID if none is idle - and give it exactly 1 whole token",
          "the wallet holds one whole token, 1.000 RBT"),
         ("S2", "One token, many sends",
          "20 sends of 1 RBT from that wallet to 20 receivers at the same instant",
@@ -78,13 +79,13 @@ def _free(entry):
     return float(detail["balance"]) if ok and detail else None
 
 
-def _wallet(base, k, port):
+def _wallet(base, k, quorum, port):
     """A wallet on `base`'s node holding exactly k whole tokens and nothing else:
-    an empty DID, funded with k. (entry or None, why)."""
-    e = ch.empty_did(base)
+    an empty DID (emptied first if none is idle, signed by `quorum`), funded
+    with k. (entry or None, why)."""
+    e, why = ch.make_empty(base, quorum, port)
     if e is None:
-        return None, "no DID on the sender's node holds nothing - a {}-token wallet cannot be " \
-                     "made without draining, and draining is not reliable".format(k)
+        return None, "a {}-token wallet needs an empty DID on the sender's node: {}".format(k, why)
     ok, msg = rc.fund_did(e["host"], e["did"], k, port)
     if not ok:
         return None, "the faucet could not fund the wallet: {}".format(msg)
@@ -103,8 +104,10 @@ def race_01(ctx, ci):
     if not ctx.senders or n < 2:
         return SKIP, "needs one sender and at least two receivers", ""
     port, quorums = ctx.port, list(ctx.quorum_hosts or [])
+    if not quorums:
+        return SKIP, "needs the unit's quorum", ""
 
-    w, why = _wallet(ctx.senders[0], 1, port)
+    w, why = _wallet(ctx.senders[0], 1, quorums[0], port)
     s1 = run.step("S1", lambda st: None, nodes=([w] if w else []) + quorums, watch=False,
                   require=[(w is not None, why)])
     if s1.outcome != steps.PASS:
@@ -129,10 +132,10 @@ def race_01(ctx, ci):
 
     run.step("S2", lambda st: race(st, w, 1, 1.0, n), nodes=[w] + recv[:n] + quorums)
     # Each later wallet is made before its step, so the step watches it.
-    w5, why5 = _wallet(ctx.senders[0], 5, port)
+    w5, why5 = _wallet(ctx.senders[0], 5, quorums[0], port)
     run.step("S3", lambda st: race(st, w5, 5, 1.0, n), nodes=([w5] if w5 else []) + recv[:n] + quorums,
              require=[(w5 is not None, why5)])
-    w1, why1 = _wallet(ctx.senders[0], 1, port)
+    w1, why1 = _wallet(ctx.senders[0], 1, quorums[0], port)
     m = min(10, n)
     run.step("S4", lambda st: race(st, w1, 1, 0.3, m), nodes=([w1] if w1 else []) + recv[:m] + quorums,
              require=[(w1 is not None, why1)])
@@ -242,7 +245,7 @@ CASES = {"RACE-01": race_01, "RACE-02": race_02}
 ORDER = ["RACE-01", "RACE-02"]
 NEEDS = {
     "RACE-01": {"senders": 1, "receivers": 24, "quorums": 1, "fund": 0, "quorum_fund": 100,
-                "empty_dids": 1, "empty_whole_only": False},
+                "empty_dids": 1},
     # Exclusive: it grabs a whole node and a whole machine from the fleet and
     # wires their quorums, so nothing else may be using those nodes.
     "RACE-02": {"senders": 2, "receivers": 0, "quorums": 0, "fund": 0, "exclusive": True},

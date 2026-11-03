@@ -102,8 +102,8 @@ def empty_did(entry, whole_only=False):
     (core/wallet/token_lock.go), so a wallet that already holds older tokens
     never moves the one it was just handed. Cases that follow ONE token - a
     chain, a one-token race, a pledge released by spending onward - need a
-    wallet that holds nothing else. Most 5- and 10-DID nodes have idle DIDs, so
-    the node's other DIDs are tried first and the entry's own DID last. The
+    wallet that holds nothing else (make_empty makes one when none is idle).
+    The node's other DIDs are tried first and the entry's own DID last. The
     node, and so its quorum list, is unchanged."""
     own = entry.get("did")
     for did in [d for d in (entry.get("dids") or []) if d != own] + [own]:
@@ -116,6 +116,68 @@ def empty_did(entry, whole_only=False):
         if not [v for _t, v, _st, _p in rows if (v >= 1.0 - 1e-9 or not whole_only)]:
             return dict(entry, did=did)
     return None
+
+
+# The most a spare DID may hold to be emptied for a case: the signing quorum
+# pledges it all, and the faucet tops the quorum up for it.
+DRAIN_CAP = 200
+
+
+def make_empty(entry, quorum, port, whole_only=False):
+    """(entry with its DID swapped for one on the SAME node holding no Free RBT
+    - whole_only: no Free whole token - or None, why).
+
+    An idle empty DID is rare: every DID has been funded by some earlier run
+    and DIDs are never discarded (2 of 234 nodes had one on 2026-11-02, and
+    QCAP-03b, RACE-01 and CHAIN-01 skipped). So when empty_did finds none, the
+    node's spare DID holding least is emptied into the entry's own DID - one
+    transfer, signed by `quorum`, the value staying on the node. A spare
+    holding tokens it pledged as a quorum is passed over: it cannot spend them
+    (core/consensus/checks.go:309). For an empty wallet, spares holding only
+    whole tokens come first - sending the whole balance of parts makes the
+    node search for an exact combination."""
+    found = empty_did(entry, whole_only)
+    if found:
+        return found, ""
+    host, own = entry["host"], entry["did"]
+    options = []
+    for did in entry.get("dids") or []:
+        if did == own:
+            continue
+        try:
+            if db.ex_pledged_free_value(host, did) > 0:
+                continue
+            values = [v for _t, v, _st, _p in db.token_rows(host, did, status=db.FREE)]
+        except Exception:
+            continue
+        whole = [v for v in values if v >= 1.0 - 1e-9]
+        parts = len(values) - len(whole)
+        amount = round(sum(whole) if whole_only else sum(values), 3)
+        if 0 < amount <= DRAIN_CAP:
+            options.append((0 if whole_only else parts, amount, did))
+    if not options:
+        return None, "no spare DID on {} can be emptied - each holds tokens it pledged as a " \
+                     "quorum, more than {} RBT, or nothing readable".format(host, DRAIN_CAP)
+    _parts, amount, did = min(options)
+    ok, detail, _n = rc.get_rbt_balance_detail(quorum["host"], quorum["did"])
+    have = float(detail["balance"]) if ok and detail else 0.0
+    if have < amount + 5:
+        rc.fund_did(quorum["host"], quorum["did"], amount + 5 - have, port)
+    ok, msg = rc.quorum_reset(host, [quorum["did"]], port)
+    if not ok:
+        return None, "could not point {} at its quorum to empty a DID: {}".format(host, msg)
+    ok, msg, _r = rc.initiate_transaction(host, did, own, rbt=amount, memo="empty a wallet for "
+                                          "the case", timeout=TRANSFER_TIMEOUT)
+    if not ok:
+        return None, "emptying a spare DID on {} ({:.3f} RBT to the node's own DID) was " \
+                     "refused: {}".format(host, amount, node_reason(msg))
+    for _ in range(10):
+        found = empty_did(dict(entry, did=did, dids=[did]), whole_only)
+        if found:
+            return found, ""
+        time.sleep(1)
+    return None, "a spare DID on {} sent {:.3f} RBT away and still holds Free {}RBT".format(
+        host, amount, "whole " if whole_only else "")
 
 
 def node_reason(msg, limit=300):
