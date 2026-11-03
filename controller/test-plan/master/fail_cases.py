@@ -46,6 +46,7 @@ HOME = "/home/rubix"
 NODE_LOG = HOME + "/" + fleet_inventory.NODES_DIR + "/node{slot}/log.txt"
 BUDGET = 120            # a refusal later than this, with a node down, is not gentle
 CLIENT_WAIT = 300       # how long the lab waits for any answer at all
+TRIOS = 4               # sets of three machines S1 tries before giving up
 
 # Markers must be Info-level lines: log.txt does not carry Debug. Until
 # 2026-10-23 "after consensus" waited for "Transaction succeeded, tokens will
@@ -82,8 +83,9 @@ STEPS = {
         ("S1", "Set-up check",
          "pick A (sender, a DID holding no token it pledged as a quorum earlier), B (receiver) and "
          "Q (quorum) on three machines with nine nodes each; set Q up and fund it; point A and B "
-         "at Q",
-         "Q set up and funded; A and B sign with Q"),
+         "at Q; A sends B 1 RBT through Q before any kill - if that is refused, the next three "
+         "machines are tried (up to {})".format(TRIOS),
+         "Q set up and funded; A and B sign with Q; an ordinary transfer goes through"),
         ("S2", "Kill the sender right after it starts",
          "A sends 1 RBT to B; A's unit is stopped on its log line 'Starting transaction', then started "
          "again", _AFTER),
@@ -185,19 +187,10 @@ def fail_01(ctx, ci):
     machines = sorted(by_machine, key=lambda m: -len(by_machine[m]))
     if len(machines) < 3:
         return SKIP, "needs DIDs on at least three machines", ""
-    A = None
-    for m in machines:
-        A = _clean(by_machine[m])
-        if A:
-            break
-    if A is None:
-        return SKIP, "no DID in the fleet is free of tokens it pledged as a quorum earlier - A's " \
-                     "sends would meet the known checks.go:309 refusal, not the kill", ""
-    rest = [m for m in machines if m != fleet_inventory.split(A["host"])[0]]
-    B, Q = by_machine[rest[0]][0], by_machine[rest[1]][0]
     port = ctx.port
+    trio, tried = {}, []
 
-    def setup():
+    def setup(A, B, Q):
         ok, why = steps.quorum_ready(Q, 0, port)
         if not ok:
             return ok, why
@@ -213,9 +206,41 @@ def fail_01(ctx, ci):
             if not ok:
                 return ok, why
         return True, ""
-    s1 = run.step("S1", lambda st: None, nodes=[A, B, Q], watch=False, require=[setup])
+
+    def choose():
+        """The first three machines whose A, B and Q make an ordinary transfer
+        before any kill. A token an earlier run's kill left stuck lives in the
+        quorum's database (RUBIX-ISSUES.md R-04): on 2026-11-02 every later
+        send of A's lowest token through that Q was refused, and the same three
+        nodes would be picked again."""
+        for i in range(len(machines)):
+            if len(tried) >= TRIOS:
+                break
+            ms = [machines[(i + k) % len(machines)] for k in range(3)]
+            A = _clean(by_machine[ms[0]])
+            if A is None:
+                continue
+            B, Q = by_machine[ms[1]][0], by_machine[ms[2]][0]
+            ok, why = setup(A, B, Q)
+            if ok:
+                ok, msg, _r = rc.initiate_transaction(A["host"], A["did"], B["did"], rbt=1.0,
+                                                      memo="FAIL-01 check before the kills",
+                                                      timeout=ch.TRANSFER_TIMEOUT)
+                why = "" if ok else "an ordinary transfer was refused: {}".format(ch.node_reason(msg))
+            if ok:
+                trio.update(A=A, B=B, Q=Q)
+                return True, ""
+            tried.append("{} -> {} via {}: {}".format(steps._short(A["host"]), steps._short(B["host"]),
+                                                      steps._short(Q["host"]), why))
+        if not tried:
+            return False, "no DID in the fleet is free of tokens it pledged as a quorum earlier - " \
+                          "A's sends would meet the known checks.go:309 refusal, not the kill"
+        return False, "no three nodes made an ordinary transfer before any kill: " + "; ".join(tried)
+    s1 = run.step("S1", lambda st: [st.note("tried first: " + t) for t in tried], nodes=[],
+                  watch=False, require=[choose])
     if s1.outcome != steps.PASS:
         return run.verdict()
+    A, B, Q = trio["A"], trio["B"], trio["Q"]
 
     def rearm():
         # A quorum's setup lives in memory and goes with a restart
