@@ -39,8 +39,9 @@ TYPES = {
     "case_started": ("unit", "case", "mode"),
     "op": ("unit", "case", "mode", "kind", "host", "initiator", "owner", "rbt", "assets",
            "ok", "secs", "waited", "pacing", "txid", "reason", "known_bug", "funding"),
+    "step": ("unit", "case", "mode", "id", "title", "expect", "outcome", "summary", "seconds"),
     "case_result": ("unit", "case", "status", "actual", "note", "seconds", "db", "fullnode",
-                    "checks", "known_bugs", "fullnode_buckets"),
+                    "checks", "known_bugs", "fullnode_buckets", "steps"),
     "unit_done": ("unit", "seconds", "error"),
     "run_done": ("status", "passed", "failed", "skipped", "duration", "report_json",
                  "report_pdf", "evidence", "log", "ledger", "fullnode_reasons", "known_bugs"),
@@ -50,12 +51,14 @@ COMMON = ("v", "run", "seq", "t", "type")
 # The knobs a run_started line records - the catalogue's scale settings.
 KNOBS = ("quorum_floor", "quorum_ladder", "ladder_stop", "ladder_settle", "whole_wallet",
          "parts_target", "asset_hops", "scale", "fleet_total", "version_label",
-         "collect_versions")
+         "faucet_mem_limit", "collect_versions")
 
 _LOCK = threading.Lock()
 _S = {"fh": None, "seq": 0, "run": "", "done": False}
 _WHO = {}           # did -> (unit, case, mode): who an operation belongs to
+_CASE = {}          # case -> (unit, mode): the run of it going now, for its steps
 _UNIT_T0 = {}       # unit name -> when it started
+STEP_SUMMARY = 1000 # characters of a step's summary kept in an event
 _TL = threading.local()
 
 
@@ -152,10 +155,31 @@ def case_started(unit, tid, paced):
     if not active():
         return
     mode = "with delay" if paced else "without delay"
+    _install_step_tap()
     with _LOCK:
         for e in unit.quorums + unit.senders + unit.receivers:
             _WHO[e["did"]] = (unit.name, tid, mode)
+        _CASE[tid] = (unit.name, mode)
     emit("case_started", unit=unit.name, case=tid, mode=mode)
+
+
+def _step(record, mode=None):
+    return {"mode": mode or record.get("mode") or "", "id": record.get("id"),
+            "title": record.get("title"), "expect": record.get("expect"),
+            "outcome": record.get("outcome"), "seconds": record.get("seconds"),
+            "summary": str(record.get("summary") or "")[:STEP_SUMMARY]}
+
+
+def step_rows(evidence):
+    """A case's steps (master/steps.py) from its evidence, each run's in turn:
+    [{mode, id, title, expect, outcome, summary, seconds}]. [] for a case that
+    is not written as steps. The web UI's importer reads past runs with it."""
+    evidence = evidence or {}
+    out = []
+    for run in evidence.get("runs") or [evidence]:
+        mode = run.get("mode") or ("without delay" if evidence.get("runs") else "")
+        out += [_step(s, mode) for s in run.get("steps") or []]
+    return out
 
 
 def case_result(unit, tid, status, result, elapsed, evidence):
@@ -175,7 +199,8 @@ def case_result(unit, tid, status, result, elapsed, evidence):
          db=case_evidence.short_db(evidence) if evidence else "-",
          fullnode=case_evidence.short_fullnode(evidence) if evidence else "-",
          checks=checks, known_bugs=known,
-         fullnode_buckets=(evidence.get("fullnode_comparison") or {}).get("counts"))
+         fullnode_buckets=(evidence.get("fullnode_comparison") or {}).get("counts"),
+         steps=step_rows(evidence))
 
 
 def unit_done(unit, error):
@@ -246,6 +271,29 @@ def _install_tap():
                 _TL.t0 = None
         signed_action._timed = True
         rc.signed_action = signed_action
+
+
+def _install_step_tap():
+    """A "step" line as each step of a case ends (master/steps.py,
+    CaseRun._done). The case modules load after start(), so this is installed
+    at the first case_started; a case not written as steps never reaches it."""
+    import sys
+    steps = sys.modules.get("steps")
+    if steps is None or getattr(steps.CaseRun._done, "_tapped", False):
+        return
+    inner = steps.CaseRun._done
+
+    def _done(self, st, machines):
+        out = inner(self, st, machines)
+        try:
+            with _LOCK:
+                unit, mode = _CASE.get(self.case, (None, None))
+            emit("step", unit=unit, case=self.case, **_step(st.record, mode))
+        except Exception:
+            pass
+        return out
+    _done._tapped = True
+    steps.CaseRun._done = _done
 
 
 def _reason(msg):

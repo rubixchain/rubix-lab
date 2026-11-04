@@ -61,6 +61,8 @@ tr.detail td { background: #fbfcfd; }
 .tag { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 11px; background: var(--idle-bg);
   color: var(--idle); margin-right: 4px; }
 .tag.ex { background: #fde8d0; color: #8a4200; }
+.stepchips { margin-top: 4px; line-height: 1.9; }
+.badge.step { padding: 0 6px; font-size: 11px; cursor: help; }
 
 .msgs { margin: 0 0 10px; padding: 0; list-style: none; }
 .msgs li { padding: 6px 10px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
@@ -112,6 +114,8 @@ input[type=number] { width: 120px; }
 .case .text { flex: 1; }
 .case .exp { color: var(--muted); font-size: 13px; margin-top: 2px; }
 .case details { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.case ol.stepdefs { margin: 4px 0 6px; padding-left: 20px; color: var(--ink); }
+.case ol.stepdefs li { margin-bottom: 3px; }
 .knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px 18px; }
 .knob label { display: block; font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
 .knob .help { color: var(--muted); font-size: 12px; margin-top: 3px; }

@@ -6,8 +6,8 @@ controller. Open it from any lab machine: **http://192.168.1.120:8470**.
 | Page | Shows |
 |---|---|
 | Fleet | every machine and node: up, peer ID, DIDs held vs the layout, quorum list, build; the faucet pair (`faucet_ready`, balances); the fullnodes (accepted / rejected, rejection reasons grouped, transactions they disagree on) |
-| Run builder | **Catalogue run**: the catalogue cases with their text and the runner's scale knobs. **Custom run**: scenarios you describe - asset and operation, pattern, senders / receivers / quorums, amounts, rounds, concurrency. Both show the plan for the run - units, nodes, quorum funding, the most it can draw from the faucet - before Start |
-| Live run | the run as it goes: units and participants, every operation, p50/p95/max per case, refusals grouped (known product bugs tagged), DB checks, fullnode verdicts, the console. Reload it or open it on another machine: it picks the run up again |
+| Run builder | **Catalogue run**: the catalogue cases with their text, what each is for and its steps (`master/CASE-BOOK.md`), and the runner's scale knobs. **Custom run**: scenarios you describe - asset and operation, pattern, senders / receivers / quorums, amounts, rounds, concurrency. Both show the plan for the run - units, nodes, quorum funding, the most it can draw from the faucet - before Start |
+| Live run | the run as it goes: units and participants, each case's steps as they end (PASS / LIMIT / DAMAGE / WRONG / HARDWARE / NOT RUN - hover a step for what it means, open the case for the table), every operation, p50/p95/max per case, refusals grouped (known product bugs tagged), DB checks, fullnode verdicts, what the runner did about the lab itself (faucet restarts, deaf nodes restarted or left out, units tried again), the console. Reload it or open it on another machine: it picks the run up again |
 | Reports | every run - from the UI, from a terminal, and the older reports in `reports/` - with its JSON, PDF, evidence and log |
 
 ## Starting it on the controller
@@ -40,6 +40,9 @@ Nothing to configure: hosts.txt and the node layout are read through
   liveness 30 s, DIDs and quorum lists 5 min, faucet 1 min, fullnodes 2 min.
   Slower during a run, and nothing at all while an exclusive unit (QCAP-01, the
   audits) runs. At most one database connection per node.
+- **The faucet**: a faucet quorum that lost its setup (its node restarted) does
+  not stop a run - the Fleet page says so, and the runner sets it up again when
+  it starts. Anything else wrong with the faucet does.
 - **Stop** ends the runner's process. Transfers it had already sent keep going
   on the nodes; the UI then checks the participants for RBT left Locked.
 - **History** is in `controller/ui/lab-ui.sqlite` (local, not in git). Past

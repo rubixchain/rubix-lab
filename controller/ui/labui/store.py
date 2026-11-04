@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS units (
 CREATE TABLE IF NOT EXISTS case_results (
     run_id TEXT, test_id TEXT, unit TEXT, status TEXT, actual TEXT, note TEXT, db TEXT,
     fullnode TEXT, seconds REAL, checks TEXT, known_bugs TEXT, fullnode_buckets TEXT,
-    case_text TEXT, expected TEXT, position INTEGER,
+    case_text TEXT, expected TEXT, position INTEGER, steps TEXT,
     PRIMARY KEY (run_id, test_id));
 CREATE TABLE IF NOT EXISTS ops (
     run_id TEXT, seq INTEGER, at REAL, unit TEXT, case_id TEXT, mode TEXT, kind TEXT,
@@ -49,10 +49,15 @@ RUN_FIELDS = ("id", "source", "kind", "name", "cases", "only", "status", "starte
               "cmdline", "report_json", "report_pdf", "evidence", "log", "events", "console",
               "passed", "failed", "skipped", "total", "note", "conditions", "import_key",
               "created", "stop")
-# Columns added after the first release, for files made before them.
-MIGRATIONS = ("ALTER TABLE runs ADD COLUMN stop TEXT",)
+# Columns added after the first release, for files made before them: (the
+# change, what to do once when it is made).
+MIGRATIONS = (("ALTER TABLE runs ADD COLUMN stop TEXT", None),
+              # Reports imported before cases had steps are read again for them.
+              ("ALTER TABLE case_results ADD COLUMN steps TEXT",
+               "DELETE FROM import_files WHERE path LIKE '%catalogue_%'"))
 JSON_FIELDS = ("knobs", "spec", "conditions", "cases_json", "quorums", "senders", "stop",
-               "receivers", "dirty", "checks", "known_bugs", "fullnode_buckets", "assets")
+               "receivers", "dirty", "checks", "known_bugs", "fullnode_buckets", "assets",
+               "steps")
 
 
 def _enc(v):
@@ -70,11 +75,13 @@ class Store(object):
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA synchronous=NORMAL")
             self.conn.executescript(SCHEMA)
-            for sql in MIGRATIONS:
+            for sql, then in MIGRATIONS:
                 try:
                     self.conn.execute(sql)
                 except sqlite3.OperationalError:
-                    pass                # already there
+                    continue            # already there
+                if then:
+                    self.conn.execute(then)
 
     # -- low level ---------------------------------------------------------
 
@@ -154,11 +161,12 @@ class Store(object):
         self.execute(
             "INSERT OR REPLACE INTO case_results (run_id, test_id, unit, status, actual, note, "
             "db, fullnode, seconds, checks, known_bugs, fullnode_buckets, case_text, expected, "
-            "position) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "position, steps) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, c["test_id"], c.get("unit"), c.get("status"), c.get("actual"),
              c.get("note"), c.get("db"), c.get("fullnode"), c.get("seconds"),
              _enc(c.get("checks") or []), _enc(c.get("known_bugs") or {}),
-             _enc(c.get("fullnode_buckets")), c.get("case_text"), c.get("expected"), position))
+             _enc(c.get("fullnode_buckets")), c.get("case_text"), c.get("expected"), position,
+             _enc(c.get("steps") or [])))
 
     def put_ops(self, run_id, ops):
         with self.lock:

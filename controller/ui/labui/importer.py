@@ -25,6 +25,8 @@ import re
 import threading
 import time
 
+import run_events
+
 from labui import store as store_mod
 
 TS = r"(?P<ts>\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d)"
@@ -264,7 +266,8 @@ class Importer(object):
                     "fullnode": r.get("fullnode"), "seconds": r.get("seconds"),
                     "checks": r.get("db_checks") or [], "known_bugs": known,
                     "fullnode_buckets": (e.get("fullnode_comparison") or {}).get("counts"),
-                    "case_text": r.get("case"), "expected": r.get("expected")}, i)
+                    "case_text": r.get("case"), "expected": r.get("expected"),
+                    "steps": run_events.step_rows(e)}, i)
             for u in units.values():
                 self.store.put_unit(run_id, u)
             if ops:

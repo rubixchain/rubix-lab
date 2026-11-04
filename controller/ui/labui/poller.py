@@ -24,6 +24,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import test_runner as tr
 
+from labui import plan as plan_mod
+
 TIERS = (
     ("liveness", {"idle": 30, "run": 60, "exclusive": None}),
     ("inventory", {"idle": 300, "run": None, "exclusive": None}),
@@ -149,6 +151,7 @@ class Poller(object):
         hosts = self.hosts or self.source.hosts()[0]
         info = self.source.faucet(hosts)
         info["checked"] = time.time()
+        info["rearm"] = plan_mod.faucet_rearm(info)
         with self.lock:
             self.faucet_info = info
 

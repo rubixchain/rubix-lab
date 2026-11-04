@@ -74,8 +74,38 @@ const BADGE = {
   FAIL: "bad", failed: "bad", error: "bad", down: "bad", "not ready": "bad",
   SKIP: "warn", aborted: "warn", stopped: "warn", refused: "warn", interrupted: "warn",
   "no report": "warn", running: "run", starting: "run", preparing: "run",
-  waiting: "idle",
+  waiting: "idle", retry: "warn", "quorum not set up": "warn",
+  // a case's steps (master/steps.py)
+  LIMIT: "run", DAMAGE: "bad", WRONG: "bad", HARDWARE: "warn", "NOT RUN": "warn",
 };
+const STEP_MEANS = {
+  PASS: "Rubix did what the step expects and every check after it held",
+  LIMIT: "Rubix could not take all of it and refused the rest gently: stated reasons in time, nothing left Locked, no restart, an ordinary operation went through afterwards",
+  DAMAGE: "Rubix failed or refused ungently: no usable reason, too late, RBT/FT left Locked, a counter left wrong, a node restarted or went deaf, or no recovery",
+  WRONG: "Rubix accepted what it should have refused, or the result is wrong: value created or lost, a transfer that never arrived",
+  HARDWARE: "a machine it ran on was at a CPU / memory / disk ceiling - inconclusive",
+  "NOT RUN": "a precondition did not hold - the lab's set-up, not Rubix",
+};
+function stepChips(steps) {
+  steps = steps || [];
+  const many = new Set(steps.map(s => s.mode || "")).size > 1;
+  let mode = null;
+  return steps.map(s => {
+    const sep = many && s.mode !== mode ? `<span class="muted small">${esc(s.mode)}:</span> ` : "";
+    mode = s.mode;
+    return sep + `<span class="badge b-${BADGE[s.outcome] || "idle"} step" title="${esc(s.id + " " + (s.title || "") + ": " + s.outcome + "\n" + (STEP_MEANS[s.outcome] || ""))}">${esc(String(s.id || "").split(" ")[0])}</span>`;
+  }).join(" ");
+}
+function stepsTable(steps) {
+  if (!steps || !steps.length) return "";
+  const modes = new Set(steps.map(s => s.mode || ""));
+  return `<table style="margin-top:8px"><thead><tr>${modes.size > 1 ? "<th>Run</th>" : ""}<th>Step</th><th>Outcome</th><th class="num">Took</th><th>What happened</th></tr></thead><tbody>${
+    steps.map(s => `<tr>${modes.size > 1 ? `<td class="small muted">${esc(s.mode || "")}</td>` : ""}
+      <td class="small"><b>${esc(s.id)}</b> ${esc(s.title || "")}${s.expect ? `<div class="muted">Rubix must: ${esc(s.expect)}</div>` : ""}</td>
+      <td title="${esc(STEP_MEANS[s.outcome] || "")}">${badge(s.outcome || "-")}</td>
+      <td class="num small">${s.seconds != null ? secs(s.seconds) : ""}</td>
+      <td class="small">${esc(s.summary || "")}</td></tr>`).join("")}</tbody></table>`;
+}
 function badge(text) {
   return `<span class="badge b-${BADGE[text] || "idle"}">${esc(text)}</span>`;
 }
@@ -195,7 +225,7 @@ async function pageFleet(main) {
       ["Pool machines", `${t.pool_machines || 0}`, `${t.machines || 0} machines with nodes in hosts.txt`],
       ["Pool nodes up", `${t.pool_up || 0} / ${t.pool_nodes || 0}`, `${t.up || 0} / ${t.nodes || 0} with the fullnodes and faucet pair`],
       ["DIDs on pool nodes", `${t.dids || 0}`, `layout says ${t.did_target || 0}`],
-      ["Faucet free", fa.faucet ? rbt(fa.faucet.balance, 0) : "-", fa.ok === false ? "NOT READY" : (fa.ok ? "ready" : "not read yet")],
+      ["Faucet free", fa.faucet ? rbt(fa.faucet.balance, 0) : "-", fa.rearm ? "quorum set up again at Start" : fa.ok === false ? "NOT READY" : (fa.ok ? "ready" : "not read yet")],
       ["Fullnodes", `${fnodes.filter(f => !f.error).length} / ${fnodes.length}`, "databases readable"],
     ].map(([k, v, d]) => `<div class="card"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="d">${esc(d)}</div></div>`).join("");
     $("#f-tiers").innerHTML = "Last read: " + Object.entries(data.tiers || {}).map(([name, s]) =>
@@ -212,8 +242,8 @@ async function pageFleet(main) {
     const wallet = w => w && w.did ? `${esc(nodeName(w.host))} <span class="mono">${esc(shortId(w.did, 14, 8))}</span><br>
       free <b>${rbt(w.balance)}</b> · locked ${rbt(w.locked)} · pledged ${rbt(w.pledged)}${w.error ? ` <span class="muted">${esc(w.error)}</span>` : ""}` : "-";
     const ql = fa.faucet_quorums;
-    $("#f-faucet").innerHTML = `<h2>Faucet ${badge(fa.ok ? "ready" : "not ready")} <span class="sub">${esc(ago(fa.checked))}</span></h2>
-      <div class="sub" style="margin-bottom:8px">${esc(fa.note)}</div>
+    $("#f-faucet").innerHTML = `<h2>Faucet ${badge(fa.ok ? "ready" : fa.rearm ? "quorum not set up" : "not ready")} <span class="sub">${esc(ago(fa.checked))}</span></h2>
+      <div class="sub" style="margin-bottom:8px">${esc(fa.note)}${fa.rearm ? "<br><b>A run sets it up again itself when it starts</b> (and before any faucet draw that finds it so), so this does not stop a run." : ""}</div>
       <div class="kv"><div class="k">Faucet DID</div><div>${wallet(fa.faucet)}</div>
       <div class="k">Faucet quorum</div><div>${wallet(fa.quorum)}</div>
       <div class="k">Faucet node's quorum list</div><div>${ql == null ? "-" : ql.length === 1 ? "exactly one: the faucet quorum" :
@@ -423,7 +453,9 @@ async function catalogueBuilder() {
           <div class="text"><div><span class="id">${esc(c.id)}</span> <span class="tag">${esc(c.asset)}</span><span class="tag">${esc(c.group)}</span>${c.priority ? `<span class="tag">${esc(c.priority)}</span>` : ""}${c.no_rerun ? '<span class="tag" title="NO_DELAY_RERUN: runs once, without delay">once</span>' : '<span class="tag" title="runs without delay, then again with delay">twice</span>'}</div>
           <div>${esc(c.case) || '<span class="muted">no row in master-catalogue.csv</span>'}</div>
           <div class="exp">Expected: ${esc(c.expected)}</div>
-          <details><summary>more</summary>
+          <details><summary>more${c.steps && c.steps.length ? ` · ${c.steps.length} step(s)` : ""}</summary>
+            ${c.purpose ? `<div><b>For:</b> ${esc(c.purpose)}</div>` : ""}
+            ${(c.steps || []).length ? `<ol class="stepdefs">${c.steps.map(s => `<li><b>${esc(s.id)} ${esc(s.title)}</b> - ${esc(s.does)}<div class="muted">Rubix must: ${esc(s.must)}</div></li>`).join("")}</ol>` : ""}
             <div><b>Also checked:</b> ${esc(c.checks)}</div><div><b>Setup:</b> ${esc(c.setup)} · <b>Quorum:</b> ${esc(c.quorum_setup)}</div>
             <div><b>Code:</b> ${esc(c.code_ref)} · <b>Module:</b> ${esc(c.module)}</div></details></div></label>`).join("")}</div>`).join("")}
     </div>
@@ -705,7 +737,7 @@ async function pageLive(main, args) {
     }
     id = cur.id;
   }
-  main.innerHTML = `<div id="l-head"></div><div id="l-banner"></div><div id="l-progress"></div><div id="l-spec"></div>
+  main.innerHTML = `<div id="l-head"></div><div id="l-banner"></div><div id="l-progress"></div><div id="l-during"></div><div id="l-spec"></div>
     <div class="panel"><h2>Cases <span class="sub">click a row for its database checks and full notes</span></h2><div class="tablewrap"><table id="l-cases"></table></div></div>
     <div class="row"><div class="panel grow"><h2>Units and participants</h2><div class="tablewrap"><table id="l-units"></table></div></div></div>
     <div class="row"><div class="panel grow"><h2>Refusals <span class="sub">grouped by the node's own reason; known product bugs tagged</span></h2><div id="l-refusals"></div></div>
@@ -737,8 +769,16 @@ async function pageLive(main, args) {
       esc(snap.spec.label ? snap.spec.label + " · " : "")}each ${snap.spec.rerun === "once" ? "once, without delay" : "without delay, then with delay"}</span></h2>${
       list.map(sc => `<div class="small" style="margin-bottom:4px"><span class="mono"><b>${esc(sc.id)}</b></span> ${esc(sc.summary)}</div>`).join("")}</div>` : "";
   }
+  function renderDuring() {
+    // What the runner did about the lab itself as it went (test_runner RUN_WARNINGS):
+    // the faucet pair restarted, deaf nodes restarted or left out. After the run
+    // it is the report's "During the run" condition.
+    const w = snap.warnings || [];
+    $("#l-during").innerHTML = w.length ? `<div class="panel"><h2>During the run <span class="sub">the faucet pair, the fullnodes and nodes that went deaf - the lab's plumbing, not a case result</span></h2>${
+      w.map(x => `<div class="small" style="margin-bottom:3px">${x.kind === "WARNING" ? '<span class="tag ex">warning</span>' : '<span class="tag">note</span>'} ${esc(x.text)}</div>`).join("")}</div>` : "";
+  }
   function render() {
-    renderHead(); renderBanner(); renderProgress(); renderSpec(); renderCases(); renderUnits();
+    renderHead(); renderBanner(); renderProgress(); renderDuring(); renderSpec(); renderCases(); renderUnits();
     renderRefusals(); renderFullnode(); renderConditions(); renderOps();
     if (!consoleN && snap.console && snap.console.length) {
       appendConsole(snap.console);
@@ -810,7 +850,8 @@ async function pageLive(main, args) {
     const rows = (snap.cases || []).map(c => {
       const tid = c.test_id;
       const main = `<tr class="click" data-t="${esc(tid)}"><td class="mono"><b>${esc(tid)}</b></td><td>${esc(c.unit || "")}</td>
-        <td>${badge(c.status || "waiting")}${c.mode && c.status === "running" ? ` <span class="small muted">${esc(c.mode)}</span>` : ""}</td>
+        <td>${badge(c.status || "waiting")}${c.mode && c.status === "running" ? ` <span class="small muted">${esc(c.mode)}</span>` : ""}${
+          (c.steps || []).length ? `<div class="stepchips">${stepChips(c.steps)}</div>` : ""}</td>
         <td class="num">${c.seconds != null ? secs(c.seconds) : ""}</td><td>${statLines(tid)}</td>
         <td class="small">${esc(c.actual || "")}</td><td class="small">${esc(c.db || "")}</td><td class="small">${esc(c.fullnode || "")}</td></tr>`;
       if (!openCases.has(tid)) return main;
@@ -824,6 +865,7 @@ async function pageLive(main, args) {
         <div class="k">Actual</div><div>${esc(c.actual || "-")}</div><div class="k">Note</div><div class="small">${esc(c.note || "-")}</div>
         ${known ? `<div class="k">Known product bugs</div><div>${known}</div>` : ""}
         ${buckets ? `<div class="k">Fullnode, without vs with delay</div><div class="small">${buckets}</div>` : ""}</div>
+        ${stepsTable(c.steps)}
         ${checks ? `<table style="margin-top:8px"><thead><tr><th>DB check</th><th>Result</th><th>Run</th><th>Detail</th></tr></thead><tbody>${checks}</tbody></table>` : ""}</td></tr>`;
     }).join("");
     $("#l-cases").innerHTML = `<thead><tr><th>Case</th><th>Unit</th><th>Status</th><th class="num">Seconds</th><th>Operations</th><th>Actual</th><th>DB check</th><th>Fullnode</th></tr></thead><tbody>${rows || `<tr><td colspan="8" class="muted">no case yet</td></tr>`}</tbody>`;
@@ -844,7 +886,9 @@ async function pageLive(main, args) {
       <td>${badge(u.status || (u.ended || !snap.live ? "done" : "waiting"))}${u.current ? ` <span class="small">${esc(u.current)}</span>` : ""}</td>
       <td class="small">${people(u.quorums)}</td><td class="small">${people(u.senders)}</td><td class="small">${people(u.receivers)}</td>
       <td class="num">${u.seconds != null ? dur(u.seconds) : ""}</td>
-      <td class="small">${(u.dirty || []).length ? `ex-quorum spenders (known bug): ${esc(u.dirty.join(", "))}` : ""}${u.error ? `<span style="color:var(--bad)">${esc(u.error)}</span>` : ""}</td></tr>`).join("");
+      <td class="small">${(u.dirty || []).length ? `ex-quorum spenders (known bug): ${esc(u.dirty.join(", "))}` : ""}${u.error ? `<span style="color:var(--bad)">${esc(u.error)}</span>` : ""}${
+        u.status === "retry" ? `<div>could not be prepared - runs again after the other units, with fresh participants${u.first_try ? ": " + esc(u.first_try) : ""}</div>`
+        : u.first_try ? `<div class="muted">second try; the first could not be prepared: ${esc(u.first_try)}</div>` : ""}</td></tr>`).join("");
     $("#l-units").innerHTML = `<thead><tr><th>Unit</th><th>Status</th><th>Quorums</th><th>Senders</th><th>Receivers</th><th class="num">Took</th><th>Note</th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="muted">no unit yet</td></tr>`}</tbody>`;
   }
   function renderRefusals() {

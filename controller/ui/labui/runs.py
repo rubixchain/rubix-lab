@@ -36,7 +36,16 @@ RUNNING = ("starting", "running")
 STATS_KEEP = 200000         # op records kept in memory for a live run's figures
 EVENTS_KEEP = 20000         # events kept for streaming to pages that reattach
 CONSOLE_KEEP = 5000
+WARNINGS_KEEP = 200
 UNIT_LINE = re.compile(r"^\s+-> (\S+)\s")
+# test_runner.run_one: a unit whose participants could not be prepared runs
+# once more after the other units.
+RETRY_LINE = re.compile(r"^\s+-> (\S+)\s+could not be prepared - it runs again after the "
+                        r"other units: (.*)$")
+# What the runner reports about the faucet pair, the fullnodes and deaf nodes
+# while it runs (test_runner RUN_WARNINGS, health_gate).
+WARN_LINE = re.compile(r"^\s*(WARNING|NOTE): (.+)$")
+FINAL = ("PASS", "FAIL", "SKIP")
 
 
 def now_iso(t=None):
@@ -120,6 +129,7 @@ class RunState(object):
         self.seq = 0
         self.console = collections.deque(maxlen=CONSOLE_KEEP)
         self.console_n = 0
+        self.warnings = collections.deque(maxlen=WARNINGS_KEEP)
         self.units = collections.OrderedDict()
         self.cases = collections.OrderedDict()
         self.phases = collections.OrderedDict()
@@ -175,9 +185,16 @@ class RunState(object):
         elif kind == "case_started":
             c = self.cases.setdefault(ev["case"], {"test_id": ev["case"]})
             c.update(unit=ev.get("unit"), status="running", mode=ev.get("mode"))
+            if ev.get("mode") != "with delay":
+                c["steps"] = []         # its first run: the steps start again
             u = self.units.get(ev.get("unit"))
             if u is not None:
                 u.update(status="running", current=ev["case"], mode=ev.get("mode"))
+            self.dirty_cases.add(ev["case"])
+        elif kind == "step":
+            c = self.cases.setdefault(ev["case"], {"test_id": ev["case"]})
+            c.setdefault("steps", []).append(dict((k, ev.get(k)) for k in (
+                "mode", "id", "title", "expect", "outcome", "summary", "seconds")))
             self.dirty_cases.add(ev["case"])
         elif kind == "op":
             self.ops_total += 1
@@ -194,12 +211,19 @@ class RunState(object):
             for k in ("unit", "status", "actual", "note", "seconds", "db", "fullnode", "checks",
                       "known_bugs", "fullnode_buckets"):
                 c[k] = ev.get(k)
+            if ev.get("steps"):
+                c["steps"] = ev["steps"]
             c.pop("mode", None)
             self.dirty_cases.add(ev["case"])
         elif kind == "unit_done":
             u = self.units.setdefault(ev["unit"], {"name": ev["unit"]})
-            u.update(status="error" if ev.get("error") else "done", seconds=ev.get("seconds"),
-                     error=ev.get("error"), ended=ev.get("t"), current=None)
+            # Done with no case result: its participants could not be prepared,
+            # and the runner runs it again after the other units.
+            again = not ev.get("error") and u.get("cases") and not any(
+                (self.cases.get(t) or {}).get("status") in FINAL for t in u["cases"])
+            u.update(status="error" if ev.get("error") else "retry" if again else "done",
+                     seconds=ev.get("seconds"), error=ev.get("error"), ended=ev.get("t"),
+                     current=None)
             self.exclusive_now.discard(ev["unit"])
             self.dirty_units.add(ev["unit"])
         elif kind == "run_done":
@@ -212,6 +236,16 @@ class RunState(object):
         for line in lines:
             self.console_n += 1
             self.console.append((self.console_n, line))
+            w = WARN_LINE.match(line)
+            if w and w.group(2) not in [x["text"] for x in self.warnings]:
+                self.warnings.append({"kind": w.group(1), "text": w.group(2)})
+            r = RETRY_LINE.match(line)
+            if r:
+                u = self.units.setdefault(r.group(1), {"name": r.group(1)})
+                u.update(status="retry", first_try=r.group(2))
+                self.exclusive_now.discard(r.group(1))
+                self.dirty_units.add(r.group(1))
+                continue
             if self.exclusive_names:
                 m = UNIT_LINE.match(line)
                 if m:
@@ -305,7 +339,7 @@ class RunManager(object):
             if not plan["ok"]:
                 raise RunError(400, "; ".join(plan["errors"]), plan)
             ok, note = self.source.faucet_check()
-            if not ok:
+            if not ok and not plan_mod.faucet_rearm({"ok": ok, "note": note}):
                 raise RunError(409, "faucet not ready - " + note, plan)
 
             kind = "custom" if plan.get("mode") == "custom" else "catalogue"
@@ -636,6 +670,7 @@ class RunManager(object):
             "cases": list(st.cases.values()), "stats": stats, "refusals": refusals[:50],
             "funding": funding, "ops": list(reversed(st.recent_ops)), "ops_total": st.ops_total,
             "console": [line for _n, line in list(st.console)[-400:]], "console_n": st.console_n,
+            "warnings": list(st.warnings),
             "seq": st.seq, "run_done": st.run_done, "stop": st.stop,
             "exclusive_now": sorted(st.exclusive_now),
             "report": st.report or ({"log": st.log_path} if st.log_path else {}),

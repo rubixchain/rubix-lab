@@ -61,6 +61,17 @@ UI_DEFAULTS = {"collect_versions": True}
 CUSTOM = "custom"               # custom/custom_cases.py
 SPEC_ARG = "{spec}"             # in a custom plan's argv: where the spec file goes
 
+# In rc.faucet_ready's note when the faucet quorum lost its setup (its node
+# restarted). The runner sets it up again before the run and before any draw
+# that meets it (rc.faucet_ready_wait), so it does not stop a run from the UI.
+REARMED = "is not set up on its node"
+
+
+def faucet_rearm(info):
+    """True when the faucet is not ready only because its quorum lost its setup."""
+    info = info or {}
+    return not info.get("ok") and REARMED in str(info.get("note") or "")
+
 
 def _sh(argv):
     return " ".join(shlex.quote(str(a)) for a in argv)
@@ -207,10 +218,15 @@ class Catalogue(object):
         except BaseException as e:
             return {"module": self.name, "error": "{}: {}".format(type(e).__name__, e),
                     "cases": [], "units": [], "knobs": self.knob_specs()}
-        file_of = {}
+        file_of, purpose, steps = {}, {}, {}
         for m in self._modules():
             for tid in getattr(m, "ORDER", []):
                 file_of[tid] = os.path.basename(getattr(m, "__file__", "") or "")
+            # The case book (master/steps.py): what each case is for and its steps.
+            purpose.update(getattr(m, "PURPOSE", None) or {})
+            for tid, defs in (getattr(m, "STEPS", None) or {}).items():
+                steps[tid] = [{"id": d[0], "title": d[1], "does": d[2], "must": d[3]}
+                              for d in defs if len(d) >= 4]
         cases = []
         for tid in module.ORDER:
             row = self.rows.get(tid, {})
@@ -221,6 +237,7 @@ class Catalogue(object):
                           "expected": row.get("Expected Result", ""),
                           "checks": row.get("Also Check In Same Run", ""),
                           "priority": row.get("Priority", ""), "code_ref": row.get("Code Ref", ""),
+                          "purpose": purpose.get(tid, ""), "steps": steps.get(tid, []),
                           "in_catalogue": bool(row),
                           "no_rerun": tid in set(getattr(module, "NO_DELAY_RERUN", ()) or ())})
         return {"module": self.name, "error": self.error, "cases": cases, "units": units,
@@ -239,6 +256,9 @@ class Catalogue(object):
         info = faucet or {}
         if faucet is None:
             warnings.append("the faucet has not been read yet; it is checked again at Start")
+        elif faucet_rearm(info):
+            warnings.append("the faucet quorum is not set up on its node (the node restarted) - "
+                            "the runner sets it up again when the run starts")
         elif not info.get("ok"):
             errors.append("faucet not ready - {}".format(info.get("note")))
         faucet_free = ((info.get("faucet") or {}).get("balance")) if info else None
