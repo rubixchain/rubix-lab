@@ -202,7 +202,7 @@ def _climb(run, sid, rec_sid, q, senders, rungs, amount_of, port, label):
         _top_up(q, n * amount + 5, port)
         jobs = [{"host": a["host"], "did": a["did"], "to": b["did"], "rbt": amount,
                  "memo": "QCAP-01 {} rung {}".format(label, n)} for a, b in ch.ring(group)]
-        st = run.step(sid, lambda st, jobs=jobs: st.add(ch.burst(jobs), jobs, set_aside=ch.ASIDE),
+        st = run.step(sid, lambda st, jobs=jobs: st.add(ch.burst(jobs), jobs, set_aside=ch.LADDER_ASIDE),
                       nodes=group + [q],
                       label="{} at once, {:.3f} RBT each{}".format(
                           n, amount, " (2 DIDs on some nodes)" if n > per_node else ""),

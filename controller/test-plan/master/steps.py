@@ -541,7 +541,7 @@ class CaseRun(object):
                                                    else "gently", _group(o["reason"] for o in refused)))
         aside = [o for o in st.ops if o["aside"]]
         if aside:
-            bits.append("{} set aside (the sender's own tokens or clock): {}".format(
+            bits.append("{} set aside (the sender's own tokens, a token's history or the clock): {}".format(
                 len(aside), _group([o["reason"] for o in aside], 2)))
         if known:
             bits.append("KNOWN PRODUCT BUG: " + ", ".join("{} ({})".format(k, v) for k, v in known.items()))

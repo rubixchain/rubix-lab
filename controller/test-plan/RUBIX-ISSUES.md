@@ -66,6 +66,10 @@ failing on the fleet.
   (SQLSTATE 40P01)` and `PledgeV2: decrement token_denom ...`. On 2026-11-03:
   21 refusals - QCAP-01 (13), WALLET-PREP (3), FT-01 (3), COMBO-01 (2). Second
   run 2026-11-03 (14:15): 21 again - QCAP-01 (15), WALLET-PREP (5), COMBO-01 (1).
+  Third run (18:13): 10 - FT-01 S6 (7: one owner's five 500-FT sends at once,
+  on the quorum's pledge), QCAP-01 already at 10 fractional sends at once (1),
+  COMBO-01 (1), SC-01 (1, a different table: `post-consensus persistence:
+  insert tokenchain rows: deadlock detected`, two executes of one contract).
 - **Cause:** every `token_denom` writer updates one row per denomination in Go
   map order, which is random, so two transactions on one DID lock the rows in
   different orders (`core/wallet/persist_genesis_tx.go:209`,
@@ -116,6 +120,23 @@ failing on the fleet.
   memory watcher could act; the runner restarted it on purpose afterwards at
   6.7 and 6.6 GB, and no case lost its funding. Fullnodes 0.1 -> ~2 GB -> 0.1 GB
   in the same window.
+- **Measured 2026-11-03 (third run, 18:13): a QUORUM's memory grows with the
+  SQUARE of the tokens in the transaction it signs.** WALLET-01, one transfer at
+  a time through quorum 110:20000 (Rubix memory of its machine, step by step):
+  100 RBT +0.06 GB, 500 RBT +2.2 GB, 1,000 RBT +8.8 GB (machine down to 19.7%
+  free memory) - twice the tokens, four times the memory. Before the 2,000-RBT
+  step every node on .110 was down (0.13 GB of Rubix left) and the transfer was
+  refused "failed to connect swarm peer" for the quorum; .110's nodes came back
+  deaf (R-10). The sender (134:20000) grew linearly, ~1.8 MB per token
+  (0.45 -> 0.93 -> 1.8 GB). The faucet quorum did the same in the wallets unit,
+  where the faucet pays in 1,000-token chunks: restarted on purpose at 4.6 and
+  4.6 GB, restarted by itself ~18:21 (presumably the kernel again), then
+  restarted on purpose at 13.3 and 12.8 GB - each reading taken just before a
+  chunk. **This points the cause at the quorum's per-transaction work
+  (validating and pledging N tokens), not only at the pubsub backlog below.**
+  The code doing O(N^2) work is not found yet - PledgeV2's SQL
+  (`core/pledge_v2.go`) works per token; the per-token chain sync in
+  `TokenChainIntigrityCheck` is the next place to look.
 - **Seen before:** 2026-11-02 the faucet quorum (.106) was OOM-killed at 14:00:31,
   anon-rss 14.27 GB, ~14 min into the run and a few minutes after a 2,000-RBT
   transfer. 2026-10-29: the faucet quorum at 14.2 GB, 24 s after a 2,000-FT
@@ -131,14 +152,18 @@ failing on the fleet.
   pile goroutines up, each holding its whole transaction. The faucet quorum has
   the biggest DB in the fleet (~178k tokens of its own plus 81,651 copies, see
   R-28), so it answers slowest and grows fastest. All 532c413b.
-- **Fix needed:** a bounded worker pool (or a channel with fixed workers) for
-  pubsub callbacks; a context timeout on the callback's DB work; a cheap
-  prefilter before the unpledge queries. A pprof endpoint behind a flag would
-  make the next case of this diagnosable.
-- **Confirm with:** a quorum node with a large wallet, a steady stream of
-  published transactions (some with ~2,000 tokens); read its RSS and goroutine
-  count over time. Proof: `kill -QUIT` on its MainPID while it is big - Go
-  prints every goroutine's stack to the journal.
+- **Fix needed:** find and remove the O(N^2) in the quorum's handling of one
+  transaction; until then, refuse a transaction with more tokens than the node
+  can take, with a stated reason, instead of growing until the kernel kills it.
+  Also: a bounded worker pool (or a channel with fixed workers) for pubsub
+  callbacks; a context timeout on the callback's DB work; a cheap prefilter
+  before the unpledge queries. A pprof endpoint behind a flag would make the
+  next case of this diagnosable.
+- **Confirm with:** one quorum, one transfer at a time of 100, 250, 500, 750,
+  1,000 whole RBT; read the quorum's RSS after each (the 2026-11-03 figures
+  should repeat, quadratic). Then a heap profile at 1,000 (pprof), or `kill
+  -QUIT` on its MainPID while it is big - Go prints every goroutine's stack to
+  the journal.
 
 ### R-04 A quorum killed mid-transfer leaves the sender's token stuck
 - **Seen:** FAIL-01 S4-S7, 2026-11-02. The quorum (.110) synced token
@@ -205,7 +230,9 @@ failing on the fleet.
   on .110:20000 and .110:20800 only, never on the receiver .111:20000 - the
   whole -1.000 RBT AUDIT-END reports. 2026-10-22: CHAIN-01, two hops to .130
   slot 6, 4 RBT. The fleet was 82.206 RBT short of the 400,000 minted before the
-  2026-11-02 run.
+  2026-11-02 run. 2026-11-03 third run: FT-01, tx `a6abf2dc2ab962c7...`
+  accepted and missing from its receiver's records; and AUDIT-END -2.000 RBT
+  during the run (where: `lost_rbt.py`, not yet read).
 - **Cause:** the sender marks its tokens Transferred, publishes, returns
   success, and only then pushes the tokens to the receiver in a goroutine
   (`core/transaction.go:537`). If `getPeer(receiver)` fails it logs "Receiver
@@ -230,6 +257,9 @@ failing on the fleet.
   incoming tx: duplicate key value violates unique constraint "tokenchain_pkey"`).
   Second run 2026-11-03: NFT `QmdwHbgjgt...` forked at position 6 (`63ba0373` vs
   `975c8b8e`); SC-01 never reached its race (its subscribers were deaf, R-10).
+  Third run: 4 NFTs and 6 contracts forked at position 6; the other racing
+  pairs were refused "previous transaction id mismatch", one with a raw
+  `tokenchain_pkey` duplicate and one with a `tokenchain` deadlock.
 - **Cause:** each quorum validates against its own view of the chain and syncs
   from the initiator. Two executes signed by two different quorums on the same
   tip never see each other; nothing orders executes per token.
@@ -246,7 +276,11 @@ failing on the fleet.
   Second run 2026-11-03: QCAP-01 (5), QCAP-03b (1), COMBO-01 (4) - COMBO-01's
   sender had been QCAP-03a's quorum, and its pledge was released during
   COMBO-01, so a DID with no unpledged token at the start of a case can hold one
-  minutes later.
+  minutes later. Third run: QCAP-01 (27, every sending node in the fleet
+  takes part), QCAP-03b (1), and once the check's earlier branch
+  (`checks.go:297`, 532c413b): `token 60001_116211 is marked unpledged but not
+  found in quorum tokens of pledged transaction 515c4e04...` (LOAD-01 at 500) -
+  the pledge transaction its unpledge entry points at did not pledge it.
 - **Cause:** for a token whose last role is `unpledge`, the check looks the
   token up in `txnInfo.Quorums` (the current transaction's pledges) instead of
   `pledgedTxnInfo.Quorums` (`core/consensus/checks.go:309`; `:400` has the same
@@ -258,7 +292,10 @@ failing on the fleet.
 - **Seen:** 2026-11-03 FT-01: after the S5 sends failed (R-03), 1,500 FTs stayed
   Locked on .137:20100 and 1,300 on .144:20300, so S8 found those holders
   showing 200 FTs where 1,500 / 1,300 / 1,700 should be. Second run 2026-11-03:
-  the same step left 9,500 FTs Locked on six holders (1,300-2,600 each).
+  the same step left 9,500 FTs Locked on six holders (1,300-2,600 each). Third
+  run: FAIL-01 S4 (the quorum killed on its log line) left 1.000 RBT Locked on
+  the quorum (.110:20000), and the sender's refusal came after 6 s with no
+  reason at all.
   23.176 RBT parked Locked on 4 DIDs (AUDIT-START 2026-11-02). Failed
   FT sends left 500 FTs Locked on two senders (FT-01, 2026-10-29). A pledge
   that failed mid-way left 0.576 RBT Locked on its quorum (QCAP-01,
@@ -277,8 +314,9 @@ failing on the fleet.
 - **Seen:** 2026-10-22/23 .130 nodes 0-7 (`p2p-check.sh`); 2026-10-29 all nine of
   .116's nodes; 2026-11-03 (second run) all nine of .135's nodes during FT-01
   S5, with the machine 2.8 GB into swap, 81% iowait, and its slot 0 restarted
-  (R-03). The API keeps answering and the node can still send, but no peer can
-  reach it until it restarts.
+  (R-03); third run, .110's nodes after its quorum's crash (R-03) - the runner
+  restarted them. The API keeps answering and the node can still send, but no
+  peer can reach it until it restarts.
 - **Cause:** `restartIPFS` / `reinitializeIPFS` (`core/ipfs_recovery.go`) never
   call `listenIPFSPort` again, so the new daemon has no `p2p listen
   /x/<peerID>RubixCore/1.0`. 658cb33f.
@@ -524,7 +562,9 @@ failing on the fleet.
   60001_103300 minter bafybmibumfrj54sor3kmtt6epchysdjqldogc4gki77h4nkhbz7hbdx5ve
   not authorised for level 60001 number 103300`. Token 60001_103300 is in the
   faucet DID's range (1-2,150,000), and the faucet DID is
-  `bafybmih6fkweeuo...`, not the minter named.
+  `bafybmih6fkweeuo...`, not the minter named. **Again on 2026-11-03 (third
+  run, LOAD-01 at 500): the same token, the same minter named** - it repeats,
+  so it belongs to that token's history, not to load.
 - **Cause (not known):** the quorum took a different DID as the token's minter -
   perhaps from a copy of the token's chain that does not start at the genesis
   (see R-28), or a holder recorded as the minter. Not the fixed part-token bug
@@ -574,6 +614,8 @@ failing on the fleet.
     expected 746f0d69` (the sender, 111:20800, and the step's quorums did not
     restart).
   The first two set the "limit" QCAP-01 (300) and LOAD-01 (100) recorded.
+  Third run 2026-11-03: LOAD-01 at 500 (token 60001_108940, `local latest
+  3928c543 != expected 1b993472`) and three FT tokens in FT-01 S5.
 - **Cause (not known):** the same refusal as R-04 (`core/consensus/checks.go:944`),
   whose sync skips when the prevTxID is "already in local chain". Here no kill
   left a stale entry, so the quorum's copy came from elsewhere - perhaps a copy

@@ -816,7 +816,7 @@ def get_rbt_held(host, did, port=DEFAULT_PORT, timeout=DEFAULT_TIMEOUT):
 #   RUBIX_FAUCET_QUORUM_HOST   faucet quorum's machine
 #   RUBIX_FAUCET_PORT          faucet DID's node (default 20000)
 #   RUBIX_FAUCET_QUORUM_PORT   faucet quorum's node (default 20000)
-#   RUBIX_FAUCET_CHUNK         largest single faucet transfer, RBT (default 1000)
+#   RUBIX_FAUCET_CHUNK         largest single faucet transfer, RBT (default 250)
 # ---------------------------------------------------------------------------
 
 FAUCET_HOST = os.environ.get("RUBIX_FAUCET_HOST", "")
@@ -827,8 +827,11 @@ FAUCET_QUORUM_PORT = int(os.environ.get("RUBIX_FAUCET_QUORUM_PORT", "20000"))
 FAUCET_DID = ""
 FAUCET_QUORUM_DID = ""
 # Funding is plumbing, not a test: a large top-up goes out in chunks so it
-# never runs into the quorum timeouts the value ladders exist to measure.
-FAUCET_CHUNK = int(os.environ.get("RUBIX_FAUCET_CHUNK", "1000"))
+# never runs into the quorum timeouts the value ladders exist to measure, nor
+# into the quorum's memory: it grows with the square of the tokens in one
+# transfer (RUBIX-ISSUES.md R-03: 500 RBT +2.2 GB, 1000 RBT +8.8 GB), so 1000-
+# token chunks took the faucet quorum to 13 GB; 250 keeps it near 0.5 GB.
+FAUCET_CHUNK = int(os.environ.get("RUBIX_FAUCET_CHUNK", "250"))
 
 # One faucet transfer at a time. Units fund in parallel, and many parallel
 # sends from one DID is something the suite TESTS (RBT-N-10) - funding must not

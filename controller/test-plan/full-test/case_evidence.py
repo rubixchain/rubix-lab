@@ -173,8 +173,8 @@ def plain(text, labels):
 # explanation for the end-of-run summary). Markers are the start of a phrase,
 # so a message cut short still counts. Lines are those of the fleet's build,
 # vaishnav/custom-testnet @ 532c413b (re-checked 2026-10-29). The minter
-# allowlist refusal on second-hand part tokens is no longer listed: its fixes
-# (f890aa01, 257a9e9d, 4601dd04) are in that build, so it would be a new finding.
+# allowlist refusal on second-hand part tokens is fixed in that build (f890aa01,
+# 257a9e9d, 4601dd04); the one listed below is a whole faucet token (R-31).
 KNOWN_PRODUCT_BUGS = (
     ("failed to get quorum DID for t",
      "ex-quorum cannot spend tokens it pledged (checks.go:309)",
@@ -182,6 +182,18 @@ KNOWN_PRODUCT_BUGS = (
      "unpledged and Free; core looks that token up in the CURRENT transaction's "
      "pledges instead of the pledge transaction (core/consensus/checks.go:309, "
      "FindDIDByTokenID(txnInfo.Quorums ...)), so it always refuses"),
+    ("is marked unpledged but not found in quorum tokens",
+     "unpledged token not in its pledge transaction (checks.go:298)",
+     "the token's last chain entry is an unpledge pointing at a pledge transaction, "
+     "and that transaction's quorum tokens do not list it (core/consensus/checks.go:298), "
+     "so every transfer of the token is refused, under any load - the earlier branch "
+     "of the ex-quorum check (checks.go:309)"),
+    ("ValidateMinterAllowlist: token",
+     "faucet token's minter read as another DID (minter_allowlist.go:250)",
+     "a whole token inside the faucet DID's allowlisted range is refused because the "
+     "quorum takes a different DID as its minter (core/consensus/minter_allowlist.go:250); "
+     "on 2026-11-03 the same token, 60001_103300, was refused naming the same DID at "
+     "100 and at 500 senders, so it follows that token, not the load"),
     ("invalid epoch",
      "zero clock tolerance (checks.go:62)",
      "the quorum rejects a transaction stamped even a second ahead of its own clock "

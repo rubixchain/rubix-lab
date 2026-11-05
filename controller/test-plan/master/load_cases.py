@@ -133,7 +133,7 @@ def load_01(ctx, ci):
         group = senders[:k]
         jobs = [{"host": a["host"], "did": a["did"], "to": b["did"], "rbt": 1.0,
                  "memo": "LOAD-01 rung {}".format(k)} for a, b in ch.ring(group)]
-        st = run.step("S2", lambda st, jobs=jobs: st.add(ch.burst(jobs), jobs, set_aside=ch.ASIDE),
+        st = run.step("S2", lambda st, jobs=jobs: st.add(ch.burst(jobs), jobs, set_aside=ch.LADDER_ASIDE),
                       nodes=group + quorums, label="{} DIDs at once".format(k),
                       require=[lambda group=group: funded(group), lambda k=k: pledge_room(k)])
         if st.outcome != steps.PASS:

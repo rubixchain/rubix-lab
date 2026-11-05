@@ -59,6 +59,16 @@ SENDERS_OWN_TOKENS = ("failed to get quorum DID for t",)
 CLOCK_AHEAD = ("invalid epoch",)
 # What a capacity step counts apart from the limit it measures.
 ASIDE = SENDERS_OWN_TOKENS + CLOCK_AHEAD
+# Refusals that follow one token's history wherever it goes, not the load: the
+# same token was refused the same way at 100 and at 500 senders on 2026-11-03.
+# An unpledge entry pointing at a pledge transaction that did not pledge the
+# token (core/consensus/checks.go:298, RUBIX-ISSUES.md R-08), and a faucet token
+# whose minter the quorum reads as another DID (minter_allowlist.go:250, R-31).
+# Only the fleet-wide ladders (QCAP-01, LOAD-01) set them aside, so a saved
+# limit is never one token's history; anywhere else they stay refusals.
+TOKEN_HISTORY = ("is marked unpledged but not found in quorum tokens",
+                 "ValidateMinterAllowlist: token")
+LADDER_ASIDE = ASIDE + TOKEN_HISTORY
 
 
 def send(st, frm, to, set_aside=ASIDE, **kw):
