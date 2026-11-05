@@ -238,10 +238,31 @@ failing on the fleet.
   `a6abf2dc2ab962c72b21607b5efe10bc03cf1dd560d746a4f5d7b3e87a4b9491`, from
   .107:20200 to `bafybmiazvuhf2...` on .136:20300, accepted after 85 s; read
   2026-11-05 (`lost_rbt.py --tx`): recorded on .107:20200, .110:20000 and
-  .121:20200, never on the receiver's node - so FTs too. AUDIT-END -2.000 RBT
-  during the same run: not located yet (`lost_rbt.py` counts quorums' copies
-  of an undelivered token as "wrong node", once per copy, so it cannot list
-  them). The fleet is 86.206 RBT short of 400,000 (399,913.794 held).
+  .121:20200, never on the receiver's node - so FTs too.
+- **The whole account, read 2026-11-05** (`lost_rbt.py`, fixed that day): the
+  fleet holds 399,913.794 RBT and **86.206 RBT in 678 tokens, 102 transfers, was
+  reported sent and is held by no node for its owner** - nothing else is
+  missing, nothing is on a wrong node, nothing is untraced. It matches every
+  audit since 2026-10-22 to the thousandth (33.529 before that day's full run,
+  81.206 before 10-29, 82.206 before 11-02, 84.206 before the 11-03 third run):
+  | When | Transfers | RBT | What | Receiver's own node holds a copy |
+  |---|---|---|---|---|
+  | 2026-10-22 15:57-16:01 | 55 | 33.529 | fractional sends from many givers at once to ONE receiver (.128:20100) - by its shape WALLET-PREP's fragmented wallet | yes |
+  | 2026-10-22 17:55-17:57 | 4 | 4.000 | to .130 slots 3 and 6 (faucet, CHAIN-01) - .130 deaf (R-10) | no |
+  | 2026-10-23 17:50-17:51 | 12 | 6.004 | fractional fan-in to one receiver (.131:20600) | yes |
+  | 2026-10-26 11:33:27 | 6 | 2.673 | fractional fan-in to one receiver (.119:20300) | yes |
+  | 2026-10-26 11:40-11:49 | 20 | 35.000 | to .110 slots 1/4/5/6 and .121:20100; the faucet sent 1 RBT every ~30 s to the same three .110 nodes 15 times (before the runner left deaf nodes out, 10-28) | no |
+  | 2026-10-30 11:28 | 1 | 1.000 | .118:20300 -> .130:20200 | yes |
+  | 2026-11-02 14:03 | 1 | 1.000 | LOAD-01 at 200 (`f3fb1ceb`) | yes |
+  | 2026-11-03 13:02 | 1 | 1.000 | CHAIN-01 clean-up (`04b85c40`, R-32) | yes |
+  | 2026-11-03 19:00, 19:02 | 2 | 2.000 | FAIL-01's recovery probes A (.107:20200) -> B (.108:20000) after S3 (sender killed) and S6 (receiver killed): "completed successfully", never on B's node - the run's whole AUDIT-END -2.000. Both steps PASSED: the runner judged a probe on the sender's answer only (fixed 2026-11-05) | yes |
+
+  Two shapes: **the receiver could not be reached** (24 transfers, 39 RBT: no
+  copy on the receiver's node - this issue as described below), and **the
+  receiver's node has the token, but under another DID** (78 transfers, 47.206
+  RBT - R-32's signature): above all many fractional transfers arriving at one
+  DID at once (73 transfers, 42.206 RBT, all on 1d9b28bb; none since the fleet
+  moved to 532c413b on 10-29), and transfers right after a node restart.
 - **Cause:** the sender marks its tokens Transferred, publishes, returns
   success, and only then pushes the tokens to the receiver in a goroutine
   (`core/transaction.go:537`). If `getPeer(receiver)` fails it logs "Receiver
@@ -252,7 +273,10 @@ failing on the fleet.
   should also be able to pull a missing transfer from the sender.
 - **Confirm with:** make the receiver unreachable for a moment after consensus
   (stop it, or drop its p2p listener); check that the sender reports success
-  and the receiver never records the transaction.
+  and the receiver never records the transaction. For the second shape: 30
+  fractional transfers to one DID at once, and one transfer right after the
+  sender's or receiver's restart (FAIL-01 S3/S6); then read the token's rows on
+  the receiver's node (which DID, which status, which transaction).
 
 ### R-07 NFT and contract chains fork on simultaneous executes
 - **Seen:** 2026-10-29 NFT-01 S5 / SC-01 S3: some pairs were refused ("previous
@@ -610,6 +634,12 @@ failing on the fleet.
 - **Confirm with:** pass a token through quorum Q, then send that token to Q
   itself; read Q's `tokens` row for it. For this run:
   `lost_rbt.py --tx 04b85c40...` and Q's row for the token.
+- **How common (2026-11-05, `lost_rbt.py`):** 78 of the fleet's 102 lost
+  transfers (47.206 of 86.206 RBT) have this shape - the receiver's own node
+  holds a copy of the token under another DID - most of them fractional
+  transfers arriving at one DID at once (see R-06's table). The copy row may
+  also be an older quorum copy (R-28) and the delivery simply never came;
+  reading one such row is the next step.
 
 ### R-33 A quorum refuses a token "chain mismatch after sync" with no kill involved
 - **Seen:** second run 2026-11-03, one refusal each, no node of the transfer

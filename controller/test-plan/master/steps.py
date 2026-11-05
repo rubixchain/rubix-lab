@@ -401,11 +401,22 @@ class CaseRun(object):
         recovered = None
         if probe and (probe_always or st.refused or any(not ok for ok, _d in st.checks)):
             t1 = time.time()
+            probe_index = len(rc.OPS)
             try:
                 ok, msg, _r = probe()
             except Exception as e:
                 ok, msg = False, "{}: {}".format(type(e).__name__, e)
             recovered = (ok, node_reason(msg), round(time.time() - t1, 1))
+            # Reported done is not delivered: on 2026-11-03 FAIL-01's probes after
+            # S3 and S6 were "completed successfully" and never reached B (R-06).
+            sent = [{"txid": o.get("txid"), "to": o.get("owner")} for o in rc.OPS[probe_index:]
+                    if o.get("kind") == "tx" and o.get("status") and o.get("txid")]
+            lost = self._undelivered(st, sent) if (ok and deliver and sent) else []
+            if lost:
+                undelivered = undelivered + lost
+                st.data["probe_undelivered"] = [t for _h, t in lost]
+                st.note("the ordinary transfer afterwards was reported done in {:.1f}s but never "
+                        "reached the receiver's node".format(recovered[2]))
         for h in restarts:
             m, idx = h.rsplit(":", 1)[0], int(h.rsplit(":", 1)[1]) - 20000
             for s, i in (w.slots.get(m, []) if w else []):
@@ -415,20 +426,23 @@ class CaseRun(object):
                        recovered, budget, expect_refusal, conserve, must_accept)
         return self._done(st, machines)
 
-    def _undelivered(self, st):
-        """Accepted operations whose transaction never reached the receiver's node,
-        within DELIVERY_WAIT plus DELIVERY_PER_RBT per RBT of the largest one. A
-        delivery that took more than 5 s is recorded (data "delivered_after_s")."""
+    def _undelivered(self, st, ops=None):
+        """Accepted operations - the step's own, or `ops` ({txid, to}) - whose
+        transaction never reached the receiver's node, within DELIVERY_WAIT plus
+        DELIVERY_PER_RBT per RBT of the largest one. A delivery of the step's own
+        that took more than 5 s is recorded (data "delivered_after_s")."""
         want = {}
-        for o in st.accepted:
+        for o in (st.accepted if ops is None else ops):
             host = self.host_of.get(o["to"]) if o["to"] else None
             if o["txid"] and host:
                 want.setdefault(host, set()).add(o["txid"])
         txids = set(t for ids in want.values() for t in ids)
         largest = max([float(o.get("rbt") or 0) for o in rc.OPS if o.get("txid") in txids] or [0])
-        st.delivery_wait = int(DELIVERY_WAIT + DELIVERY_PER_RBT * largest)
+        wait = int(DELIVERY_WAIT + DELIVERY_PER_RBT * largest)
+        if ops is None:
+            st.delivery_wait = wait
         t0 = time.time()
-        deadline = t0 + st.delivery_wait
+        deadline = t0 + wait
         while want and time.time() < deadline:
             for host in list(want):
                 try:
@@ -439,7 +453,7 @@ class CaseRun(object):
                     del want[host]
             if want:
                 time.sleep(2)
-        if txids and not want and time.time() - t0 > 5:
+        if ops is None and txids and not want and time.time() - t0 > 5:
             st.data["delivered_after_s"] = round(time.time() - t0, 1)
         return [(h, t) for h, ids in want.items() for t in ids]
 
@@ -545,7 +559,7 @@ class CaseRun(object):
                 len(aside), _group([o["reason"] for o in aside], 2)))
         if known:
             bits.append("KNOWN PRODUCT BUG: " + ", ".join("{} ({})".format(k, v) for k, v in known.items()))
-        if recovered and recovered[0]:
+        if recovered and recovered[0] and not st.data.get("probe_undelivered"):
             bits.append("an ordinary operation afterwards went through in {:.1f}s".format(recovered[2]))
         if wrong:
             st.outcome = WRONG

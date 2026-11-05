@@ -34,6 +34,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "full-test"))
 sys.path.insert(0, os.path.join(HERE, "..", ".."))        # controller/, for fleet.py
 
+import case_evidence
 import case_helpers as ch
 import rubix_client as rc
 import db_client as db
@@ -221,6 +222,10 @@ def fail_01(ctx, ci):
             if A is None:
                 continue
             B, Q = by_machine[ms[1]][0], by_machine[ms[2]][0]
+            # the trio is FAIL-01's own pick, not the unit's seats: the case's
+            # DB check (case_evidence) must read these three, from before setup
+            for role, e in (("A (sender)", A), ("B (receiver)", B), ("Q (quorum)", Q)):
+                case_evidence.join("FAIL-01", role, e)
             ok, why = setup(A, B, Q)
             if ok:
                 ok, msg, _r = rc.initiate_transaction(A["host"], A["did"], B["did"], rbt=1.0,

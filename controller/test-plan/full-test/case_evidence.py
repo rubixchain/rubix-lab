@@ -90,6 +90,21 @@ def _capture_all(parts):
     return dict((e["did"], s) for e, s in zip(entries, snaps))
 
 
+# Nodes a case picks for itself after begin() read the unit's (FAIL-01's trio):
+# {test_id: [(role, entry, rows before)]}. Until 2026-11-05 FAIL-01's check read
+# the unit's seats, which it never uses, and so checked no operation at all.
+JOINED = {}
+
+
+def join(test_id, role, entry):
+    """Name a node the case is about to use. Its rows are read now, as begin()
+    read the unit's, and finish() checks it like the unit's own participants -
+    so call it before the case's first operation on it."""
+    have = JOINED.setdefault(test_id, [])
+    if all(e["did"] != entry["did"] for _r, e, _s in have):
+        have.append((role, entry, _capture(entry["host"], entry["did"])))
+
+
 def begin(unit):
     state = {"op_index": len(rc.OPS), "before": {}, "started": time.time()}
     state["before"] = _capture_all(participants(unit))
@@ -280,9 +295,14 @@ def finish(tid, unit, state, result):
     """Run the checks. Returns (result, evidence). The note it writes is plain
     language; the exact readings go into the evidence file."""
     parts = participants(unit)
+    labels = role_labels(unit)
+    for role, e, snap in JOINED.pop(tid, []):
+        if all(p["did"] != e["did"] for _r, p in parts):
+            parts.append((role, e))
+            state["before"][e["did"]] = snap
+            labels.setdefault(e["host"], role)
     dids = set(e["did"] for _r, e in parts)
     host_of = dict((e["did"], e["host"]) for _r, e in parts)
-    labels = role_labels(unit)
     role_of = dict((d, labels.get(h, h)) for d, h in host_of.items())
     ops = [o for o in rc.OPS[state["op_index"]:]
            if o["initiator"] in dids or o["owner"] in dids]
