@@ -44,14 +44,14 @@ receive left out.
 
 ## AUDIT-START
 
-The fleet's state before the run - nothing created or lost, no token owned twice - so every later step's findings are its own.
+Where every RBT the faucet minted is before the run - held, locked, not delivered, on the wrong node, double spent - so every later step's findings are its own.
 
 | Step | What the lab does | What Rubix must do |
 |---|---|---|
 | **S1** Read every node | read every pool node's database and the faucet pair's, one consistent snapshot each | every node readable (one that is not is the lab's problem: the audit is NOT RUN) |
 | **S2** Quarantine problem tokens | lock out of use every RBT token in a stuck status, or Free with no chain history, then read again - the audit's only write | done; how many is reported |
-| **S3** Nothing created or lost | add up every DID's Free, Locked, Committed, Pledged, QuorumPledged and BurntForFT RBT | equals the 400,000 RBT the faucet minted |
-| **S4** One owner per token | look for a token Free under two DIDs | none - two would be a double spend |
+| **S3** Account for the RBT minted | add up every DID's Free, Locked, Committed, Pledged, QuorumPledged and BurntForFT RBT; find the rest - sent and delivered to no node, held on a node that does not host the DID, untraced | reported, not failed: every RBT of the 400,000 placed, each undelivered transfer named |
+| **S4** One owner per token | look for a token Free under two DIDs | reported, not failed: how many and how much RBT exists twice |
 | **S5** Known issues | list RBT parked in Locked, token_denom drift and negative counters | reported, not failed (known product bugs) |
 
 ## QCAP-01
@@ -224,11 +224,11 @@ What a transfer, and the fleet around it, are left with when the sender, the quo
 
 ## AUDIT-END
 
-The fleet's state after the run: what the run created, lost, locked or doubled.
+Where every RBT is after the run, and what the run lost, locked or doubled.
 
 | Step | What the lab does | What Rubix must do |
 |---|---|---|
 | **S1** Read every node | as AUDIT-START S1 | every node readable |
-| **S2** Nothing created or lost during the run | add up every DID's RBT as at the start | has not moved since AUDIT-START (a gap to the 400,000 minted that AUDIT-START already found is reported, not failed again; without an AUDIT-START reading: equals 400,000) |
-| **S3** One owner per token | look for a token Free under two DIDs | none |
+| **S2** What the run lost or created | account as AUDIT-START S3 and compare with it | reported, not failed: the total's move during the run, each transfer not delivered since AUDIT-START, any that arrived late |
+| **S3** One owner per token | look for a token Free under two DIDs | reported, not failed: how many, and which are new since AUDIT-START |
 | **S4** Known issues | as AUDIT-START S5, plus what the run committed and burnt for FT | reported, not failed |

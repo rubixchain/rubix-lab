@@ -130,9 +130,13 @@ failing on the fleet.
   deaf (R-10). The sender (134:20000) grew linearly, ~1.8 MB per token
   (0.45 -> 0.93 -> 1.8 GB). The faucet quorum did the same in the wallets unit,
   where the faucet pays in 1,000-token chunks: restarted on purpose at 4.6 and
-  4.6 GB, restarted by itself ~18:21 (presumably the kernel again), then
-  restarted on purpose at 13.3 and 12.8 GB - each reading taken just before a
-  chunk. **This points the cause at the quorum's per-transaction work
+  4.6 GB, restarted by itself ~18:21, then restarted on purpose at 13.3 and
+  12.8 GB - each reading taken just before a chunk. **Both kills confirmed with
+  `journalctl -k`:** .106 at 18:20:33, anon-rss 14.19 GB - 59 s after the
+  planned restart at 18:19:34, so ONE faucet transfer of at most 1,000 tokens
+  took a fresh process to 14 GB (the fifth faucet-quorum kill in five runs);
+  .110 at 18:27:19, anon-rss 12.62 GB - WALLET-01's quorum, after its 1,000-RBT
+  transfer. **This points the cause at the quorum's per-transaction work
   (validating and pledging N tokens), not only at the pubsub backlog below.**
   The code doing O(N^2) work is not found yet - PledgeV2's SQL
   (`core/pledge_v2.go`) works per token; the per-token chain sync in
@@ -230,9 +234,14 @@ failing on the fleet.
   on .110:20000 and .110:20800 only, never on the receiver .111:20000 - the
   whole -1.000 RBT AUDIT-END reports. 2026-10-22: CHAIN-01, two hops to .130
   slot 6, 4 RBT. The fleet was 82.206 RBT short of the 400,000 minted before the
-  2026-11-02 run. 2026-11-03 third run: FT-01, tx `a6abf2dc2ab962c7...`
-  accepted and missing from its receiver's records; and AUDIT-END -2.000 RBT
-  during the run (where: `lost_rbt.py`, not yet read).
+  2026-11-02 run. 2026-11-03 third run: FT-01 S8, an FT transfer (no RBT), tx
+  `a6abf2dc2ab962c72b21607b5efe10bc03cf1dd560d746a4f5d7b3e87a4b9491`, from
+  .107:20200 to `bafybmiazvuhf2...` on .136:20300, accepted after 85 s; read
+  2026-11-05 (`lost_rbt.py --tx`): recorded on .107:20200, .110:20000 and
+  .121:20200, never on the receiver's node - so FTs too. AUDIT-END -2.000 RBT
+  during the same run: not located yet (`lost_rbt.py` counts quorums' copies
+  of an undelivered token as "wrong node", once per copy, so it cannot list
+  them). The fleet is 86.206 RBT short of 400,000 (399,913.794 held).
 - **Cause:** the sender marks its tokens Transferred, publishes, returns
   success, and only then pushes the tokens to the receiver in a goroutine
   (`core/transaction.go:537`). If `getPeer(receiver)` fails it logs "Receiver

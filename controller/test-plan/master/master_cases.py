@@ -13,7 +13,8 @@ faucet DID; nothing here mints RBT.
 
 The suite runs in stages, in this order:
 
-    0  audit_cases.py    AUDIT-START  the fleet is clean, total = 400,000 RBT
+    0  audit_cases.py    AUDIT-START  where each of the 400,000 RBT is: held,
+                                      locked, not delivered, double spent
     1  quorum_cases.py   QCAP-01      what one quorum signs at once (saved, and
                                       used to size the quorums of later cases)
                          QCAP-02      the pledge boundary is the quorum's holding
@@ -29,7 +30,7 @@ The suite runs in stages, in this order:
        chain_cases.py    CHAIN-01     a deep chain, a new quorum at every hop
        combo_cases.py    COMBO-01     several asset types in one transaction
     3  fail_cases.py     FAIL-01      a node killed mid-transfer, six ways
-    4  audit_cases.py    AUDIT-END    nothing lost, created, locked or doubled
+    4  audit_cases.py    AUDIT-END    what the run lost, created, locked or doubled
 
 Each module defines CASES {id: fn}, ORDER [id, ...] and NEEDS (what each case
 or group of cases needs: senders, receivers, quorums, RBT). To add a case:

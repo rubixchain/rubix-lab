@@ -1,17 +1,22 @@
 """audit_cases.py - the fleet audit, at the start and at the end of every run.
 
 Every node's database is read, one consistent snapshot per node, for every DID
-in the pool plus the faucet DID and the faucet quorum:
+in the pool plus the faucet DID and the faucet quorum. The audit ACCOUNTS for
+the RBT the faucet minted (--fleet-total, 400,000); it does not fail on it
+(user, 2026-11-05: "even though the total is not 400000, it's fine, just mark
+how much locked or missed or double spend... we need the count and
+accountability for that"). The cases that move value judge it themselves
+(case_evidence: conserved, persisted).
 
-    total      RBT held across the whole fleet - Free, Locked, Committed,
-               Pledged, QuorumPledged and BurntForFT - must equal what the
-               faucet minted (--fleet-total, 400,000). Any other figure is value
-               created or lost: a HARD FAIL (nothing in the lab mints after
-               setup). Transferred rows are history and Burnt split parents are
-               replaced by children worth the same, so neither is counted.
-    ownership  no token Free under two different DIDs anywhere in the fleet - a
-               double spend, a HARD FAIL (the value exists twice; locking one
-               copy cannot undo it).
+    account    held (Free, Locked, Committed, Pledged, QuorumPledged,
+               BurntForFT, by status), not delivered (sent, and held by no node
+               for its own DID - each transfer with its time, sender and
+               receiver), held on the wrong node, and untraced
+               (full-test/rbt_ledger.py). Transferred rows are history and Burnt
+               split parents are replaced by children worth the same, so
+               neither is counted as held.
+    ownership  tokens Free under two different DIDs - a double spend: counted,
+               with the RBT that exists twice.
     stuck      tokens in Orphaned / ChainSyncIssue / BeingDoubleSpent / Seed /
                Generated / Fetched (constants/constants.go), and Free tokens
                with no chain history: AUDIT-START LOCKS these out of use
@@ -20,21 +25,19 @@ in the pool plus the faucet DID and the faucet quorum:
                counter and never restores a token. Locking only removes a token
                from circulation and keeps it on the ledger, so it is always
                safe, and the count is small.
-    locked     RBT already Locked is left parked - reported, not failed. It is
-               out of circulation; per-case checks (case_evidence, FAIL-01)
-               catch locks made during a run.
+    locked     RBT already Locked is left parked and counted.
     counters   token_denom drift and negative counters are a KNOWN PRODUCT BUG
-               that conserves value: reported, never failed, never rewritten.
+               that conserves value: reported, never rewritten.
 
-AUDIT-START fixes what it can (quarantine) and re-audits. AUDIT-END reports the
-run's true end state and does not change the fleet. Both fail only on value not
-conserved or a double spend - AUDIT-START against the 400,000 minted, AUDIT-END
-against AUDIT-START, so a loss from before the run fails once, not twice;
-everything else is reported.
+AUDIT-START quarantines and re-audits. AUDIT-END changes nothing and says what
+moved during the run: the total, the transfers not delivered since AUDIT-START,
+new double spends. Neither fails; a node that cannot be read makes the audit
+NOT RUN (its figures would be incomplete).
 """
 
 import os
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -43,19 +46,22 @@ sys.path.insert(0, os.path.join(HERE, "..", "full-test"))
 
 import rubix_client as rc
 import db_client as db
+import case_evidence
+import rbt_ledger
 import steps
 
 SKIP = "SKIP"
-FLEET_TOTAL_DEFAULT = 400000.0
+FLEET_TOTAL_DEFAULT = rbt_ledger.MINTED
 TOL = 0.01
 
-HELD = (db.FREE, db.LOCKED, db.COMMITTED, db.PLEDGED, db.QUORUM_PLEDGED, db.BURNT_FOR_FT)
+HELD = rbt_ledger.HELD
 STUCK = (2, 3, 13, 14, 15, 99)
 NAME = {db.FREE: "free", db.LOCKED: "locked", db.COMMITTED: "committed",
         db.PLEDGED: "pledged", db.QUORUM_PLEDGED: "quorum-pledged",
         db.BURNT_FOR_FT: "burnt-for-FT"}
+SHOWN = 5       # undelivered transfers named in a note; the evidence keeps all
 
-_START = {}     # AUDIT-START's totals, for AUDIT-END to compare against
+_START = {}     # AUDIT-START's reading, for AUDIT-END to compare against
 
 
 def _members(ctx):
@@ -84,7 +90,7 @@ def _read_node(host, dids):
         ("SELECT did, denom, count FROM token_denom WHERE did = ANY(%s)", (dids,)),
         ("SELECT did, token_value, COUNT(*) FROM tokens WHERE token_type = %s "
          "AND token_status = %s AND did = ANY(%s) GROUP BY did, token_value", (rbt, free, dids)),
-        ("SELECT token_id, did FROM tokens WHERE token_type = %s AND token_status = %s "
+        ("SELECT token_id, did, token_value FROM tokens WHERE token_type = %s AND token_status = %s "
          "AND did = ANY(%s)", (rbt, free, dids)),
         ("SELECT did, denom, count FROM token_denom WHERE count < 0 AND did = ANY(%s)", (dids,)),
         ("SELECT t.token_id FROM tokens t WHERE t.token_type = %s AND t.token_status = %s "
@@ -98,9 +104,10 @@ def _read_node(host, dids):
 
 
 def _audit(ctx, label):
+    """The fleet's reading, or None when there is nothing to audit."""
     members = _members(ctx)
     if not members:
-        return None, "no DIDs to audit"
+        return None
 
     def one(item):
         host, dids = item
@@ -114,7 +121,7 @@ def _audit(ctx, label):
 
     totals = dict((s, 0.0) for s in HELD)
     stuck, locked, drift, negative, orphans, quarantine = {}, {}, [], [], [], []
-    owners = {}
+    owners, values = {}, {}
     unreadable = []
     dids_read = 0
     for host, snap, err in readings:
@@ -143,42 +150,31 @@ def _audit(ctx, label):
                        if c.get(d, 0) != a.get(d, 0))
             if bad:
                 drift.append((host, did, bad))
-        for token_id, did in free_ids:
+        for token_id, did, value in free_ids:
             owners.setdefault(token_id, set()).add(did)
+            values[token_id] = float(value)
         negative += [(host, did, float(d), int(n)) for did, d, n in neg_rows]
         orphans += [(host, t) for (t,) in orphan_rows]
         quarantine += [(host, t, d) for (t, d) in quar_rows]
 
     doubled = dict((t, sorted(o)) for t, o in owners.items() if len(o) > 1)
     held = round(sum(totals.values()), 3)
-    reading = {"label": label, "held": held, "dids": dids_read, "nodes": len(members),
+    expected = float(getattr(ctx.args, "fleet_total", 0) or FLEET_TOTAL_DEFAULT)
+    reading = {"label": label, "held": held, "expected": expected, "dids": dids_read,
+               "nodes": len(members),
                "totals": dict((NAME[s], round(v, 3)) for s, v in totals.items()),
-               "locked": locked, "stuck": stuck, "doubled": len(doubled),
+               "locked": locked, "stuck": stuck, "doubled": doubled,
+               # a token Free under k DIDs is counted k times in `held`
+               "doubled_value": round(sum(values[t] * (len(o) - 1) for t, o in doubled.items()), 3),
                "drift": dict(((host, did), bad) for host, did, bad in drift),
                "negative": len(negative), "orphans": len(orphans),
-               "quarantine": quarantine, "unreadable": unreadable}
-
-    # findings = the HARD FAILS only. Parked Locked RBT, stuck/orphan tokens
-    # (quarantined by AUDIT-START), counter drift and negative counters are
-    # non-fatal and reported through _soft_notes.
-    findings = []
-    if unreadable:
-        findings.append("{} node database(s) could not be read, so this audit is incomplete: "
-                        "{}".format(len(unreadable), "; ".join(unreadable[:3])))
-    expected = float(getattr(ctx.args, "fleet_total", 0) or FLEET_TOTAL_DEFAULT)
-    if not unreadable and abs(held - expected) > TOL:
-        findings.append("the fleet holds {:.3f} RBT but the faucet minted {:.3f}: {:+.3f} RBT "
-                        "{}".format(held, expected, held - expected,
-                                    "created from nowhere" if held > expected else "lost"))
-    reading["expected"] = expected
-    reading["doubled_text"] = ""
-    if doubled:
-        sample = sorted(doubled.items())[:3]
-        reading["doubled_text"] = "{} token(s) are Free under two different DIDs - a double spend: " \
-            "{}".format(len(doubled), "; ".join("{} held by {}".format(t, " and ".join(d[:12] for d in o))
-                                                for t, o in sample))
-        findings.append(reading["doubled_text"])
-    return reading, findings
+               "quarantine": quarantine, "unreadable": unreadable, "ledger": None}
+    if not unreadable:
+        try:
+            reading["ledger"] = rbt_ledger.account(members, expected)
+        except Exception as e:
+            reading["ledger_error"] = "{}: {}".format(type(e).__name__, e)
+    return reading
 
 
 def _drift_finding(drift, known=False):
@@ -199,16 +195,79 @@ def _drift_finding(drift, known=False):
 
 def _describe(reading):
     t = reading["totals"]
-    return ("{:.3f} RBT across {} DIDs on {} nodes - free {:.3f}, pledged {:.3f} + quorum-"
+    return ("{:.3f} RBT held across {} DIDs on {} nodes - free {:.3f}, pledged {:.3f} + quorum-"
             "pledged {:.3f}, committed {:.3f}, burnt for FT {:.3f}, locked {:.3f}".format(
                 reading["held"], reading["dids"], reading["nodes"], t["free"], t["pledged"],
                 t["quorum-pledged"], t["committed"], t["burnt-for-FT"], t["locked"]))
 
 
+def _untraced(r):
+    led = r["ledger"] or {}
+    return round(r["expected"] - r["held"] + r["doubled_value"] - led.get("not_delivered", 0.0)
+                 - led.get("wrong_node", 0.0), 3)
+
+
+def _headline(r):
+    """Where the minted RBT is, in one sentence - the audit's verdict text."""
+    led = r["ledger"]
+    if led is None:
+        return "{:.3f} minted; {} (where the rest is could not be read: {})".format(
+            r["expected"], _describe(r), r.get("ledger_error", "?"))
+    return ("{:.3f} RBT minted: {:.3f} held, {:.3f} not delivered ({} transfer(s)), {:.3f} on the "
+            "wrong node, untraced {:+.3f}{}; locked {:.3f}; double spends {} ({:.3f} RBT counted "
+            "twice)".format(r["expected"], r["held"] - r["doubled_value"], led["not_delivered"],
+                            len(led["lost"]), led["wrong_node"], _untraced(r),
+                            " (the held figure counts a double-spent token once)"
+                            if r["doubled"] else "",
+                            r["totals"]["locked"], len(r["doubled"]), r["doubled_value"]))
+
+
+def _short(host):
+    return "." + str(host or "?").split(".")[-1]
+
+
+def _lost_line(g):
+    return "{} tx {} {:.3f} RBT from {} to {}{}".format(
+        time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(g["epoch"])) if g["epoch"] else "?",
+        g["tx"][:16], g["value"], _short(g["sender_host"]),
+        _short(g["owner_host"]) if g["owner_host"] else (g["owner"] or "?")[:16],
+        " (copies on {})".format(", ".join(_short(h) for h in g["copies_on"][:4]))
+        if g["copies_on"] else "")
+
+
+def _lost_notes(st, lost, title):
+    if lost:
+        st.note("{}: {:.3f} RBT in {} transfer(s), newest first: {}{}".format(
+            title, sum(g["value"] for g in lost), len(lost),
+            "; ".join(_lost_line(g) for g in lost[:SHOWN]),
+            "; ... (all in the evidence)" if len(lost) > SHOWN else ""))
+
+
+def _doubled_text(doubled):
+    sample = sorted(doubled.items())[:3]
+    return "{} token(s) Free under two different DIDs - a double spend: {}".format(
+        len(doubled), "; ".join("{} held by {}".format(t, " and ".join(d[:12] for d in o))
+                                for t, o in sample))
+
+
+def _attach(case, r, new_lost=None):
+    led = r["ledger"] or {}
+    case_evidence.attach(case, "accounting", {
+        "minted": r["expected"], "held": r["held"], "totals": r["totals"],
+        "not_delivered": led.get("not_delivered"), "wrong_node": led.get("wrong_node"),
+        "untraced": _untraced(r) if led else None, "copies": led.get("copies"),
+        "double_spends": dict((t, o) for t, o in r["doubled"].items()),
+        "double_spent_value": r["doubled_value"],
+        "locked_by_did": dict((d, round(v, 3)) for d, v in r["locked"].items()),
+        "not_delivered_transfers": [dict(g, tokens=g["tokens"][:50]) for g in led.get("lost", [])],
+        "wrong_node_tokens": [list(w) for w in led.get("wrong", [])][:500],
+        "lost_during_run": new_lost})
+
+
 def _soft_notes(reading):
-    """The non-fatal things to report but not fail on: RBT parked in Locked, the
-    known token_denom drift and negative counters, and any stuck/orphan tokens
-    still present (their value, if real, shows up in the conservation check)."""
+    """The known things the audit reports alongside the account: RBT parked in
+    Locked, the token_denom drift and negative counters, and any stuck/orphan
+    tokens still present."""
     notes = []
     if reading["locked"]:
         notes.append("{:.3f} RBT parked in Locked on {} DID(s) - left as is".format(
@@ -250,9 +309,10 @@ def _quarantine(targets):
 
 
 PURPOSE = {
-    "AUDIT-START": "The fleet's state before the run - nothing created or lost, no token owned "
-                   "twice - so every later step's findings are its own.",
-    "AUDIT-END": "The fleet's state after the run: what the run created, lost, locked or doubled.",
+    "AUDIT-START": "Where every RBT the faucet minted is before the run - held, locked, not "
+                   "delivered, on the wrong node, double spent - so every later step's findings "
+                   "are its own.",
+    "AUDIT-END": "Where every RBT is after the run, and what the run lost, locked or doubled.",
 }
 
 STEPS = {
@@ -264,22 +324,25 @@ STEPS = {
          "lock out of use every RBT token in a stuck status, or Free with no chain history, then "
          "read again - the audit's only write",
          "done; how many is reported"),
-        ("S3", "Nothing created or lost",
-         "add up every DID's Free, Locked, Committed, Pledged, QuorumPledged and BurntForFT RBT",
-         "equals the 400,000 RBT the faucet minted"),
+        ("S3", "Account for the RBT minted",
+         "add up every DID's Free, Locked, Committed, Pledged, QuorumPledged and BurntForFT RBT; "
+         "find the rest - sent and delivered to no node, held on a node that does not host the "
+         "DID, untraced",
+         "reported, not failed: every RBT of the 400,000 placed, each undelivered transfer named"),
         ("S4", "One owner per token", "look for a token Free under two DIDs",
-         "none - two would be a double spend"),
+         "reported, not failed: how many and how much RBT exists twice"),
         ("S5", "Known issues",
          "list RBT parked in Locked, token_denom drift and negative counters",
          "reported, not failed (known product bugs)"),
     ],
     "AUDIT-END": [
         ("S1", "Read every node", "as AUDIT-START S1", "every node readable"),
-        ("S2", "Nothing created or lost during the run",
-         "add up every DID's RBT as at the start",
-         "has not moved since AUDIT-START (a gap to the 400,000 minted that AUDIT-START already "
-         "found is reported, not failed again; without an AUDIT-START reading: equals 400,000)"),
-        ("S3", "One owner per token", "look for a token Free under two DIDs", "none"),
+        ("S2", "What the run lost or created",
+         "account as AUDIT-START S3 and compare with it",
+         "reported, not failed: the total's move during the run, each transfer not delivered "
+         "since AUDIT-START, any that arrived late"),
+        ("S3", "One owner per token", "look for a token Free under two DIDs",
+         "reported, not failed: how many, and which are new since AUDIT-START"),
         ("S4", "Known issues", "as AUDIT-START S5, plus what the run committed and burnt for FT",
          "reported, not failed"),
     ],
@@ -288,7 +351,7 @@ STEPS = {
 
 def _read_step(run, ctx, label, got):
     def read(st):
-        reading, _f = _audit(ctx, label)
+        reading = _audit(ctx, label)
         if reading is None:
             st.skip("nothing to audit")
             return
@@ -299,12 +362,13 @@ def _read_step(run, ctx, label, got):
     return run.step("S1", read, watch=False)
 
 
-def _total_check(st, r):
-    lost = r["held"] - r["expected"]
-    st.check(abs(lost) <= TOL, "the fleet holds {:.3f} RBT but the faucet minted {:.3f}: {:+.3f} RBT "
-                               "{} (controller/test-plan/custom/lost_rbt.py shows where)".format(
-                                   r["held"], r["expected"], lost,
-                                   "created from nowhere" if lost > 0 else "lost"))
+def _account(st, r):
+    st.note(_headline(r))
+    if r["ledger"]:
+        _lost_notes(st, r["ledger"]["lost"], "not delivered")
+        if r["ledger"]["wrong"]:
+            st.note("{} token(s) held on a node that does not host their DID, e.g. {} on {}".format(
+                len(r["ledger"]["wrong"]), r["ledger"]["wrong"][0][1], r["ledger"]["wrong"][0][0]))
 
 
 def audit_start(ctx, ci):
@@ -318,19 +382,21 @@ def audit_start(ctx, ci):
         st.data["quarantined"] = n
         st.note("{} problem token(s) locked out of use".format(n) if n else "none needed")
         if n:
-            got["r"], _f = _audit(ctx, "start")       # re-check the quarantined fleet
+            got["r"] = _audit(ctx, "start")         # re-check the quarantined fleet
     run.step("S2", quarantine, watch=False)
     r = got["r"]
     _START.clear()
     _START.update(r)
-    run.step("S3", lambda st: _total_check(st, r), watch=False)
-    run.step("S4", lambda st: st.check(not r["doubled_text"], r["doubled_text"]), watch=False)
+    run.step("S3", lambda st: _account(st, r), watch=False)
+    run.step("S4", lambda st: st.note(_doubled_text(r["doubled"]) if r["doubled"] else "none"),
+             watch=False)
 
     def known(st):
         for n in _soft_notes(r):
             st.note(n)
     run.step("S5", known, watch=False)
-    return run.verdict(passed="clean: " + _describe(r))
+    _attach("AUDIT-START", r)
+    return run.verdict(passed=_headline(r))
 
 
 def audit_end(ctx, ci):
@@ -341,34 +407,51 @@ def audit_end(ctx, ci):
     if _read_step(run, ctx, "end", got).outcome != steps.PASS:
         return run.verdict()
     r = got["r"]
+    start = _START if _START and not _START.get("unreadable") else None
+    new_lost = []
 
     def totals(st):
-        # Judged on this run alone: a gap to the minted total that was there at
-        # AUDIT-START is that audit's finding. Until 2026-10-29 both audits
-        # failed on the same old loss, so AUDIT-END counted it twice.
-        if not _START or _START.get("unreadable"):
-            _total_check(st, r)
+        _account(st, r)
+        if start is None:
+            st.note("no AUDIT-START reading to compare with")
             return
-        moved = round(r["held"] - _START["held"], 3)
-        st.check(abs(moved) <= TOL, "the fleet total moved {:+.3f} RBT during this run ({:.3f} -> "
-                                    "{:.3f}; controller/test-plan/custom/lost_rbt.py shows where)".format(
-                                        moved, _START["held"], r["held"]))
-        gap = r["held"] - r["expected"]
-        if abs(gap) > TOL:
-            st.note("{:+.3f} RBT against the {:.3f} minted, as at AUDIT-START - from before this "
-                    "run".format(gap, r["expected"]))
+        moved = round(r["held"] - r["doubled_value"] - start["held"] + start["doubled_value"], 3)
+        st.data["moved"] = moved
+        st.note("held {:+.3f} RBT during this run ({:.3f} -> {:.3f})".format(
+            moved, start["held"] - start["doubled_value"], r["held"] - r["doubled_value"]))
+        if r["ledger"] and start["ledger"]:
+            before = start["ledger"]["lost_tokens"]
+            new_lost[:] = [g for g in r["ledger"]["lost"]
+                           if any(t not in before for t, _v in g["tokens"])]
+            _lost_notes(st, new_lost, "not delivered during this run")
+            arrived = before - r["ledger"]["lost_tokens"]
+            if arrived:
+                st.note("{} token(s) not delivered at AUDIT-START are held by their owner's node "
+                        "now".format(len(arrived)))
     run.step("S2", totals, watch=False)
-    run.step("S3", lambda st: st.check(not r["doubled_text"], r["doubled_text"]), watch=False)
+
+    def owners(st):
+        if not r["doubled"]:
+            st.note("none")
+            return
+        st.note(_doubled_text(r["doubled"]))
+        if start is not None:
+            new = sorted(set(r["doubled"]) - set(start["doubled"]))
+            st.note("{} of them new since AUDIT-START{}".format(
+                len(new), ": " + ", ".join(new[:5]) if new else ""))
+    run.step("S3", owners, watch=False)
 
     def known(st):
         for n in _soft_notes(r):
             st.note(n)
-        if _START:
-            st.note("committed {:+.3f}, burnt for FT {:+.3f} since the start".format(
-                r["totals"]["committed"] - _START["totals"]["committed"],
-                r["totals"]["burnt-for-FT"] - _START["totals"]["burnt-for-FT"]))
+        if start is not None:
+            st.note("committed {:+.3f}, burnt for FT {:+.3f}, locked {:+.3f} since the start".format(
+                r["totals"]["committed"] - start["totals"]["committed"],
+                r["totals"]["burnt-for-FT"] - start["totals"]["burnt-for-FT"],
+                r["totals"]["locked"] - start["totals"]["locked"]))
     run.step("S4", known, watch=False)
-    return run.verdict(passed="clean: " + _describe(r))
+    _attach("AUDIT-END", r, [dict(g, tokens=g["tokens"][:50]) for g in new_lost] if start else None)
+    return run.verdict(passed=_headline(r))
 
 
 CASES = {"AUDIT-START": audit_start, "AUDIT-END": audit_end}
