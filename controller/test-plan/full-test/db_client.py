@@ -627,6 +627,26 @@ def transactions_present(host, tx_ids, port=DB_PORT):
     return set(t for (t,) in rows)
 
 
+def received(host, pairs, port=DB_PORT):
+    """The subset of (tx_id, did) pairs this node has credited to that DID: a
+    `transaction_units` row, written in the same DB transaction as the DID's
+    token rows (core/wallet/post_consensus_persistence.go:136; the receiver
+    through SendTokens, core/transaction.go:811, or the local-DID branch, :564).
+
+    A row in `transactions` is not enough: a node that held the pledge for the
+    token's previous hop records the transaction as well. On 2026-11-05 two
+    transfers lost that way (QCAP-01 S2, FAIL-01 S3) passed the delivery check
+    and showed up only as value not conserved."""
+    pairs = [(t, d) for t, d in pairs if t and d]
+    if not pairs:
+        return set()
+    rows = query(host, "SELECT transaction_id, did FROM transaction_units "
+                       "WHERE transaction_id = ANY(%s) AND did = ANY(%s)",
+                 (sorted(set(t for t, _d in pairs)), sorted(set(d for _t, d in pairs))), port)
+    have = set((t, d) for t, d in rows)
+    return set(p for p in pairs if p in have)
+
+
 def transaction_participants(host, tx_id, port=DB_PORT):
     """(initiator, owner) read from the transaction's own info JSON.
 

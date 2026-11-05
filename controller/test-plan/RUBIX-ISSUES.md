@@ -21,26 +21,26 @@ failing on the fleet.
 
 | ID | Issue | Status | Last seen |
 |---|---|---|---|
-| R-01 | Concurrent pledges/splits on one DID deadlock on `token_denom` | CONFIRMED | 2026-11-03 |
-| R-02 | `token_denom` counter left wrong after a failed pledge | CONFIRMED | 2026-11-03 |
-| R-03 | Rubix nodes grow with large transactions until the kernel kills them | SUSPECTED cause | 2026-11-03 |
-| R-04 | A quorum killed mid-transfer leaves the sender's token stuck | CONFIRMED (twice) | 2026-11-03 |
+| R-01 | Concurrent pledges/splits on one DID deadlock on `token_denom` | CONFIRMED | 2026-11-05 |
+| R-02 | `token_denom` counter left wrong after a failed pledge | CONFIRMED | 2026-11-05 |
+| R-03 | Rubix nodes grow with large transactions until the kernel kills them | SUSPECTED cause | 2026-11-05 |
+| R-04 | A quorum killed mid-transfer leaves the sender's token stuck | CONFIRMED (three times) | 2026-11-05 |
 | R-05 | A quorum holding exactly the value is refused (float compare) | CONFIRMED (twice) | 2026-11-03 |
-| R-06 | Transfer reports success, receiver never gets the tokens | CONFIRMED | 2026-11-02 |
-| R-07 | NFT and contract chains fork on simultaneous executes | CONFIRMED | 2026-11-03 |
-| R-08 | A former quorum cannot spend tokens it pledged | CONFIRMED | 2026-11-03 |
-| R-09 | Failures leave tokens Locked | CONFIRMED | 2026-11-03 |
-| R-10 | After an IPFS auto-restart the node is deaf | CONFIRMED | 2026-11-03 |
+| R-06 | Transfer reports success, receiver never gets the tokens | CONFIRMED | 2026-11-05 |
+| R-07 | NFT and contract chains fork on simultaneous executes | CONFIRMED | 2026-11-05 |
+| R-08 | A former quorum cannot spend tokens it pledged | CONFIRMED | 2026-11-05 |
+| R-09 | Failures leave tokens Locked | CONFIRMED | 2026-11-05 |
+| R-10 | After an IPFS auto-restart the node is deaf | CONFIRMED | 2026-11-05 |
 | R-11 | One node's shutdown kills every IPFS on the machine | SUSPECTED | 2026-10-22 |
-| R-12 | Peer requests swallow connection failures | CONFIRMED | 2026-10-22 |
+| R-12 | Peer requests swallow connection failures | CONFIRMED | 2026-11-05 |
 | R-13 | Peer-port pool: leak, overlap, listener inside a neighbour's pool | CONFIRMED | 2026-11-02 |
 | R-14 | `NodeConfigDir` never assigned | CODE | - |
 | R-15 | Quorum setup lives only in memory | CONFIRMED | 2026-11-03 |
-| R-16 | Pledge release checks only one quorum DID per node | CONFIRMED | 2026-10-23 |
+| R-16 | Pledge release checks only one quorum DID per node | CONFIRMED | 2026-11-05 |
 | R-17 | Pubsub receive loop spins on a receive error | CODE | - |
 | R-18 | NFT/SC operation from a node without the token becomes a second genesis | CONFIRMED | 2026-10-21 |
-| R-19 | Fullnodes validate out of order and reach different verdicts | CONFIRMED | 2026-11-03 |
-| R-20 | Zero clock tolerance on the transaction epoch | CONFIRMED | 2026-10-22 |
+| R-19 | Fullnodes validate out of order and reach different verdicts | CONFIRMED | 2026-11-05 |
+| R-20 | Zero clock tolerance on the transaction epoch | CONFIRMED | 2026-11-05 |
 | R-21 | False double spend on repeated small splits | SUSPECTED | 2026-10-06 |
 | R-22 | Split check and wallet recovery need Rubix's public fullnode list | CODE | - |
 | R-23 | Re-splitting a previously split token collides on `tokens_pkey` | CODE | older |
@@ -51,9 +51,10 @@ failing on the fleet.
 | R-28 | Quorum nodes keep Free copies of other DIDs' tokens | to check | 2026-11-02 |
 | R-29 | Concurrent pledges on one quorum lose their token locks (~400 at once) | SUSPECTED cause | 2026-11-03 |
 | R-30 | The pledge lock plans from `token_denom` counters and never checks what it locked | CONFIRMED code path | 2026-11-03 |
-| R-31 | A faucet-minted whole token refused by the allowlist, naming another minter | SUSPECTED | 2026-11-03 |
-| R-32 | A transfer recorded by the receiver's node but never credited to the receiver | SUSPECTED | 2026-11-03 |
-| R-33 | A quorum refuses a token "chain mismatch after sync" with no kill involved | SUSPECTED | 2026-11-03 |
+| R-31 | A faucet-minted whole token refused by the allowlist, naming another minter | SUSPECTED | 2026-11-05 |
+| R-32 | A transfer recorded by the receiver's node but never credited to the receiver | SUSPECTED, code path found | 2026-11-05 |
+| R-33 | A quorum refuses a token "chain mismatch after sync" with no kill involved | SUSPECTED | 2026-11-05 |
+| R-34 | One RBT counted on two wallets after concurrent sends on one machine | SUSPECTED | 2026-11-05 |
 
 ---
 
@@ -70,6 +71,8 @@ failing on the fleet.
   on the quorum's pledge), QCAP-01 already at 10 fractional sends at once (1),
   COMBO-01 (1), SC-01 (1, a different table: `post-consensus persistence:
   insert tokenchain rows: deadlock detected`, two executes of one contract).
+  2026-11-05: 31 - WALLET-PREP (16, round 2), QCAP-01 (8, already at 10
+  fractional sends at once), FT-01 (5, S5 and S6), COMBO-01 (2).
 - **Cause:** every `token_denom` writer updates one row per denomination in Go
   map order, which is random, so two transactions on one DID lock the rows in
   different orders (`core/wallet/persist_genesis_tx.go:209`,
@@ -82,7 +85,9 @@ failing on the fleet.
 ### R-02 `token_denom` counter left wrong after a failed pledge
 - **Seen:** AUDIT-START 2026-11-02: 8 DIDs whose counter does not match their
   Free tokens, e.g. the faucet quorum, 1.0 RBT: counter 178,802, Free tokens
-  178,620. First seen 2026-10-21 (0.1: counter 111, rows 107).
+  178,620. First seen 2026-10-21 (0.1: counter 111, rows 107). 2026-11-05: 9
+  DIDs at both audits (faucet quorum 1.0 RBT: counter 166,792, Free 166,605 at
+  the end), and RACE-02 S2 left a new drift on .108:20000.
 - **Cause:** `PledgeV2` commits the pledge, then decrements `token_denom` in a
   second DB transaction (`core/pledge_v2.go:287`; 1d9b28bb). When that one fails
   (for example R-01) the counter stays high. `UnpledgeV2` increments it the same
@@ -141,6 +146,18 @@ failing on the fleet.
   The code doing O(N^2) work is not found yet - PledgeV2's SQL
   (`core/pledge_v2.go`) works per token; the per-token chain sync in
   `TokenChainIntigrityCheck` is the next place to look.
+- **2026-11-05 (faucet chunks of 250 tokens):** the faucet quorum still reached
+  7.4 GB and 5.0 GB between draws in the wallets unit; the runner restarted it on
+  purpose twice (16:16:57, 16:18:06) and the kernel never killed it - the first
+  run without a faucet-quorum kill. WALLET-01's quorum 121:20200, which had
+  signed all of QCAP-01 earlier in the run, stopped answering its API after the
+  500-RBT transfer (13 s); two steps later its machine was at 97% CPU and by
+  16:25 its nodes were deaf (R-10; the runner restarted them). FT-01 S5 (8
+  owners passing 1,300-1,700-FT series at once): Rubix at 10.4 GB on .107,
+  11.4 GB on .110 and 11.5 GB on .134 (0.8% memory left, 2.9 GB into swap),
+  nodes restarted on .122 (slot 4), .126 (4), .128 (6), .134 (5) and .136 (4),
+  all nine of .134's nodes deaf, 5 sends `RemoteDisconnected`, 5,400 FTs left
+  Locked (R-09).
 - **Seen before:** 2026-11-02 the faucet quorum (.106) was OOM-killed at 14:00:31,
   anon-rss 14.27 GB, ~14 min into the run and a few minutes after a 2,000-RBT
   transfer. 2026-10-29: the faucet quorum at 14.2 GB, 24 s after a 2,000-FT
@@ -182,7 +199,11 @@ failing on the fleet.
   every attempt through that quorum. Kills of the sender (S2, S3) recovered.
   **Reproduced 2026-11-03** on a different token (60001_121106: `local latest
   03ac7725 != expected 43537334`), after S1 had checked that the same three
-  nodes made an ordinary transfer before any kill.
+  nodes made an ordinary transfer before any kill. **Third time 2026-11-05:**
+  after S4 killed the quorum (.110:20000) on "Consensus request parsed
+  successfully", every send through it in S4-S7 was refused for token
+  60001_121091, `chain mismatch after sync ... local latest d51ea47c...`; S1's
+  ordinary transfer had gone through before the kills.
 - **Cause:** the quorum writes the in-flight transaction into its token chain
   before consensus completes, and nothing undoes it when the transaction never
   completes. Where it writes it has not been located yet.
@@ -256,6 +277,16 @@ failing on the fleet.
   | 2026-11-02 14:03 | 1 | 1.000 | LOAD-01 at 200 (`f3fb1ceb`) | yes |
   | 2026-11-03 13:02 | 1 | 1.000 | CHAIN-01 clean-up (`04b85c40`, R-32) | yes |
   | 2026-11-03 19:00, 19:02 | 2 | 2.000 | FAIL-01's recovery probes A (.107:20200) -> B (.108:20000) after S3 (sender killed) and S6 (receiver killed): "completed successfully", never on B's node - the run's whole AUDIT-END -2.000. Both steps PASSED: the runner judged a probe on the sender's answer only (fixed 2026-11-05) | yes |
+  | 2026-11-05 16:13:19 | 1 | 1.000 | QCAP-01 S2, 200 at once: `b4a2b842` .144:20700 -> .110:20000 (a busy quorum node), token 60001_103213 | yes |
+  | 2026-11-05 16:56:29 | 1 | 1.000 | FAIL-01 S3, the sender stopped right after consensus: `720b7a37` .107:20200 -> .108:20000, token 60001_12109 | yes |
+
+  AUDIT-END 2026-11-05: 88.206 RBT in 104 transfers. Both new ones went to a
+  node that had signed the token's earlier hops as a quorum, and both receivers'
+  nodes recorded the transaction - from the pledge of the previous hop - so the
+  runner's delivery check passed them and the steps showed only "value not
+  conserved" (fixed 2026-11-05: the check now asks for the receiver DID's own
+  `transaction_units` row, `db_client.received`). FT-01 S5 lost an FT transfer
+  the same day (`a3ccc31b`, to .128:20600).
 
   Two shapes: **the receiver could not be reached** (24 transfers, 39 RBT: no
   copy on the receiver's node - this issue as described below), and **the
@@ -292,7 +323,9 @@ failing on the fleet.
   `975c8b8e`); SC-01 never reached its race (its subscribers were deaf, R-10).
   Third run: 4 NFTs and 6 contracts forked at position 6; the other racing
   pairs were refused "previous transaction id mismatch", one with a raw
-  `tokenchain_pkey` duplicate and one with a `tokenchain` deadlock.
+  `tokenchain_pkey` duplicate and one with a `tokenchain` deadlock. 2026-11-05:
+  3 NFTs (`QmYxJCGAJa`, `QmStgG1vsq`, `QmV2pxxgex`) and at least 3 contracts
+  forked at position 6, still forked at the reconcile.
 - **Cause:** each quorum validates against its own view of the chain and syncs
   from the initiator. Two executes signed by two different quorums on the same
   tip never see each other; nothing orders executes per token.
@@ -314,6 +347,8 @@ failing on the fleet.
   (`checks.go:297`, 532c413b): `token 60001_116211 is marked unpledged but not
   found in quorum tokens of pledged transaction 515c4e04...` (LOAD-01 at 500) -
   the pledge transaction its unpledge entry points at did not pledge it.
+  2026-11-05: QCAP-01 (7), RACE-02 (2: 60001_100127, 60001_105003), LOAD-01
+  (60001_103217 on every rung - the same token each time).
 - **Cause:** for a token whose last role is `unpledge`, the check looks the
   token up in `txnInfo.Quorums` (the current transaction's pledges) instead of
   `pledgedTxnInfo.Quorums` (`core/consensus/checks.go:309`; `:400` has the same
@@ -328,7 +363,11 @@ failing on the fleet.
   the same step left 9,500 FTs Locked on six holders (1,300-2,600 each). Third
   run: FAIL-01 S4 (the quorum killed on its log line) left 1.000 RBT Locked on
   the quorum (.110:20000), and the sender's refusal came after 6 s with no
-  reason at all.
+  reason at all. 2026-11-05: FT-01 S5 left 5,400 FTs Locked on four senders
+  (1,300-1,500 each) and S8 found exactly those missing; QCAP-01's fractional
+  rung left 0.753 RBT Locked on its quorum; FAIL-01 S2 (the sender stopped on
+  "Starting transaction") left 1.000 RBT Locked on the quorum (.110:20000).
+  The fleet's parked Locked RBT went 24.176 -> 25.929 during the run.
   23.176 RBT parked Locked on 4 DIDs (AUDIT-START 2026-11-02). Failed
   FT sends left 500 FTs Locked on two senders (FT-01, 2026-10-29). A pledge
   that failed mid-way left 0.576 RBT Locked on its quorum (QCAP-01,
@@ -348,7 +387,8 @@ failing on the fleet.
   .116's nodes; 2026-11-03 (second run) all nine of .135's nodes during FT-01
   S5, with the machine 2.8 GB into swap, 81% iowait, and its slot 0 restarted
   (R-03); third run, .110's nodes after its quorum's crash (R-03) - the runner
-  restarted them. The API keeps answering and the node can still send, but no
+  restarted them. 2026-11-05: .121 after WALLET-01's 500-RBT transfer, and all
+  nine of .134's nodes in FT-01 S5 - both restarted by the runner. The API keeps answering and the node can still send, but no
   peer can reach it until it restarts.
 - **Cause:** `restartIPFS` / `reinitializeIPFS` (`core/ipfs_recovery.go`) never
   call `listenIPFSPort` again, so the new daemon has no `p2p listen
@@ -373,7 +413,13 @@ failing on the fleet.
 ### R-12 Peer requests swallow connection failures
 - **Seen:** 2026-10-22 "getPeer failed: did not exist with the peer" from every
   consensus that had to reach .130's deaf nodes (NFT-01, SC-01, COMBO-01,
-  CHAIN-01).
+  CHAIN-01). 2026-11-05, FAIL-01 S2: the sender was stopped on "Starting
+  transaction" and still answered, after 6 s, `insufficient quorum liquidity` -
+  the quorum had liquidity and had locked 1 RBT for the pledge (R-09). The
+  sender's pledge request died with the sender's p2p connection, came back with
+  no error and no tokens, and `len(pledgeTokens) == 0` is reported as liquidity
+  (`core/transaction.go:237-254`; 532c413b): a connection failure read as a
+  business refusal.
 - **Cause:** `SendJSONRequest` redeclares `err` inside its retry loop
   (`core/ipfsport/peer.go:205, :221`), so after three failed attempts it
   returns the never-set outer `err` (nil) with an empty response (`:257`);
@@ -424,7 +470,9 @@ failing on the fleet.
 - **Confirm with:** set up a quorum, restart its node, send through it.
 
 ### R-16 Pledge release checks only one quorum DID per node
-- **Seen:** QCAP-03b, 2026-10-23 (release never came).
+- **Seen:** QCAP-03b, 2026-10-23 (release never came). Again 2026-11-05: Q's
+  pledge not released within 120 s of the onward spend (it was released in the
+  three 2026-11-03 runs) - random, as the cause says.
 - **Cause:** `TxnCallBack` runs the unpledge callback for ONE quorum DID, the
   first one Go's map iteration gives (`core/fullnode.go:66-72`
   `for did := range c.qc { ...; break }`; 532c413b), and the lookup filters on
@@ -467,7 +515,9 @@ failing on the fleet.
   transaction in COMBO-01, QCAP-01 and WALLET-01 ("chain mismatch after sync",
   "still not found locally after sync"). 2026-10-21: tx `7eab35e3` rejected by
   .101/.103 ("marked unpledged but not found in quorum tokens of pledged
-  transaction", `checks.go:297`), accepted by .102/.104.
+  transaction", `checks.go:297`), accepted by .102/.104. 2026-11-05: different
+  verdicts on the same transaction in CHAIN-01, COMBO-01, FT-01, LOAD-01,
+  NFT-01, QCAP-01 and SC-01.
 - **Cause:** a fullnode validates published transactions with ~NumCPU/2 workers
   in parallel and 3 attempts ~6 s apart (`core/fullnode.go`
   `processTxnWithRetry`), so transactions on one token close together can be
@@ -481,9 +531,21 @@ failing on the fleet.
 ### R-20 Zero clock tolerance on the transaction epoch
 - **Seen:** LOAD-01 2026-10-22 (3 refusals at 300 senders); smoke test
   2026-10-29. Refusal: `invalid epoch ... not after the current time`.
+  2026-11-05, CHAIN-01: one refusal in each 200-hop chain ended it, at hop 135
+  (.130:20600 -> .141:20400, `invalid epoch 1793877759 ... current time (epoch
+  1793877758)`) and at hop 115 (.131:20800 -> .124:20800), with every machine's
+  clock within 25 ms of the fleet's median (the runner leaves out any machine
+  more than 50 ms off).
 - **Cause:** `core/consensus/checks.go:61` rejects `Epoch > time.Now()`, so a
   sender whose clock is even slightly ahead of its quorum's is refused. The
-  message also names the 2026-04-01 floor, which misleads. 1d9b28bb.
+  message also names the 2026-04-01 floor, which misleads. 1d9b28bb. The epoch
+  is whole seconds (`int(time.Now().Unix())`, `core/transaction_builder.go:530`;
+  532c413b), so a sender d ms ahead is refused whenever the quorum's clock is
+  within d ms before a second turns over - about d/1000 of its transfers (2.5%
+  at 25 ms): rare per transfer, near-certain over a few hundred hops.
+- **Lab side (2026-11-05):** CHAIN-01 sends a hop refused only for this once
+  more, 1.5 s later, so one such refusal no longer ends a chain; the refusal
+  stays in the step's record.
 - **Fix needed:** allow a small skew (seconds); say which bound was broken.
 - **Confirm with:** set a sender's clock 0.1 s, 1 s and 5 s ahead of its quorum's.
 
@@ -597,7 +659,10 @@ failing on the fleet.
   faucet DID's range (1-2,150,000), and the faucet DID is
   `bafybmih6fkweeuo...`, not the minter named. **Again on 2026-11-03 (third
   run, LOAD-01 at 500): the same token, the same minter named** - it repeats,
-  so it belongs to that token's history, not to load.
+  so it belongs to that token's history, not to load. 2026-11-05: WALLET-PREP
+  round 1 refused `60001_103300_1` - a part of the same token: the history
+  follows the token into its parts. QCAP-01 at 200 had one more allowlist
+  refusal (set aside by the ladder).
 - **Cause (not known):** the quorum took a different DID as the token's minter -
   perhaps from a copy of the token's chain that does not start at the genesis
   (see R-28), or a holder recorded as the minter. Not the fixed part-token bug
@@ -625,12 +690,52 @@ failing on the fleet.
 - **Likely cause (not proven):** quorum 10 had validated hops of 60001_156063,
   so its node already held a copy row of it under an earlier holder's DID
   (R-28; the token is on that list on .106, .107 and .108). The receive path
-  then mis-matched the incoming token.
+  then refused or mis-matched the incoming token - see "Code path" below.
+- **Re-read 2026-11-05 - why the receiver's node "records" the transfer:** a
+  node that signed the token's previous hop as quorum holds a pledge for it,
+  released when a later transaction spends the token (`core/callback.go`,
+  `core/wallet/pledge.go:486-528`), so that node writes the new transaction
+  against its OWN pledged token. The "DIFFERENT token, Free under quorum 10's
+  own DID" above is most likely quorum 10's released pledge, not the receipt.
+  Until 2026-11-05 the runner took such a row for delivery; it now asks for the
+  receiver DID's own `transaction_units` row (`db_client.received`).
+- **Seen again 2026-11-05 (twice):** QCAP-01 S2, 200 at once: `b4a2b842...`,
+  token 60001_103213, .144:20700 -> .110:20000; FAIL-01 S3: `720b7a37...`, token
+  60001_12109, .107:20200 -> .108:20000 (the sender was stopped right after
+  consensus, so this one can be R-06 instead). Both receivers are busy quorum
+  nodes holding a copy of the token under another DID (60001_103213 on .106,
+  .107, .108, .110 and .121:20200; 60001_12109 on .106, .108, .110) - as were
+  FAIL-01's two lost probes of 2026-11-03, also .107:20200 -> .108:20000.
+- **Code path (532c413b, read 2026-11-05, not proven):** the receiver persists
+  in `SendTokens` (`core/transaction.go`, after `sendTokensToReceiver`) through
+  `PersistPostConsensus` (`core/wallet/post_consensus_persistence.go`), whose
+  `validateTransferChainContinuity` locks the local `tokens` row and refuses
+  when its `transaction_id` is not the incoming token's previous transaction,
+  or its position is not latest + 1. A node that validated an earlier hop has
+  such a row: the chain sync creates it, Free, under the first synced
+  transaction's owner (`applyTokenChainFromSync`, `core/sync.go:535` - where
+  R-28's copies come from), and the sync before the persist returns early when
+  the previous transaction is already in the local chain (`core/sync.go:552`).
+  If the row is stale the persist fails, `SendTokens` answers an error, and the
+  sender - which has already marked the tokens Transferred - only logs
+  `sendTokensToReceiver: Receiver rejected the tokens` and returns.
+- **Confirm with (read-only, from .120):** the sender's log says whether the
+  receiver rejected the tokens (this issue) or could not be reached (R-06; no
+  line at all if the sender died first); the receiver's log shows the persist
+  error with the token's ID:
+  ```
+  ssh rubix@192.168.1.144 "grep -n b4a2b84260eef0298be87d1061f4b7cb04d5131da9ac29dd5e87ccf309af496d /home/rubix/Desktop/rubix/rubix-lab/nodes/node7/log.txt | grep -i receiver"
+  ssh rubix@192.168.1.110 "grep -n 60001_103213 /home/rubix/Desktop/rubix/rubix-lab/nodes/node0/log.txt | tail -n 20"
+  ssh rubix@192.168.1.107 "grep -n 720b7a37fa2b10c89f472bd9139ae44e8142701f5b90da42e8fb6b03e127135c /home/rubix/Desktop/rubix/rubix-lab/nodes/node2/log.txt | grep -i receiver"
+  ssh rubix@192.168.1.108 "grep -n 60001_12109 /home/rubix/Desktop/rubix/rubix-lab/nodes/node0/log.txt | tail -n 20"
+  ```
 - **Still to read:** which token the transaction itself carries (a fullnode's
   `transactions.info` for this ID), and the receiver's row for 60001_156063.
-- **Fix needed:** once confirmed, the receiver must persist exactly the tokens
-  the transaction carries and take over any copy row for them (owner DID,
-  status Free).
+- **Fix needed:** once confirmed, the receiver must bring a copy row up to the
+  incoming chain (or take it over: owner DID, status Free) before the
+  continuity check, and persist exactly the tokens the transaction carries; the
+  sender must not mark its tokens Transferred until the receiver has accepted
+  them (R-06).
 - **Confirm with:** pass a token through quorum Q, then send that token to Q
   itself; read Q's `tokens` row for it. For this run:
   `lost_rbt.py --tx 04b85c40...` and Q's row for the token.
@@ -654,7 +759,9 @@ failing on the fleet.
     restart).
   The first two set the "limit" QCAP-01 (300) and LOAD-01 (100) recorded.
   Third run 2026-11-03: LOAD-01 at 500 (token 60001_108940, `local latest
-  3928c543 != expected 1b993472`) and three FT tokens in FT-01 S5.
+  3928c543 != expected 1b993472`) and three FT tokens in FT-01 S5. 2026-11-05:
+  LOAD-01 at 500 again, one refusal (token 60001_103315) - 491 of 492 went
+  through, and the saved limit is 300 because of it.
 - **Cause (not known):** the same refusal as R-04 (`core/consensus/checks.go:944`),
   whose sync skips when the prevTxID is "already in local chain". Here no kill
   left a stale entry, so the quorum's copy came from elsewhere - perhaps a copy
@@ -666,6 +773,30 @@ failing on the fleet.
 - **Confirm with:** for each token, read its `tokenchain` rows on the refusing
   quorum and on the sender; find the quorum's latest transaction (which one, did
   it complete, who holds it).
+
+## G. Found 2026-11-05
+
+### R-34 One RBT counted on two wallets after concurrent sends on one machine
+- **Seen:** RACE-02 S2, 2026-11-05: nine DIDs, one per node of .108, each sent
+  1 RBT round a ring at the same instant, through quorums on .107; 7 accepted,
+  2 refused (R-08, tokens 60001_100127 and 60001_105003). The nine wallets
+  together rose by +1.000 RBT with nothing coming in from outside, and
+  .108:20000's `token_denom` counter was left wrong (R-02). AUDIT-END the same
+  run: untraced -1.000 - the same RBT, held by two DIDs at once. The audit
+  then counted a token twice only when it was Free under both, so it showed as
+  untraced (lab side fixed 2026-11-05: any held status, `rbt_ledger` "held
+  twice").
+- **Cause:** not known. Candidates: a send whose token reached its receiver
+  while the sender's row stayed Free or Locked (a refusal or retry after the
+  receiver had persisted - TOCTOU `maxRetries = 3`, `core/transaction.go:113`),
+  or the release of a pledge on a node that also holds the token.
+- **Fix needed:** to be decided once the token is known.
+- **Confirm with:** `controller/test-plan/custom/lost_rbt.py` (from 2026-11-05
+  it lists every token held twice, with both holders and statuses) names the
+  token; then read its `tokens` and `tokenchain` rows on both nodes and the
+  transactions that last moved it. A repeat: the same ring of nine on one
+  machine, compared wallet by wallet before and after (the step now records
+  which wallet moved by other than its own transfers, `value_off`).
 
 ## E. Not reachable on the lab, or fixed
 

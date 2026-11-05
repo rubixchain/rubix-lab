@@ -211,6 +211,7 @@ def install_stubs():
     # The fleet audit's per-node snapshot: one empty result per statement.
     db.query_snapshot = lambda host, statements, *a, **k: [[] for _ in statements]
     db.transactions_present = lambda host, ids, *a, **k: set(ids)
+    db.received = lambda host, pairs, *a, **k: set(pairs)
     db.denom_counter = rec("denom_counter", {1.0: 5, 0.5: 2})
     db.real_free_denoms = rec("real_free_denoms", {1.0: 5, 0.5: 2})
     db.denom_drift = rec("denom_drift", {})

@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "full-test"))
 
+import case_evidence
 import case_helpers as ch
 import rubix_client as rc
 import steps
@@ -204,6 +205,10 @@ def race_02(ctx, ci):
         return req
 
     def ladder(sid, group_of, rungs, qs, hosts):
+        # RACE-02 picks its DIDs from the fleet, not the unit's seats: the case's
+        # DB check (case_evidence) must read these, before they are funded.
+        for e in group_of(max(rungs or [0])) + qs:
+            case_evidence.join("RACE-02", "quorum" if e in qs else "sender", e)
         for k in rungs:
             group = group_of(k)
             if len(group) < 2:

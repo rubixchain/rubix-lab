@@ -17,6 +17,8 @@ THE QUESTION
                    under an earlier holder's DID - named, not counted.
     WRONG NODE     a node holds the token for a DID it does not host, and no
                    sender marked it Transferred - once per token.
+    HELD TWICE     one token held for two DIDs, on two nodes: its RBT is in
+                   "held" twice (Free under both is a double spend).
     untraced       the rest.
 
     Each undelivered transfer is printed with its time (the transaction's
@@ -95,6 +97,8 @@ def main():
         led["not_delivered"], len(led["lost_tokens"]), len(led["lost"])))
     print("on the WRONG node         {:>14.3f} RBT   in {} token(s)".format(
         led["wrong_node"], len(led["wrong"])))
+    print("HELD TWICE                {:>14.3f} RBT   counted twice, in {} token(s)".format(
+        led["twice_value"], len(led["twice"])))
     print("minted by the faucet      {:>14.3f} RBT".format(led["minted"]))
     print("still untraced            {:>14.3f} RBT".format(led["untraced"]))
     print("({} stale copy row(s) of tokens their owner holds - not counted)".format(led["copies"]))
@@ -119,6 +123,13 @@ def main():
         for h, t, d, st, v in led["wrong"][:50]:
             print("  {}  token {} {:.3f} RBT, {}, for {} (served by {})".format(
                 h, t, v, db.STATUS_NAME.get(st, st), d[:24], where.get(d, "no fleet node")))
+    if led["twice"]:
+        print("\nHeld twice - one token held for two DIDs ({} token(s), first 50):".format(
+            len(led["twice"])))
+        for t, holders in sorted(led["twice"].items())[:50]:
+            print("  token {}: {}".format(t, "; ".join(
+                "{} for {} on {}".format(db.STATUS_NAME.get(st, st), d[:24], h)
+                for h, d, st in holders)))
 
     if args.tx:
         print("\nWhich nodes record these transactions:")

@@ -1326,15 +1326,16 @@ def memory_lines():
 # ---------------------------------------------------------------------------
 
 RUNNING_UNITS = []      # units running now (run_units keeps it)
+DEAF = "they could no longer receive (IPFS without its p2p listener)"
 
 
-def heal_machines(machines, ctx=None, why="", say=print):
+def heal_machines(machines, ctx=None, why="", say=print, what=DEAF):
     """Restart every node of each pool machine in `machines` (restart-nodes.sh
     --force: all stopped, then all started - R-11) when no running unit other
     than ctx's has a node there, wait for their p2p listeners, and set up again
     the quorums ctx's unit uses on them (quorum setup lives in memory, R-15).
-    Returns (machines whose nodes all receive again, a line saying what was
-    done or why not)."""
+    `what` says why the machine needed it. Returns (machines whose nodes all
+    receive again, a line saying what was done or why not)."""
     import subprocess
     import fleet_health
     script = os.path.join(HERE, "..", "..", "restart-nodes.sh")
@@ -1370,20 +1371,21 @@ def heal_machines(machines, ctx=None, why="", say=print):
                    if fleet_inventory.split(q["host"])[0] == m]
         for q in rearmed:
             rc.quorum_setup(q["host"], q["did"])
-        line = ("{} restarted the nodes of {} - they could no longer receive (IPFS without its "
-                "p2p listener){}{}".format(time.strftime("%H:%M:%S"), m,
-                                           " - " + why if why else "",
-                                           "; quorum(s) {} set up again".format(", ".join(
-                                               q["host"] for q in rearmed)) if rearmed else ""))
+        line = ("{} restarted the nodes of {} - {}{}{}".format(time.strftime("%H:%M:%S"), m, what,
+                                                            " - " + why if why else "",
+                                                            "; quorum(s) {} set up again".format(", ".join(
+                                                                q["host"] for q in rearmed))
+                                                            if rearmed else ""))
         RUN_WARNINGS.append(line)
         say("  NOTE: " + line)
         said.append(line)
     return healed, "; ".join(said)
 
 
-def heal_for_step(machines, ctx, label):
-    """steps.HEAL: before a step whose participants cannot receive."""
-    return heal_machines(machines, ctx, "before " + label)
+def heal_for_step(machines, ctx, label, what=DEAF):
+    """steps.HEAL: before a step whose participants cannot receive, or do not
+    answer their API."""
+    return heal_machines(machines, ctx, "before " + label, what=what)
 
 
 def regate_deaf(pool_nodes, deaf, after, say=print):

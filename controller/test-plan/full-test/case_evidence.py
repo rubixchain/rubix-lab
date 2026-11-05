@@ -14,7 +14,8 @@ So the runner wraps EVERY case the same way:
               FT mint the case made (rubix_client.OPS), then these checks:
 
       persisted    every successful transaction's ID is in the `transactions`
-                   table on the sender's node and on the receiver's node
+                   table on the sender's node, and credited to the receiver's DID
+                   on its node (`transaction_units`)
       conserved    across the participants, RBT held (free + locked + pledged
                    + committed + burnt-for-FT) changed by exactly what came in
                    from outside (the faucet) minus what went out to DIDs
@@ -116,9 +117,11 @@ def _held(snap):
 
 
 def _wait_for_rows(ops, host_of):
-    """Wait until every successful transaction's row is on each participant
-    node it touched. Returns {txid: {host: found}}."""
-    want = {}
+    """Wait until every successful transaction is recorded on the sender's node
+    and credited to the receiver on its node (db.received - a `transactions` row
+    there can come from the pledge of the token's previous hop instead).
+    Returns {txid: {host: found}}."""
+    want, credit = {}, {}           # credit: {txid: {host: the receiver DID}}
     for op in ops:
         if op["kind"] != "tx" or not op["status"] or not op["txid"]:
             continue
@@ -127,19 +130,31 @@ def _wait_for_rows(ops, host_of):
             hosts.add(host_of[op["initiator"]])
         if op["owner"] and op["owner"] != op["initiator"] and op["owner"] in host_of:
             hosts.add(host_of[op["owner"]])
+            credit.setdefault(op["txid"], {})[host_of[op["owner"]]] = op["owner"]
         want[op["txid"]] = dict((h, False) for h in hosts)
     deadline = time.time() + SETTLE_SECONDS
     while True:
         # One query per node for all of its missing transactions, not one per
         # transaction: a ladder case makes hundreds.
-        missing = {}
+        missing, uncredited = {}, {}
         for txid, hosts in want.items():
             for h, found in hosts.items():
-                if not found:
+                if found:
+                    continue
+                did = credit.get(txid, {}).get(h)
+                if did:
+                    uncredited.setdefault(h, []).append((txid, did))
+                else:
                     missing.setdefault(h, []).append(txid)
         for h, ids in missing.items():
             try:
                 for txid in db.transactions_present(h, ids):
+                    want[txid][h] = True
+            except Exception:
+                pass
+        for h, pairs in uncredited.items():
+            try:
+                for txid, _did in db.received(h, pairs):
                     want[txid][h] = True
             except Exception:
                 pass

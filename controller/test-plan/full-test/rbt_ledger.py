@@ -22,7 +22,15 @@ in one of these:
     wrong node     no node holds the token for its own DID and no sender marked it
                    Transferred, but a node holds it for a DID it does not host -
                    counted once per token, however many nodes hold a copy.
-    untraced       the rest: minted - held - not delivered - wrong node.
+    untraced       the rest: minted - held - not delivered - wrong node, with a
+                   token held twice counted once.
+
+    held twice     one token in a held status under two DIDs, on two nodes - its
+                   RBT is in `held` twice. Free under both is a double spend; Free
+                   under one and Locked or Pledged under the other is value that
+                   one wallet no longer holds and still counts (2026-11-05: until
+                   then only Free twice was counted, and RACE-02's +1.000 showed
+                   up as untraced -1.000).
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -44,8 +52,8 @@ def _read(item):
              "AND did = ANY(%s) AND token_status = ANY(%s)", (db.TYPE_RBT, dids, list(HELD))),
             # Any row but Transferred means the token is still accounted for here
             # (held, Burnt as a split parent, or stuck - the audit reports those).
-            ("SELECT token_id FROM tokens WHERE token_type = %s AND did = ANY(%s) "
-             "AND token_status <> %s", (db.TYPE_RBT, dids, db.TRANSFERRED)),
+            ("SELECT token_id, did, token_status, token_value FROM tokens WHERE token_type = %s "
+             "AND did = ANY(%s) AND token_status <> %s", (db.TYPE_RBT, dids, db.TRANSFERRED)),
             ("SELECT token_id, did, token_value FROM tokens WHERE token_type = %s "
              "AND did = ANY(%s) AND token_status = %s", (db.TYPE_RBT, dids, db.TRANSFERRED)),
             ("SELECT token_id, did, token_status, token_value FROM tokens WHERE token_type = %s "
@@ -53,7 +61,7 @@ def _read(item):
         ])
     except Exception as e:
         return host, None, "{}: {}".format(type(e).__name__, e)
-    return host, {"held": float(held[0][0]) if held else 0.0, "own": set(t for (t,) in own_ids),
+    return host, {"held": float(held[0][0]) if held else 0.0, "own": own_ids,
                   "sent": sent, "foreign": foreign}, ""
 
 
@@ -91,6 +99,8 @@ def account(members, minted=MINTED, workers=32):
                     newest first
         lost_tokens {token_id} not delivered
         wrong       [(host, token_id, did, status, value)], one per token
+        twice       {token_id: [(host, did, status)]} held under two DIDs or more
+        twice_value RBT counted more than once in `held`
         copies      how many rows are stale copies of a token its owner holds
         unreadable  [(host, why)] - their tokens show up as not delivered"""
     items = list(members.items())
@@ -103,9 +113,15 @@ def account(members, minted=MINTED, workers=32):
         for d in members[h]:
             where[d] = h
 
-    own = set()
-    for s in snaps.values():
-        own |= s["own"]
+    own, holders, values = set(), {}, {}
+    for h, s in snaps.items():
+        for t, d, st, v in s["own"]:
+            own.add(t)
+            if int(st) in HELD:
+                holders.setdefault(t, []).append((h, d, int(st)))
+                values[t] = float(v)
+    twice = dict((t, sorted(o)) for t, o in holders.items() if len(o) > 1)
+    twice_value = round(sum(values[t] * (len(o) - 1) for t, o in twice.items()), 3)
     sent = {}                                   # token_id -> [(sender host, value)]
     for h, s in snaps.items():
         for t, _d, v in s["sent"]:
@@ -166,6 +182,7 @@ def account(members, minted=MINTED, workers=32):
     not_delivered = round(sum(g["value"] for g in lost), 3)
     wrong_node = round(sum(w[4] for w in wrong.values()), 3)
     return {"held": held, "not_delivered": not_delivered, "wrong_node": wrong_node,
-            "untraced": round(minted - held - not_delivered - wrong_node, 3), "minted": minted,
-            "lost": lost, "lost_tokens": set(sent), "wrong": sorted(wrong.values()),
+            "untraced": round(minted - held + twice_value - not_delivered - wrong_node, 3),
+            "minted": minted, "lost": lost, "lost_tokens": set(sent), "wrong": sorted(wrong.values()),
+            "twice": twice, "twice_value": twice_value,
             "copies": copies, "unreadable": unreadable, "where": where}

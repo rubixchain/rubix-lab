@@ -606,6 +606,9 @@ class FakeFleet(object):
     def transactions_present(self, host, ids, *a, **k):
         return set(t for t in ids if t in self.tx)
 
+    def received(self, host, pairs, *a, **k):
+        return set(p for p in pairs if p[0] in self.tx)
+
     def _verdict(self, fn, txid):
         v = (self.tx.get(txid) or {}).get("verdicts", {}).get(fn)
         if not v or time.time() < v[2]:
@@ -696,6 +699,7 @@ def install_runner(fake, data_dir):
     db.available = lambda: True
     db.capture = fake.capture
     db.transactions_present = fake.transactions_present
+    db.received = fake.received
     db.query = fake.query
     db.query_snapshot = fake.query_snapshot
     db.ex_pledged_free_value = fake.ex_pledged

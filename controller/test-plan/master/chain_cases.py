@@ -55,7 +55,8 @@ STEPS = {
          "the token to follow is known by its token_id"),
         ("S2", "Rotating chain",
          "the token passes along the holders for --chain-hops hops, a different quorum signing "
-         "each hop",
+         "each hop; a hop refused only for the clock ('invalid epoch', nothing moved) is sent "
+         "again once, 1.5s later",
          "every hop accepted and the token on the next holder within 60s; the time per hop at the "
          "end of the chain is not much more than at the start"),
         ("S3", "Single-quorum control",
@@ -134,9 +135,18 @@ def _chain(st, holders, quorums, hops, port, label, token):
             st.skip("hop {}: could not point {} at its quorum: {}".format(
                 i + 1, steps._short(holder["host"]), ch.node_reason(msg)))
             return
-        # Nothing set aside: a hop the chain cannot pass, for any reason, ends it.
+        # A sender whose clock is a few ms ahead of its quorum's is refused
+        # whenever a second ticks over between the two readings (R-20; epochs
+        # are whole seconds, core/consensus/checks.go:62). Nothing moved, so the
+        # hop is sent again once: on 2026-11-05 one such refusal ended each
+        # 200-hop chain (hops 135 and 115). The refusal stays in the step's
+        # record; any other refusal, or a second one, ends the chain.
         ok, _m, _r = ch.send(st, holder, nxt, rbt=1.0, memo="{} hop {}".format(label, i + 1),
-                             set_aside=())
+                             set_aside=ch.CLOCK_AHEAD)
+        if not ok and st.ops[-1]["aside"]:
+            time.sleep(1.5)
+            ok, _m, _r = ch.send(st, holder, nxt, rbt=1.0, memo="{} hop {} again".format(label, i + 1),
+                                 set_aside=())
         if not ok:
             st.note("stopped at hop {} ({} -> {})".format(i + 1, steps._short(holder["host"]),
                                                           steps._short(nxt["host"])))

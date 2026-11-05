@@ -69,14 +69,16 @@ SETTLE_MAX = 45         # seconds locks get to clear after a step
 DELIVERY_WAIT = 60      # seconds an accepted transfer gets to land on its receiver,
 DELIVERY_PER_RBT = 0.1  # plus this per RBT of the largest one: on 2026-11-03 a 2,000-RBT
                         # transfer landed after more than 60 s (WALLET-01)
+QUIET_WAIT = 60         # seconds a participant that does not answer its API gets before
+                        # the step heals it
 TOL = 0.0015
 HELD = (db.FREE, db.LOCKED, db.COMMITTED, db.PLEDGED, db.QUORUM_PLEDGED, db.BURNT_FOR_FT)
 
-# Set by test_runner: HEAL(machines, ctx, label) -> (machines whose nodes receive
-# again, what was done) restarts the nodes of machines where a step's
-# participants cannot receive, when no other running unit uses them
-# (test_runner.heal_machines). None (validate_cases, the demo) = the step is
-# NOT RUN, as before.
+# Set by test_runner: HEAL(machines, ctx, label, what=...) -> (machines whose
+# nodes receive again, what was done) restarts the nodes of machines where a
+# step's participants cannot receive or do not answer their API, when no other
+# running unit uses them (test_runner.heal_machines). None (validate_cases, the
+# demo) = the step is NOT RUN, as before.
 HEAL = None
 
 # A reason that tells the user nothing about what Rubix decided: the
@@ -383,6 +385,27 @@ class CaseRun(object):
                                                   "--force")
             w.stop()
             return self._done(st, {})
+        # A node an earlier step left stalled is restarted too: on 2026-11-05
+        # WALLET-01's quorum stopped answering at 500 RBT and S2-S4 ran against it.
+        quiet, said = self._quiet(hosts), ""
+        if quiet and HEAL:
+            healed, said = HEAL(sorted(set(h.rsplit(":", 1)[0] for h in quiet)), self.ctx,
+                                "{} {}".format(self.case, st.sid),
+                                what="a node did not answer its API for {}s".format(QUIET_WAIT))
+            if healed:
+                if w:
+                    w.stop()
+                    w = fleet_health.Watch(hosts).start()
+                quiet = self._quiet(hosts)
+                if not quiet:
+                    st.note(said)
+        if quiet:
+            st.not_run = "participant node(s) do not answer their API: {} ({})".format(
+                ", ".join(_short(h) for h in quiet),
+                said or "restart that machine with restart-nodes.sh --force")
+            if w:
+                w.stop()
+            return self._done(st, {})
         before = snapshot(entries)
         op_index = len(rc.OPS)
         t0 = time.time()
@@ -416,7 +439,7 @@ class CaseRun(object):
                 undelivered = undelivered + lost
                 st.data["probe_undelivered"] = [t for _h, t in lost]
                 st.note("the ordinary transfer afterwards was reported done in {:.1f}s but never "
-                        "reached the receiver's node".format(recovered[2]))
+                        "reached the receiver".format(recovered[2]))
         for h in restarts:
             m, idx = h.rsplit(":", 1)[0], int(h.rsplit(":", 1)[1]) - 20000
             for s, i in (w.slots.get(m, []) if w else []):
@@ -428,15 +451,16 @@ class CaseRun(object):
 
     def _undelivered(self, st, ops=None):
         """Accepted operations - the step's own, or `ops` ({txid, to}) - whose
-        transaction never reached the receiver's node, within DELIVERY_WAIT plus
-        DELIVERY_PER_RBT per RBT of the largest one. A delivery of the step's own
-        that took more than 5 s is recorded (data "delivered_after_s")."""
+        receiver was never credited (no transaction_units row for its DID on its
+        node, db.received), within DELIVERY_WAIT plus DELIVERY_PER_RBT per RBT of
+        the largest one. A delivery of the step's own that took more than 5 s is
+        recorded (data "delivered_after_s")."""
         want = {}
         for o in (st.accepted if ops is None else ops):
             host = self.host_of.get(o["to"]) if o["to"] else None
             if o["txid"] and host:
-                want.setdefault(host, set()).add(o["txid"])
-        txids = set(t for ids in want.values() for t in ids)
+                want.setdefault(host, set()).add((o["txid"], o["to"]))
+        txids = set(t for pairs in want.values() for t, _d in pairs)
         largest = max([float(o.get("rbt") or 0) for o in rc.OPS if o.get("txid") in txids] or [0])
         wait = int(DELIVERY_WAIT + DELIVERY_PER_RBT * largest)
         if ops is None:
@@ -446,7 +470,7 @@ class CaseRun(object):
         while want and time.time() < deadline:
             for host in list(want):
                 try:
-                    want[host] -= set(db.transactions_present(host, list(want[host])))
+                    want[host] -= set(db.received(host, list(want[host])))
                 except Exception:
                     pass
                 if not want[host]:
@@ -455,7 +479,7 @@ class CaseRun(object):
                 time.sleep(2)
         if ops is None and txids and not want and time.time() - t0 > 5:
             st.data["delivered_after_s"] = round(time.time() - t0, 1)
-        return [(h, t) for h, ids in want.items() for t in ids]
+        return [(h, t) for h, pairs in want.items() for t, _d in pairs]
 
     def _settle(self, entries, before):
         """The wallets after the step, once locks it made have had time to clear."""
@@ -466,6 +490,16 @@ class CaseRun(object):
             time.sleep(5)
             after = snapshot(entries)
         return after
+
+    def _quiet(self, hosts, wait=None):
+        """Participant nodes that do not answer their API, after waiting up to
+        QUIET_WAIT seconds for them."""
+        quiet = self._silent(hosts)
+        deadline = time.time() + (QUIET_WAIT if wait is None else wait)
+        while quiet and time.time() < deadline:
+            time.sleep(5)
+            quiet = self._silent(quiet)
+        return quiet
 
     def _silent(self, hosts):
         """Participant nodes that no longer answer their API."""
@@ -502,7 +536,7 @@ class CaseRun(object):
             wrong.append("{} operation(s) accepted that should have been refused".format(
                 len(st.accepted)))
         if undelivered:
-            wrong.append("{} accepted transfer(s) never reached the receiver's node in {}s, e.g. "
+            wrong.append("{} accepted transfer(s) never reached the receiver in {}s, e.g. "
                          "tx {} on {}".format(len(undelivered),
                                               getattr(st, "delivery_wait", DELIVERY_WAIT),
                                               undelivered[0][1][:16], _short(undelivered[0][0])))
@@ -526,8 +560,26 @@ class CaseRun(object):
                            and o["owner"] not in tracked)
             moved = sum(after[d]["held"] - before[d]["held"] for d in readable)
             if abs(moved - (came_in - went_out)) > 0.002 + 0.001 * len(flows):
+                # Which wallets moved by other than their own transfers - on
+                # 2026-11-05 RACE-02's +1.000 could not be traced to a DID.
+                off = []
+                for d in readable:
+                    mine = [o for o in flows if d in (o["initiator"], o["owner"])]
+                    exp = sum(o["rbt"] for o in mine if o["owner"] == d) - \
+                        sum(o["rbt"] for o in mine if o["initiator"] == d)
+                    got = after[d]["held"] - before[d]["held"]
+                    if abs(got - exp) > 0.002 + 0.001 * len(mine):
+                        off.append({"did": d, "host": host_of[d], "before": round(before[d]["held"], 3),
+                                    "after": round(after[d]["held"], 3), "expected_change": round(exp, 3)})
+                st.data["value_off"] = off
                 wrong.append("value not conserved: the participants' RBT changed by {:+.3f}, "
-                             "{:+.3f} expected".format(moved, came_in - went_out))
+                             "{:+.3f} expected{}".format(
+                                 moved, came_in - went_out,
+                                 "; {}{} on {} changed by {:+.3f}, {:+.3f} expected".format(
+                                     "{} DID(s), e.g. ".format(len(off)) if len(off) > 1 else "",
+                                     off[0]["did"][:16], _short(off[0]["host"]),
+                                     off[0]["after"] - off[0]["before"], off[0]["expected_change"])
+                                 if off else ""))
         for m, s in machines.items():
             if m == "controller":
                 continue

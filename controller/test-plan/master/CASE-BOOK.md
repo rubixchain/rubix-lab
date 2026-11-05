@@ -51,7 +51,7 @@ Where every RBT the faucet minted is before the run - held, locked, not delivere
 | **S1** Read every node | read every pool node's database and the faucet pair's, one consistent snapshot each | every node readable (one that is not is the lab's problem: the audit is NOT RUN) |
 | **S2** Quarantine problem tokens | lock out of use every RBT token in a stuck status, or Free with no chain history, then read again - the audit's only write | done; how many is reported |
 | **S3** Account for the RBT minted | add up every DID's Free, Locked, Committed, Pledged, QuorumPledged and BurntForFT RBT; find the rest - sent and delivered to no node, held on a node that does not host the DID, untraced | reported, not failed: every RBT of the 400,000 placed, each undelivered transfer named |
-| **S4** One owner per token | look for a token Free under two DIDs | reported, not failed: how many and how much RBT exists twice |
+| **S4** One owner per token | look for a token held under two DIDs, in any held status (Free under both = a double spend) | reported, not failed: how many and how much RBT is counted twice |
 | **S5** Known issues | list RBT parked in Locked, token_denom drift and negative counters | reported, not failed (known product bugs) |
 
 ## QCAP-01
@@ -195,7 +195,7 @@ How deep a token's history can grow while every hop is still validated and accep
 | Step | What the lab does | What Rubix must do |
 |---|---|---|
 | **S1** Set-up check | up to 11 holders each play from a DID on its node holding no whole token (a spare one emptied into the node's own DID if none is idle); each quorum is set up and funded for every pledge it may hold (a pledge is held until spent onward); the first holder gets exactly one token | the token to follow is known by its token_id |
-| **S2** Rotating chain | the token passes along the holders for --chain-hops hops, a different quorum signing each hop | every hop accepted and the token on the next holder within 60s; the time per hop at the end of the chain is not much more than at the start |
+| **S2** Rotating chain | the token passes along the holders for --chain-hops hops, a different quorum signing each hop; a hop refused only for the clock ('invalid epoch', nothing moved) is sent again once, 1.5s later | every hop accepted and the token on the next holder within 60s; the time per hop at the end of the chain is not much more than at the start |
 | **S3** Single-quorum control | a new token, the same depth, one quorum signing every hop | as S2 |
 
 ## COMBO-01
@@ -230,5 +230,5 @@ Where every RBT is after the run, and what the run lost, locked or doubled.
 |---|---|---|
 | **S1** Read every node | as AUDIT-START S1 | every node readable |
 | **S2** What the run lost or created | account as AUDIT-START S3 and compare with it | reported, not failed: the total's move during the run, each transfer not delivered since AUDIT-START, any that arrived late |
-| **S3** One owner per token | look for a token Free under two DIDs | reported, not failed: how many, and which are new since AUDIT-START |
+| **S3** One owner per token | as AUDIT-START S4 | reported, not failed: how many, and which are new since AUDIT-START |
 | **S4** Known issues | as AUDIT-START S5, plus what the run committed and burnt for FT | reported, not failed |
