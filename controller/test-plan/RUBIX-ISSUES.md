@@ -39,7 +39,7 @@ failing on the fleet.
 | R-16 | Pledge release checks only one quorum DID per node | CONFIRMED | 2026-11-05 |
 | R-17 | Pubsub receive loop spins on a receive error | CODE | - |
 | R-18 | NFT/SC operation from a node without the token becomes a second genesis | CONFIRMED | 2026-10-21 |
-| R-19 | Fullnodes validate out of order and reach different verdicts | CONFIRMED | 2026-11-05 |
+| R-19 | Fullnodes validate out of order and reach different verdicts | CONFIRMED, 16-20% of tokens behind | 2026-11-06 |
 | R-20 | Zero clock tolerance on the transaction epoch | CONFIRMED | 2026-11-05 |
 | R-21 | False double spend on repeated small splits | SUSPECTED | 2026-10-06 |
 | R-22 | Split check and wallet recovery need Rubix's public fullnode list | CODE | - |
@@ -51,9 +51,9 @@ failing on the fleet.
 | R-28 | Quorum nodes keep Free copies of other DIDs' tokens | to check | 2026-11-02 |
 | R-29 | Concurrent pledges on one quorum lose their token locks (~400 at once) | SUSPECTED cause | 2026-11-03 |
 | R-30 | The pledge lock plans from `token_denom` counters and never checks what it locked | CONFIRMED code path | 2026-11-03 |
-| R-31 | A faucet-minted whole token refused by the allowlist, naming another minter | SUSPECTED | 2026-11-05 |
+| R-31 | A faucet-minted whole token refused by the allowlist, naming another minter | SUSPECTED, lead: chains without their genesis | 2026-11-06 |
 | R-32 | A transfer recorded by the receiver's node but never credited to the receiver | SUSPECTED, code path found | 2026-11-05 |
-| R-33 | A quorum refuses a token "chain mismatch after sync" with no kill involved | SUSPECTED | 2026-11-05 |
+| R-33 | A quorum refuses a token "chain mismatch after sync" with no kill involved | SUSPECTED, 780 tokens measured | 2026-11-06 |
 | R-34 | One RBT counted on two wallets after concurrent sends on one machine | SUSPECTED | 2026-11-05 |
 
 ---
@@ -206,7 +206,9 @@ failing on the fleet.
   ordinary transfer had gone through before the kills.
 - **Cause:** the quorum writes the in-flight transaction into its token chain
   before consensus completes, and nothing undoes it when the transaction never
-  completes. Where it writes it has not been located yet.
+  completes. Where it writes it has not been located yet. The same leftover
+  without any kill is R-33: on 2026-11-06, 451 tokens had such an entry on
+  .110:20000 alone.
 - **Fix needed:** write the quorum's chain entry only after consensus completes;
   or, on startup and in the sync, drop a latest entry whose transaction the
   initiator does not have. The sync must not skip when its own latest entry is
@@ -523,6 +525,15 @@ failing on the fleet.
   `processTxnWithRetry`), so transactions on one token close together can be
   validated out of order. Several fullnodes each validate the whole stream on
   their own (one topic, `rubix_txn`), so they can disagree.
+- **Measured 2026-11-06** (`custom/token_check.py`, each fullnode's chain for
+  the pool's 98,883 Free tokens against the owner's): .101 same 77,303, behind
+  19,550, another transaction at a position 344, ahead 1, no record 1,685;
+  .102/.103/.104 about 81,600 same, 16,200 behind, 170-240 another transaction,
+  8-9 ahead, 790-890 no record. So 16-20% of the tokens in circulation lack
+  their latest transfer(s) on each fullnode. Not pledge bookkeeping: a pledge's
+  release rewrites the pledge entry's role (8 -> 9) and adds no chain entry
+  (`core/unpledge_v2.go:16-21`). A fullnode is therefore no record of current
+  ownership - which matters for wallet recovery from a fullnode (R-22).
 - **Fix needed:** process transactions of the same token in order (per-token
   queue), and retry an out-of-order one after its predecessor.
 - **Confirm with:** a burst of transfers on one token, hop after hop; compare the
@@ -667,7 +678,20 @@ failing on the fleet.
   perhaps from a copy of the token's chain that does not start at the genesis
   (see R-28), or a holder recorded as the minter. Not the fixed part-token bug
   (that was part tokens; this is a whole token).
-- **Fix needed:** to be decided once the quorum's chain for the token is read.
+- **Lead, 2026-11-06** (`custom/token_check.py`): 8 faucet tokens in the same
+  range - 60001_102974, _102975, _102977, _102978, _10303, _103026, _103028,
+  _103029 - are held by pool DIDs (on .108, .112, .126, .132, .137, .141) whose
+  chain starts at position 0 with a TRANSFER, not the mint, while the faucet's own
+  chain has the mint at 0 and a different transaction at 1: the holder's copy
+  has lost its genesis and is shifted by one. A quorum that takes the minter
+  from position 0 of such a chain gets the wrong DID - the likely source of the
+  refusals that name another minter. Taken out of use (code 777). A ninth,
+  60001_110241 on .108:20000 (a quorum node), has a one-entry chain while
+  .107:20000 has the token at position 3: a row the chain sync created for a
+  token that had moved on (R-28).
+- **Fix needed:** to be decided once the quorum's chain for the token is read;
+  first find what writes a chain without its genesis (sync from a peer whose
+  chain is partial, `applyTokenChainFromSync`, `core/sync.go`).
 - **Confirm with:** read token 60001_103300's chain (height 0) on the quorum that
   refused and on the sender; send the token again through another quorum.
 
@@ -767,6 +791,21 @@ failing on the fleet.
   left a stale entry, so the quorum's copy came from elsewhere - perhaps a copy
   kept from an earlier hop (R-28), or a transaction that failed after the quorum
   had written it.
+- **Measured across the fleet, 2026-11-06** (`custom/token_check.py`, read-only
+  survey of all 98,883 Free tokens of the pool): **780 tokens (74.48 RBT, 747 of
+  them part tokens) have a copy of their chain on another node that is further
+  along than the owner's** - 740 by exactly ONE entry, 40 with another
+  transaction at a position. Every one of those copies is on one of five nodes:
+  .110:20000 (451), .116:20000 (160), .108:20000 (103), .121:20200 (43),
+  .128:20500 (23) - the quorums of QCAP-01's fractional ladder and WALLET-PREP,
+  and exactly the DIDs whose `token_denom` counters drift (R-02). So the second
+  bullet above is the likely cause: the quorum writes the transfer it is
+  validating into its copy of the sender's token chain, the transfer then fails
+  (an R-01 deadlock during the pledge; a kill, R-04), and nothing removes the
+  entry - one failed transfer, one entry ahead, and every later send of that
+  token through that quorum is refused. All 780 taken out of use (code 444) on
+  2026-11-06, so later runs no longer meet them; new ones will appear wherever
+  R-01 fires, and the next AUDIT-START marks them.
 - **Fix needed:** as R-04's sync part - when the quorum's latest is not the
   initiator's latest, take the initiator's chain instead of skipping; then find
   what wrote the stale entry.
