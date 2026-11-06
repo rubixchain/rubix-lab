@@ -327,6 +327,7 @@ class CaseRun(object):
         self.ctx, self.case, self.budget = ctx, case, budget
         self.defs = dict((d[0], d) for d in definitions)
         self.steps = []
+        self.rearm = {}         # unit quorum host -> (entry, step that saw it restart)
         self.host_of = {}
         for e in (list(getattr(ctx, "fleet", None) or []) + list(ctx.senders or []) +
                   list(ctx.receivers or []) + list(getattr(ctx, "quorum_hosts", None) or [])):
@@ -353,6 +354,15 @@ class CaseRun(object):
         st = Step(self.case, "{} {}".format(sid, label).strip(), d[1], d[3])
         st.required = required
         budget = budget or self.budget
+        # A unit quorum whose node restarted during an earlier step lost its
+        # setup (R-15): set it up again, so this step is not refused "Quorum is
+        # not setup" for what happened before it (FT-01 S7, 2026-11-05). The
+        # restart stays recorded in the step that saw it.
+        for host, (q, seen_in) in sorted(self.rearm.items()):
+            ok, msg = rc.quorum_setup(q["host"], q["did"])
+            st.note("quorum {} restarted during {} - set up again before this step{}".format(
+                _short(host), seen_in, "" if ok else " (that failed: {})".format(msg)))
+        self.rearm.clear()
         for req in require:
             ok, why = req() if callable(req) else req
             if not ok:
@@ -445,6 +455,11 @@ class CaseRun(object):
             for s, i in (w.slots.get(m, []) if w else []):
                 if i == idx and s in machines.get(m, {}).get("restarted", []):
                     machines[m]["restarted"].remove(s)
+        for q in (getattr(self.ctx, "quorum_hosts", None) or []):
+            m, idx = q["host"].rsplit(":", 1)[0], int(q["host"].rsplit(":", 1)[1]) - 20000
+            for s, i in (w.slots.get(m, []) if w else []):
+                if i == idx and s in machines.get(m, {}).get("restarted", []):
+                    self.rearm[q["host"]] = (q, st.sid)
         self._classify(st, entries, before, after, flows, undelivered, machines, silent,
                        recovered, budget, expect_refusal, conserve, must_accept)
         return self._done(st, machines)
