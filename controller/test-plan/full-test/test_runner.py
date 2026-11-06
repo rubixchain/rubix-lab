@@ -814,7 +814,9 @@ def run_units(units, pool_nodes, fleet, cases_map, master, case_info, args):
 LEDGER_PATH = os.path.join(HERE, "fleet-ledger.json")
 
 _SPENDABLE = ("free", "locked", "pledged")
-_SINKS = ("committed", "burnt_for_ft")
+# Tokens AUDIT-START takes out of use (token_health.py, db_client.QUARANTINE)
+# leave the spendable pool on purpose: a sink, not a leak.
+_SINKS = ("committed", "burnt_for_ft", "quarantined")
 
 
 def fleet_ledger(fleet, label):
@@ -825,6 +827,7 @@ def fleet_ledger(fleet, label):
     status_name = {db.FREE: "free", db.LOCKED: "locked", db.PLEDGED: "pledged",
                    db.QUORUM_PLEDGED: "pledged", db.COMMITTED: "committed",
                    db.BURNT_FOR_FT: "burnt_for_ft"}
+    status_name.update((code, "quarantined") for code in db.QUARANTINE)
     totals = dict((n, 0.0) for n in status_name.values())
     counted, unreachable = 0, []
     fleet = list(fleet)
@@ -869,10 +872,10 @@ def fleet_ledger(fleet, label):
 
     lines = ["fleet ledger over {} DID(s): spendable {:.3f} "
              "(free {:.3f}, locked {:.3f}, pledged {:.3f}), "
-             "sunk {:.3f} (committed {:.3f}, burnt-for-ft {:.3f})".format(
+             "sunk {:.3f} (committed {:.3f}, burnt-for-ft {:.3f}, out of use {:.3f})".format(
                  counted, totals["spendable"], totals["free"], totals["locked"],
                  totals["pledged"], totals["sunk"], totals["committed"],
-                 totals["burnt_for_ft"])]
+                 totals["burnt_for_ft"], totals["quarantined"])]
     if unreachable:
         lines.append("  {} DID(s) could not be read, so these totals are "
                      "incomplete: {}".format(len(unreachable), ", ".join(unreachable[:5])))

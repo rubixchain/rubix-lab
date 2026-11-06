@@ -115,6 +115,21 @@ STATUS_NAME = {
     15: "BeingDoubleSpent", 99: "Seed",
 }
 
+# The lab's own statuses (user, 2026-11-06): a token with a broken history is
+# taken out of use with one of these codes, one per reason
+# (full-test/token_health.py). Rubix uses 0-15 and 99 (constants/constants.go:
+# 72-102) and selects Free tokens only, so it never picks one.
+QUARANTINE = {
+    999: "more than one owner",
+    888: "split parent still held",
+    777: "broken chain at the owner",
+    666: "token row not at its chain's end",
+    555: "last transfer went to another DID",
+    444: "another node's copy of the chain disagrees",
+    333: "a Rubix stuck state",
+}
+STATUS_NAME.update((code, "Q{}".format(code)) for code in QUARANTINE)
+
 
 class DBUnavailable(Exception):
     """Raised when the database cannot be reached or the driver is missing.
@@ -254,6 +269,33 @@ def writable_query(host, sql, params=None, port=DB_PORT,
             rows = cur.fetchall() if cur.description else []
         conn.commit()
         return rows
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def writable_many(host, sql, params_list, port=DB_PORT, i_understand_this_writes=False):
+    """writable_query for one statement run with many parameter sets, on one
+    connection in ONE database transaction: a node's batch lands whole or not at
+    all. Returns the rows each run returned. The statement and the count are
+    echoed once (token_health marks thousands of tokens)."""
+    if not i_understand_this_writes:
+        raise DBUnavailable(
+            "writable_many() refused: pass i_understand_this_writes=True. "
+            "This function CHANGES LAB DATA")
+    sys.stderr.write("[db_client] WRITE on {}, {} time(s): {}\n".format(
+        host, len(params_list), " ".join(sql.split())))
+    conn = _connect(host, port, read_only=False)
+    try:
+        out = []
+        with conn.cursor() as cur:
+            for params in params_list:
+                cur.execute(sql, params)
+                out.append(cur.fetchall() if cur.description else [])
+        conn.commit()
+        return out
     except Exception:
         conn.rollback()
         raise

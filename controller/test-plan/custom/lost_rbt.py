@@ -19,6 +19,7 @@ THE QUESTION
                    sender marked it Transferred - once per token.
     HELD TWICE     one token held for two DIDs, on two nodes: its RBT is in
                    "held" twice (Free under both is a double spend).
+    OUT OF USE     held under a quarantine code (custom/token_check.py), by code.
     untraced       the rest.
 
     Each undelivered transfer is printed with its time (the transaction's
@@ -93,6 +94,9 @@ def main():
 
     print()
     print("held by its own node      {:>14.3f} RBT   (what the audit counts)".format(led["held"]))
+    print("OUT OF USE                {:>14.3f} RBT   {}".format(led["quarantined"], ", ".join(
+        "{} {:.3f}".format(c, v) for c, v in sorted(led["quarantined_by_code"].items())) or
+        "(marked by token_check.py / AUDIT-START, by reason code)"))
     print("NOT DELIVERED             {:>14.3f} RBT   in {} token(s), {} transaction(s)".format(
         led["not_delivered"], len(led["lost_tokens"]), len(led["lost"])))
     print("on the WRONG node         {:>14.3f} RBT   in {} token(s)".format(

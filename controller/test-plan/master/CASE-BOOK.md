@@ -44,13 +44,13 @@ receive left out.
 
 ## AUDIT-START
 
-Where every RBT the faucet minted is before the run - held, locked, not delivered, on the wrong node, double spent - so every later step's findings are its own.
+Where every RBT the faucet minted is before the run - held, locked, not delivered, on the wrong node, double spent - with every token unfit for a test taken out of use first, so every later step's findings are its own.
 
 | Step | What the lab does | What Rubix must do |
 |---|---|---|
 | **S1** Read every node | read every pool node's database and the faucet pair's, one consistent snapshot each | every node readable (one that is not is the lab's problem: the audit is NOT RUN) |
-| **S2** Quarantine problem tokens | lock out of use every RBT token in a stuck status, or Free with no chain history, then read again - the audit's only write | done; how many is reported |
-| **S3** Account for the RBT minted | add up every DID's Free, Locked, Committed, Pledged, QuorumPledged and BurntForFT RBT; find the rest - sent and delivered to no node, held on a node that does not host the DID, untraced | reported, not failed: every RBT of the 400,000 placed, each undelivered transfer named |
+| **S2** Take unfit tokens out of use | check every Free token a pool DID holds - one owner, a whole chain at the owner, every other node's copy of the chain agreeing (full-test/token_health.py) - and mark each one that fails with its reason's code (999-444), Rubix's stuck states with 333, lowering the DID's token_denom for each; list the fullnodes' disagreements and token_denom drift; read again - the audit's only write | done; how many of each reason is reported |
+| **S3** Account for the RBT minted | add up every DID's Free, Locked, Committed, Pledged, QuorumPledged and BurntForFT RBT, and what is out of use; find the rest - sent and delivered to no node, held on a node that does not host the DID, untraced | reported, not failed: every RBT of the 400,000 placed, each undelivered transfer named |
 | **S4** One owner per token | look for a token held under two DIDs, in any held status (Free under both = a double spend) | reported, not failed: how many and how much RBT is counted twice |
 | **S5** Known issues | list RBT parked in Locked, token_denom drift and negative counters | reported, not failed (known product bugs) |
 

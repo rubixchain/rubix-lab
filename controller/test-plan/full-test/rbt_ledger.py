@@ -22,8 +22,11 @@ in one of these:
     wrong node     no node holds the token for its own DID and no sender marked it
                    Transferred, but a node holds it for a DID it does not host -
                    counted once per token, however many nodes hold a copy.
-    untraced       the rest: minted - held - not delivered - wrong node, with a
-                   token held twice counted once.
+    out of use     a node holds the token for its own DID under one of the lab's
+                   quarantine codes (db_client.QUARANTINE, set by
+                   full-test/token_health.py) - by code
+    untraced       the rest: minted - held - out of use - not delivered - wrong
+                   node, with a token held twice counted once.
 
     held twice     one token in a held status under two DIDs, on two nodes - its
                    RBT is in `held` twice. Free under both is a double spend; Free
@@ -99,8 +102,10 @@ def account(members, minted=MINTED, workers=32):
                     newest first
         lost_tokens {token_id} not delivered
         wrong       [(host, token_id, did, status, value)], one per token
-        twice       {token_id: [(host, did, status)]} held under two DIDs or more
-        twice_value RBT counted more than once in `held`
+        quarantined RBT out of use, and quarantined_by_code {code: RBT}
+        twice       {token_id: [(host, did, status)]} held under two DIDs or more,
+                    at least one of them still in a held status
+        twice_value RBT counted more than once in `held` + `quarantined`
         copies      how many rows are stale copies of a token its owner holds
         unreadable  [(host, why)] - their tokens show up as not delivered"""
     items = list(members.items())
@@ -113,15 +118,22 @@ def account(members, minted=MINTED, workers=32):
         for d in members[h]:
             where[d] = h
 
-    own, holders, values = set(), {}, {}
+    own, holders, values, quarantined = set(), {}, {}, {}
     for h, s in snaps.items():
         for t, d, st, v in s["own"]:
             own.add(t)
-            if int(st) in HELD:
-                holders.setdefault(t, []).append((h, d, int(st)))
+            st = int(st)
+            if st in HELD or st in db.QUARANTINE:
+                holders.setdefault(t, []).append((h, d, st))
                 values[t] = float(v)
-    twice = dict((t, sorted(o)) for t, o in holders.items() if len(o) > 1)
-    twice_value = round(sum(values[t] * (len(o) - 1) for t, o in twice.items()), 3)
+            if st in db.QUARANTINE:
+                quarantined[st] = round(quarantined.get(st, 0.0) + float(v), 3)
+    # A token held twice is counted twice, out of use or not; it is listed
+    # while one of its holders can still use it.
+    multi = dict((t, sorted(o)) for t, o in holders.items() if len(o) > 1)
+    twice = dict((t, o) for t, o in multi.items() if any(st in HELD for _h, _d, st in o))
+    twice_value = round(sum(values[t] * (len(o) - 1) for t, o in multi.items()), 3)
+    out_of_use = round(sum(quarantined.values()), 3)
     sent = {}                                   # token_id -> [(sender host, value)]
     for h, s in snaps.items():
         for t, _d, v in s["sent"]:
@@ -182,7 +194,8 @@ def account(members, minted=MINTED, workers=32):
     not_delivered = round(sum(g["value"] for g in lost), 3)
     wrong_node = round(sum(w[4] for w in wrong.values()), 3)
     return {"held": held, "not_delivered": not_delivered, "wrong_node": wrong_node,
-            "untraced": round(minted - held + twice_value - not_delivered - wrong_node, 3),
+            "untraced": round(minted - held - out_of_use + twice_value - not_delivered - wrong_node, 3),
             "minted": minted, "lost": lost, "lost_tokens": set(sent), "wrong": sorted(wrong.values()),
+            "quarantined": out_of_use, "quarantined_by_code": quarantined,
             "twice": twice, "twice_value": twice_value,
             "copies": copies, "unreadable": unreadable, "where": where}

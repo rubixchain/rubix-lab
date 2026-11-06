@@ -30,6 +30,8 @@ controller/test-plan/full-test/smoke-test-roles.txt
 # stay on the controller.
 controller/test-plan/full-test/fleet-ledger.json
 controller/test-plan/full-test/lab-limits.json
+# Every token token_health.py took out of use, with its reason - restore reads it.
+controller/test-plan/full-test/token-quarantine.jsonl
 # Who holds the fleet right now (full-test/run_lock.py) - one run at a time.
 controller/test-plan/full-test/fleet-run.lock
 
