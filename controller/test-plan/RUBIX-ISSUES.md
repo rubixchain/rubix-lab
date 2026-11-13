@@ -56,6 +56,35 @@ failing on the fleet.
 | R-33 | A quorum refuses a token "chain mismatch after sync" with no kill involved | SUSPECTED, 780 tokens measured | 2026-11-06 |
 | R-34 | One RBT counted on two wallets after concurrent sends on one machine | SUSPECTED, tokens found | 2026-11-06 |
 
+**Confirm cases (built 2026-11-13, not yet run):** `test-plan/issues/`, run as
+`test_runner.py --cases issues`. One check per issue, named in plain words (no
+R-codes in the checks or their report); every token a check moves has at least
+5 chain entries at its owner and passes a fleet-wide health check just before it
+moves (`issues/issue_kit.py`). FAIL = REPRODUCED, PASS = Rubix behaved correctly.
+
+| Check | Issues |
+|---|---|
+| PAY-TO-NODE-DOWN | R-06 |
+| RECEIVE-OLD-COPY | R-32, R-28 |
+| QUORUM-STOPPED | R-04, R-09 |
+| EX-QUORUM-SPEND | R-08 |
+| RELEASE-ONE-OF-MANY | R-16 |
+| EXACT-DECIMAL | R-05 (deterministic: three 0.01 + one 0.005 sum to 0.034999999999999996) |
+| SMALL-SPLITS | R-21, R-23, R-22 (log line only) |
+| CLOCK-EDGE | R-20 |
+| FULLNODES-ORDER | R-19 |
+| QUORUM-SETUP | R-15, R-25 |
+| ASSET-FORK | R-07 |
+| FOREIGN-EXECUTE | R-18 |
+| MANY-PARTS-AT-ONCE | R-01, R-02, R-09, R-33, R-30 |
+| PLEDGES-AT-ONCE | R-29, R-34 |
+| BIG-TRANSFER-MEMORY | R-03 |
+| IPFS-RESTART | R-10, R-12, R-11 |
+
+Not checked there: R-13, R-14, R-17 (need an instrumented build), R-24 (cannot
+be provoked), R-26 (build-time), R-27 (the lab never creates DIDs), R-31 (seen
+only on tokens with a broken chain, which the checks never use).
+
 ---
 
 ## A. Failing the suite on the current build
