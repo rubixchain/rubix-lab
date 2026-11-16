@@ -295,7 +295,7 @@ def pay_to_node_down(ctx, ci):
         Q, why = kit.quorum(need=5)
         if not Q:
             return False, why
-        A, why = kit.one_token_wallet(kit.other_host(), Q, role="A (payer)")
+        A, why = kit.one_token_wallet(None, Q, role="A (payer)")
         if not A:
             return False, why
         B, why = kit.wallet_on(role="B (payee)", tokens=kit.tokens_of(A))
@@ -370,10 +370,10 @@ def receive_old_copy(ctx, ci):
         if not X:
             return False, why
         # T must be new to Q's node: the copy it keeps comes from S2, nothing earlier
-        A, why = kit.one_token_wallet(kit.other_host(), Q2, role="A (payer)", clear_of=[Q["host"]])
+        A, why = kit.one_token_wallet(None, Q2, role="A (payer)", clear_of=[Q["host"]])
         if not A:
             return False, why
-        B, why = kit.empty(kit.clear_host(kit.tokens_of(A)), Q2, role="B")
+        B, why = kit.empty(None, Q2, role="B", tokens=kit.tokens_of(A))
         if not B:
             return False, why
         for e, q in ((A, Q), (B, Q2)):
@@ -443,7 +443,7 @@ def quorum_stopped(ctx, ci):
         Q, why = kit.quorum(need=5, fresh=True, role="Q (quorum)")
         if not Q:
             return False, why
-        A, why = kit.one_token_wallet(kit.other_host(), Q2, role="A (payer)")
+        A, why = kit.one_token_wallet(None, Q2, role="A (payer)")
         if not A:
             return False, why
         B, why = kit.wallet_on(role="B (payee)", tokens=kit.tokens_of(A))
@@ -528,12 +528,12 @@ def ex_quorum_spend(ctx, ci):
         Q2, why = kit.quorum(need=5, role="Q2 (quorum)")
         if not Q2:
             return False, why
-        host = kit.other_host()
-        ok, why = kit.restart(host) if host else (False, "no node left for Q")
-        if not ok:
-            return False, why
-        Q, why = kit.one_token_wallet(host, Q2, role="Q (quorum holding one token)")
+        Q, why = kit.one_token_wallet(None, Q2, role="Q (quorum holding one token)")
         if not Q:
+            return False, why
+        # restarted so Q is the only quorum set up on its node (one is checked per release)
+        ok, why = kit.restart(Q["host"])
+        if not ok:
             return False, why
         ok, why = kit.as_quorum(Q, 1)
         if not ok:
@@ -542,7 +542,7 @@ def ex_quorum_spend(ctx, ci):
         if not A:
             return False, why
         A = kit.join("A (payer)", A[0])
-        B, why = kit.empty(kit.clear_host(kit.tokens_of(A)), Q2, role="B")
+        B, why = kit.empty(None, Q2, role="B", tokens=kit.tokens_of(A))
         if not B:
             return False, why
         C, why = kit.wallet_on(role="C (payee)", tokens=kit.tokens_of(A))
@@ -638,7 +638,7 @@ def release_one_of_many(ctx, ci):
         if not A:
             return False, why
         A = kit.join("A (payer)", A[0])
-        B, why = kit.empty(kit.clear_host(kit.tokens_of(A)), Q2, role="B")
+        B, why = kit.empty(None, Q2, role="B", tokens=kit.tokens_of(A))
         if not B:
             return False, why
         C, why = kit.wallet_on(role="C (payee)", tokens=kit.tokens_of(A))
@@ -719,12 +719,12 @@ def exact_decimal(ctx, ci):
         if not Q:
             return False, why
         p["Q"] = Q
-        S, why = kit.one_token_wallet(kit.other_host(), Q, k=3, role="S (source of the parts)")
+        S, why = kit.one_token_wallet(None, Q, k=3, role="S (source of the parts)")
         if not S:
             return False, why
         wallets = {}
         for name, parts in (("E2", E2_PARTS), ("E1", E1_PARTS), ("Qx", E1_PARTS)):
-            e, why = kit.empty(kit.other_host(), Q, role=name)
+            e, why = kit.empty(None, Q, role=name)
             if not e:
                 return False, why
             ok, why = kit.wire([S], Q)
@@ -792,10 +792,10 @@ def small_splits(ctx, ci):
         Q2, why = kit.quorum(need=5, role="Q2 (quorum)")
         if not Q2:
             return False, why
-        E, why = kit.one_token_wallet(kit.other_host(), Q, k=2, role="E (payer)")
+        E, why = kit.one_token_wallet(None, Q, k=2, role="E (payer)")
         if not E:
             return False, why
-        F, why = kit.empty(kit.other_host(), Q2, role="F (payee)")
+        F, why = kit.empty(None, Q2, role="F (payee)")
         if not F:
             return False, why
         for e, q in ((E, Q), (F, Q2)):
@@ -891,12 +891,25 @@ def clock_edge(ctx, ci):
     kit.note_moved(A, B, A["tokens"], "passed back and forth")
     kit.note_moved(B, A, B["tokens"], "passed back and forth")
 
+    def holds(e):
+        try:
+            return len(ch.whole_free(e["host"], e["did"])) >= 1
+        except Exception:
+            return False
+
     def pay(st):
+        # Whoever holds a token pays the other: a refused payment leaves the token
+        # with its payer (on 2026-11-13 strict turns stopped the step after 2).
         for i in range(CLOCK_PAYMENTS):
-            frm, to = (A, B) if i % 2 == 0 else (B, A)
-            if not _wait_whole(frm, 1, 60):
-                st.note("{} held no token to pay with after 60s".format(kit_mod.short(frm["host"])))
+            order, frm, t0 = ((A, B) if i % 2 == 0 else (B, A)), None, time.time()
+            while frm is None and time.time() - t0 < 60:
+                frm = next((e for e in order if holds(e)), None)
+                if frm is None:
+                    time.sleep(2)
+            if frm is None:
+                st.note("neither payer held a token after 60s")
                 break
+            to = B if frm is A else A
             _send(st, frm, to, 1.0, "{} #{}".format(case, i + 1), set_aside=(), q=Q)
         n = len([o for o in st.ops if "invalid epoch" in (o["reason"] or "")])
         st.data.update(clock_ms=p["d_ms"], epoch_refusals=n)
@@ -925,10 +938,10 @@ def fullnodes_order(ctx, ci):
         Q2, why = kit.quorum(need=5, role="Q2 (quorum)")
         if not Q2:
             return False, why
-        E1, why = kit.one_token_wallet(kit.other_host(), Q, role="E1")
+        E1, why = kit.one_token_wallet(None, Q, role="E1")
         if not E1:
             return False, why
-        E2, why = kit.empty(kit.clear_host(kit.tokens_of(E1)), Q2, role="E2")
+        E2, why = kit.empty(None, Q2, role="E2", tokens=kit.tokens_of(E1))
         if not E2:
             return False, why
         for e, q in ((E1, Q), (E2, Q2)):

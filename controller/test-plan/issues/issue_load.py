@@ -75,7 +75,7 @@ STEPS = {
     "PLEDGES-AT-ONCE": [
         ("S1", "Set-up",
          "Q = a quorum, its node restarted, topped up to cover {} pledges at once; up to {} payers whose "
-         "next {} tokens have long histories, pointed at Q".format(2 * max(RUNGS), max(RUNGS), len(RUNGS)),
+         "next {} tokens have fit histories (any length), pointed at Q".format(2 * max(RUNGS), max(RUNGS), len(RUNGS)),
          "at least {} payers (the first round runs with all of them if fewer than {})".format(
              LEAST_PAYERS, RUNGS[0])),
         ("S2", "{} payments at once".format(RUNGS[0]),
@@ -129,7 +129,7 @@ def many_parts_at_once(ctx, ci):
         Q2, why = kit.quorum(need=QUORUM_HOLDS + 10, role="Q2 (quorum for the set-up)")
         if not Q2:
             return False, why
-        Qw, why = kit.empty(kit.other_host(), Q2, role="Qw (quorum)")
+        Qw, why = kit.empty(None, Q2, role="Qw (quorum)")
         if not Qw:
             return False, why
         Qw, why = kit.fill(Qw, QUORUM_HOLDS, Q2, min_chain=1, why="the quorum's holding")
@@ -234,7 +234,8 @@ def pledges_at_once(ctx, ci):
         Q, why = kit.quorum(need=2 * max(RUNGS) + 20, fresh=True)
         if not Q:
             return False, why
-        payers, why = kit.holders(max(RUNGS), k=len(RUNGS), per_node=10, spread=True)
+        # any fit token: only 47 wallets had 3 next tokens with 5+ chain entries (2026-11-13)
+        payers, why = kit.holders(max(RUNGS), k=len(RUNGS), min_chain=1, per_node=10, spread=True)
         found = len(payers)
         payers = kit.ring_clean(payers, len(RUNGS))
         if len(payers) < LEAST_PAYERS:
@@ -323,9 +324,23 @@ def big_transfer_memory(ctx, ci):
             return False, why
         A, why = kit.holders(1, k=max(TOKENS), min_chain=1)
         if not A:
-            return False, why
+            # no clean wallet holds that many whole tokens: the richest clean one
+            # is topped up from the faucet (plumbing) and checked like any other
+            rich = sorted((w for w in kit_mod.scan(ctx, 1).values() if kit_mod.clean(w)
+                           and w["did"] not in kit.used and w["host"] not in kit.hosts),
+                          key=lambda w: -w["whole"])
+            if not rich:
+                return False, why
+            w = rich[0]
+            short_by = max(TOKENS) + 5 - w["whole"]
+            ok, msg = rc.fund_did(w["host"], w["did"], short_by) if short_by > 0 else (True, "")
+            if not ok:
+                return False, "topping a payer up to {} whole tokens failed: {}".format(max(TOKENS), msg)
+            A, why = kit.holders(1, k=max(TOKENS), min_chain=1, on=w["host"])
+            if not A:
+                return False, why
         A = kit.join("A (payer)", A[0])
-        B, why = kit.empty(kit.clear_host(kit.tokens_of(A)), Q2, role="B")
+        B, why = kit.empty(None, Q2, role="B", tokens=kit.tokens_of(A))
         if not B:
             return False, why
         for e, q in ((A, Q), (B, Q2)):

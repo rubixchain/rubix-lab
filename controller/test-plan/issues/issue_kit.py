@@ -496,10 +496,27 @@ class Kit(object):
 
     # -- empty wallets ---------------------------------------------------------
 
-    def empty(self, host, quorum, role="wallet"):
-        """(a DID on `host` holding no RBT in any held status, why not) - an idle
-        one, or the node's spare holding least, emptied into another DID of the
-        node through `quorum` (the value stays on the node)."""
+    def empty(self, host, quorum, role="wallet", tokens=()):
+        """(a DID holding no RBT in any held status, why not) on `host` - or,
+        with host None, on the first node (holding 2+ DIDs, on a machine this
+        check does not use yet, keeping no row for any of `tokens`) where one can
+        be made. Until 2026-11-13 the checks named one node and gave up there:
+        it was always .107:20000, which holds one DID, and 10 of 16 checks were
+        NOT RUN."""
+        if host:
+            return self._empty_on(host, quorum, role)
+        last = "no node with a second DID is left"
+        for h in self.other_hosts(min_dids=2)[:40]:
+            if tokens and copies([(t, h) for t in tokens]):
+                continue
+            e, last = self._empty_on(h, quorum, role)
+            if e:
+                return e, ""
+        return None, last
+
+    def _empty_on(self, host, quorum, role):
+        """An idle DID on `host`, or the node's spare holding least emptied into
+        another DID of the node through `quorum` (the value stays on the node)."""
         wallets = scan(self.ctx, 1, [host])
         quorum_dids = set(q["did"] for q in self.quorums) | {quorum["did"]}
         mine = [w for w in wallets.values() if w["did"] not in self.used and w["did"] not in quorum_dids]
@@ -601,9 +618,8 @@ class Kit(object):
             short(target["host"]), k)
 
     def one_token_wallet(self, host, quorum, k=1, role="wallet", why="set-up", clear_of=()):
-        """(an empty wallet on `host` filled with k long-history tokens, why not)."""
-        if not host:
-            return None, "no node left for the {}".format(role)
+        """(an empty wallet on `host` - any suitable node when None - filled
+        with k long-history tokens, why not)."""
         e, why_not = self.empty(host, quorum, role)
         if not e:
             return None, why_not
@@ -612,7 +628,7 @@ class Kit(object):
     def tokens_of(self, e):
         return [t for t, _c in e.get("tokens", [])]
 
-    def other_hosts(self, avoid_machines=(), min_dids=1):
+    def other_hosts(self, avoid_machines=(), min_dids=2):
         """Pool nodes on machines this check does not use yet, then any node it
         does not use."""
         pool = nodes(self.ctx)
@@ -622,11 +638,11 @@ class Kit(object):
                 and len(pool[h]) >= min_dids and ch.machine(h) not in set(avoid_machines)]
         return first + then
 
-    def other_host(self, avoid_machines=(), min_dids=1):
+    def other_host(self, avoid_machines=(), min_dids=2):
         hosts = self.other_hosts(avoid_machines, min_dids)
         return hosts[0] if hosts else None
 
-    def clear_host(self, tokens, avoid_machines=(), min_dids=1):
+    def clear_host(self, tokens, avoid_machines=(), min_dids=2):
         """The first of other_hosts() whose node keeps no row for any of
         `tokens` - a payment of them to it is not refused for an old copy."""
         hosts = self.other_hosts(avoid_machines, min_dids)

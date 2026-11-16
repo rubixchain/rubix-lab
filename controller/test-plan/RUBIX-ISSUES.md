@@ -31,7 +31,7 @@ failing on the fleet.
 | R-08 | A former quorum cannot spend tokens it pledged | CONFIRMED | 2026-11-05 |
 | R-09 | Failures leave tokens Locked | CONFIRMED | 2026-11-05 |
 | R-10 | After an IPFS auto-restart the node is deaf | CONFIRMED | 2026-11-05 |
-| R-11 | One node's shutdown kills every IPFS on the machine | SUSPECTED | 2026-10-22 |
+| R-11 | One node's shutdown kills every IPFS on the machine | CONFIRMED (2 of 8 neighbours) | 2026-11-13 |
 | R-12 | Peer requests swallow connection failures | CONFIRMED | 2026-11-05 |
 | R-13 | Peer-port pool: leak, overlap, listener inside a neighbour's pool | CONFIRMED | 2026-11-02 |
 | R-14 | `NodeConfigDir` never assigned | CODE | - |
@@ -56,7 +56,16 @@ failing on the fleet.
 | R-33 | A quorum refuses a token "chain mismatch after sync" with no kill involved | SUSPECTED, 780 tokens measured | 2026-11-06 |
 | R-34 | One RBT counted on two wallets after concurrent sends on one machine | SUSPECTED, tokens found | 2026-11-06 |
 
-**Confirm cases (built 2026-11-13, not yet run):** `test-plan/issues/`, run as
+**First run 2026-11-13** (report `catalogue_issues_2026-11-13_17-22-41`, on
+9ccac171): REPRODUCED R-25 + R-15 (QUORUM-SETUP), R-20 (CLOCK-EDGE, 1 refusal
+in only 2 payments), R-07 (ASSET-FORK: one NFT and one contract fork, each still
+forked two rounds later), R-18 (FOREIGN-EXECUTE: an NFT and a contract executed
+as a new genesis from a node that never had them, all four fullnodes rejecting
+"once again genesis"), R-10 + R-12 + R-11 (IPFS-RESTART). The other 11 checks
+were NOT RUN by a fault in the checks themselves (the empty wallet was always
+sought on a one-DID node), not by Rubix.
+
+**Confirm cases (built 2026-11-13):** `test-plan/issues/`, run as
 `test_runner.py --cases issues`. One check per issue, named in plain words (no
 R-codes in the checks or their report); every token a check moves has at least
 5 chain entries at its owner and passes a fleet-wide health check just before it
@@ -438,7 +447,11 @@ only on tokens with a broken chain, which the checks never use).
 
 ### R-11 One node's shutdown kills every IPFS on the machine
 - **Seen:** probably .130 on 2026-10-22 (8 of 9 nodes' IPFS auto-restarted);
-  FAIL-01 checks the neighbours after each kill.
+  FAIL-01 checks the neighbours after each kill. **Confirmed 2026-11-13**
+  (IPFS-RESTART, report `catalogue_issues_2026-11-13_17-22-41`): on .107, slot
+  3's IPFS daemon was killed and Rubix started a new one after 26 s ("IPFS
+  recovery completed successfully"); stopping slot 3's node 8 s later took the
+  IPFS daemons of slots 0 and 1 with it (9 daemons before, 6 after).
 - **Cause:** only startup records the IPFS PID (`core/ipfs.go:328, :350`); the
   auto-restart never updates it (`core/ipfs_recovery.go:256`). A shutdown that
   finds the stale PID falls through to `pkill -f "ipfs daemon"` and `killall -9
