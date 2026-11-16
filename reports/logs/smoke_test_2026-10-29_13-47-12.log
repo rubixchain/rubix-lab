@@ -1,0 +1,105 @@
+Log: /home/rubix/Desktop/rubix/rubix-lab/reports/logs/smoke_test_2026-10-29_13-47-12.log
+== Common: pool + reachability + DID readiness ==
+234 node(s) in the pool, 234 ready, 0 excluded
+
+== Common: role assignment ==
+Roles by balance: senders hold 1262-41 RBT, receivers 36-40
+Role assignment written to /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/smoke-test-roles.txt
+Quorum: 3  Senders: 14  Receivers: 14
+
+== Common: quorum setup + funding ==
+  [PASS  ] quorum-setup-1                 0.00s  Quorum setup done successfully
+  [PASS  ] quorum-fund-1                  7.52s  778.1 -> 1000.1
+  [PASS  ] quorum-setup-2                 0.00s  Quorum setup done successfully
+  [PASS  ] quorum-fund-2                  0.01s  already at 1840.467 RBT
+  [PASS  ] quorum-setup-3                 0.00s  Quorum setup done successfully
+  [PASS  ] quorum-fund-3                  0.03s  already at 2520.518 RBT
+Letting quorum funding settle (2s)...
+
+== Common: assign quorum to each sender (round-robin) + fund senders ==
+  [PASS  ] assign-quorum-sender-1         0.01s  quorum list set to ['bafybmickf232xmb']
+  [PASS  ] fund-sender-1                  0.01s  already at 1261.546 RBT
+  [PASS  ] assign-quorum-sender-2         0.02s  quorum list set to ['bafybmieh3ytg7et']
+  [PASS  ] fund-sender-2                  0.07s  already at 1250.894 RBT
+  [PASS  ] assign-quorum-sender-3         0.02s  quorum list set to ['bafybmidb7pl5at2']
+  [PASS  ] fund-sender-3                  0.00s  already at 1083.358 RBT
+  [PASS  ] assign-quorum-sender-4         0.01s  quorum list set to ['bafybmickf232xmb']
+  [PASS  ] fund-sender-4                  0.07s  already at 871.946 RBT
+  [PASS  ] assign-quorum-sender-5         0.01s  quorum list set to ['bafybmieh3ytg7et']
+  [PASS  ] fund-sender-5                  0.00s  already at 776.48 RBT
+  [PASS  ] assign-quorum-sender-6         0.02s  quorum list set to ['bafybmidb7pl5at2']
+  [PASS  ] fund-sender-6                  0.00s  already at 268.863 RBT
+  [PASS  ] assign-quorum-sender-7         0.01s  quorum list set to ['bafybmickf232xmb']
+  [PASS  ] fund-sender-7                  0.00s  already at 263.0 RBT
+  [PASS  ] assign-quorum-sender-8         0.01s  quorum list set to ['bafybmieh3ytg7et']
+  [PASS  ] fund-sender-8                  0.00s  already at 199.8 RBT
+  [PASS  ] assign-quorum-sender-9         0.01s  quorum list set to ['bafybmidb7pl5at2']
+  [PASS  ] fund-sender-9                  0.00s  already at 145.581 RBT
+  [PASS  ] assign-quorum-sender-10        0.01s  quorum list set to ['bafybmickf232xmb']
+  [PASS  ] fund-sender-10                 0.00s  already at 61.19 RBT
+  [PASS  ] assign-quorum-sender-11        0.01s  quorum list set to ['bafybmieh3ytg7et']
+  [PASS  ] fund-sender-11                 0.00s  already at 44.958 RBT
+  [PASS  ] assign-quorum-sender-12        0.02s  quorum list set to ['bafybmidb7pl5at2']
+  [PASS  ] fund-sender-12                 0.00s  already at 44.396 RBT
+  [PASS  ] assign-quorum-sender-13        0.01s  quorum list set to ['bafybmickf232xmb']
+  [PASS  ] fund-sender-13                 0.00s  already at 40.821 RBT
+  [PASS  ] assign-quorum-sender-14        0.01s  quorum list set to ['bafybmieh3ytg7et']
+  [PASS  ] fund-sender-14                 0.00s  already at 40.522 RBT
+
+== Test cases (test_cases.py) ==
+Letting everything settle before the first test case fires (3s)...
+  [PASS  ] rbt-transfer-1                 2.25s  sender 1261.546->1260.546  receiver 36.448->37.448
+  [PASS  ] rbt-transfer-2                 2.28s  sender 1250.894->1249.894  receiver 37.411->38.411
+  [PASS  ] rbt-transfer-3                 2.10s  sender 1083.358->1082.358  receiver 38.0->39.0
+  [FAIL  ] rbt-transfer-4                 0.11s  rejected  -- peer request failed: status=400 body={"referenceId":"","quorumSignature":"","message":"initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_1187: tokenID \"60001_1187\" not found in quorum tokens","status":false}
+
+  [FAIL  ] rbt-transfer-5                 0.15s  rejected  -- peer request failed: status=400 body={"referenceId":"","quorumSignature":"","message":"initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_109212: tokenID \"60001_109212\" not found in quorum tokens","status":false}
+
+  [PASS  ] rbt-transfer-6                 2.10s  sender 268.863->267.863  receiver 40.0->41.0
+  [FAIL  ] rbt-transfer-7                 0.99s  rejected  -- peer request failed: status=400 body={"referenceId":"","quorumSignature":"","message":"initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_102798: tokenID \"60001_102798\" not found in quorum tokens","status":false}
+
+  [PASS  ] rbt-transfer-8                 2.20s  sender 199.8->198.8  receiver 40.0->41.0
+  [PASS  ] rbt-transfer-9                 2.25s  sender 145.581->144.581  receiver 40.0->41.0
+  [PASS  ] rbt-transfer-10                2.13s  sender 61.19->60.19  receiver 40.0->41.0
+  [PASS  ] rbt-transfer-11                2.13s  sender 44.958->43.958  receiver 40.089->41.089
+  [PASS  ] rbt-transfer-12                2.16s  sender 44.396->43.396  receiver 40.101->41.101
+  [PASS  ] rbt-transfer-13                2.37s  sender 40.821->39.821  receiver 40.152->41.152
+  [PASS  ] rbt-transfer-14                2.20s  sender 40.522->39.522  receiver 40.181->41.181
+  [PASS  ] ft-mint-1                      0.04s  FT created successfully
+  [PASS  ] ft-transfer-1                  1.53s  receiver holds 5 of smoketest-1-1793261889
+  [PASS  ] ft-mint-2                      0.16s  FT created successfully
+  [PASS  ] ft-transfer-2                  1.82s  receiver holds 5 of smoketest-2-1793261890
+  [PASS  ] ft-mint-3                      0.05s  FT created successfully
+  [PASS  ] ft-transfer-3                  1.52s  receiver holds 5 of smoketest-3-1793261892
+  [PASS  ] ft-mint-4                      0.09s  FT created successfully
+  [PASS  ] ft-transfer-4                  1.49s  receiver holds 5 of smoketest-4-1793261894
+  [PASS  ] ft-mint-5                      0.07s  FT created successfully
+  [PASS  ] ft-transfer-5                  1.29s  receiver holds 5 of smoketest-5-1793261895
+  [PASS  ] ft-mint-6                      0.06s  FT created successfully
+  [PASS  ] ft-transfer-6                  1.34s  receiver holds 5 of smoketest-6-1793261897
+  [PASS  ] ft-mint-7                      0.05s  FT created successfully
+  [PASS  ] ft-transfer-7                  1.42s  receiver holds 5 of smoketest-7-1793261898
+  [PASS  ] ft-mint-8                      0.16s  FT created successfully
+  [PASS  ] ft-transfer-8                  1.73s  receiver holds 5 of smoketest-8-1793261900
+  [PASS  ] ft-mint-9                      0.11s  FT created successfully
+  [PASS  ] ft-transfer-9                  1.43s  receiver holds 5 of smoketest-9-1793261902
+  [PASS  ] ft-mint-10                     0.04s  FT created successfully
+  [PASS  ] ft-transfer-10                 1.56s  receiver holds 5 of smoketest-10-1793261903
+  [PASS  ] ft-mint-11                     0.05s  FT created successfully
+  [PASS  ] ft-transfer-11                 1.69s  receiver holds 5 of smoketest-11-1793261905
+  [PASS  ] ft-mint-12                     0.05s  FT created successfully
+  [PASS  ] ft-transfer-12                 1.37s  receiver holds 5 of smoketest-12-1793261906
+  [PASS  ] ft-mint-13                     0.06s  FT created successfully
+  [PASS  ] ft-transfer-13                 3.38s  receiver holds 5 of smoketest-13-1793261908
+  [PASS  ] ft-mint-14                     0.12s  FT created successfully
+  [PASS  ] ft-transfer-14                 1.83s  receiver holds 5 of smoketest-14-1793261911
+  [PASS  ] nft-create                     0.08s  nft_id=QmVWKocSxoKeFq6wXFQRZRtwCuTBEUnApumHgNg1SFXesx
+  [PASS  ] nft-deploy                     0.09s  Transaction d7027e7a94ac07bc21555d7ff3bfe1a11ad3280ac21e76c32d335037792fd5f0 completed successfully
+  [PASS  ] nft-execute                   20.65s  Transaction 3bdccc4fabb8aee0d0ab44a5cf2fde8ca7fcce4dbc9525b1a703335cf86ef17f completed successfully
+  [PASS  ] sc-generate                    0.07s  sc_id=QmQo7P1p5hRDSZsFU7ABGPxfeEkDuYqwGxc7mF9auat7sc
+  [PASS  ] sc-deploy                      6.59s  Transaction 53b52bf83b59ab68dd1ad5e4d332531e92f3875462b721577f5bfd599808121f completed successfully
+  [PASS  ] sc-execute                     6.65s  Transaction 016b836880fa67702503e5292b34f621342e809ee25fbd68ecb7b8e5269a445b completed successfully
+
+
+79/82 steps passed. Report: /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/../../../reports/pdf/smoke_test_2026-10-29_13-49-07.pdf
+Log: /home/rubix/Desktop/rubix/rubix-lab/reports/logs/smoke_test_2026-10-29_13-47-12.log

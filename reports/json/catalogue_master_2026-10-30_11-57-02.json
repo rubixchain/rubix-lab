@@ -1,0 +1,919 @@
+{
+  "run": {
+    "asset": "master",
+    "started_at": "2026-10-30T11:26:30",
+    "duration_seconds": 1825.5,
+    "conditions": [
+      [
+        "Run started",
+        "2026-10-30 11:26:30"
+      ],
+      [
+        "Duration",
+        "1825s"
+      ],
+      [
+        "Cases run",
+        "17 of 17 in the catalogue"
+      ],
+      [
+        "Version",
+        "uniform: v1.0.5-42-g532c413b @ 532c413b"
+      ],
+      [
+        "Hosts file",
+        "/home/rubix/Desktop/rubix/rubix-lab/controller/hosts.txt"
+      ],
+      [
+        "Pool",
+        "226 node(s) on 26 machine(s), 955 DID(s); excluded: 192.168.1.116:20000 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force); 192.168.1.116:20100 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force); 192.168.1.116:20200 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force); 192.168.1.116:20300 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force); 192.168.1.116:20400 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force); 192.168.1.116:20600 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force); 192.168.1.116:20700 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force); 192.168.1.116:20800 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force)"
+      ],
+      [
+        "Participants",
+        "per unit (node = last octet of 192.168.1.x : API port; s=senders r=receivers q=quorums) - QCAP-01 [QCAP-01]: s 111:20300,130:20600,113:20000,118:20100,121:20300,112:20100,132:20200,128:20500,131:20100,141:20700,124:20800,126:20600,134:20000,108:20700,119:20300,122:20300,107:20300,140:20200,144:20100,139:20100,129:20300,137:20200,135:20600,136:20800,116:20500,111:20100,118:20300,130:20200,131:20600,119:20000,126:20700,110:20400,128:20400,124:20600,141:20600,124:20700,124:20500,124:20300,126:20200,108:20300,132:20100,141:20300,134:20300,128:20300,107:20500,118:20500,129:20600,130:20700,135:20700,140:20400,128:20700,140:20600,126:20800,128:20100,113:20700,141:20200,134:20600,137:20600,132:20700,131:20700,129:20700,124:20400,139:20700,136:20600,134:20400,130:20400,122:20700,131:20500,107:20100,126:20300,122:20400,129:20400,132:20400,119:20200,126:20100,119:20100,137:20400,110:20600,108:20800,139:20600,136:20400,135:20200,118:20200,130:20100,110:20200,144:20500,119:20400,135:20400,136:20200,131:20300,122:20800,140:20700,132:20600,108:20200,107:20800,108:20500,110:20100,141:20000,139:20000,124:20100,132:20500,112:20700,144:20000,107:20200,112:20200,136:20000,134:20100,108:20100,110:20700,113:20300,140:20100,144:20400,141:20800,118:20400,121:20000,141:20400,112:20400,130:20300,113:20800,132:20000,144:20200,131:20200,126:20400,130:20000,111:20500,111:20700,121:20700,144:20800,126:20500,141:20500,129:20100,140:20800,139:20200,137:20000,110:20500,144:20300,110:20300,135:20000,140:20000,139:20400,108:20400,110:20800,111:20400,111:20600,111:20800,112:20300,112:20500,112:20800,113:20200,113:20400,118:20600,118:20700,118:20800,119:20500,119:20600,119:20700,119:20800,121:20400,121:20500,121:20600,121:20800,122:20500,122:20600,124:20000,126:20000,128:20000,128:20600,128:20800,129:20500,129:20800,130:20500,130:20800,131:20400,131:20800,132:20300,132:20800,134:20500,134:20700,134:20800,135:20300,135:20500,135:20800,136:20100,136:20300,136:20500,136:20700,137:20300,137:20500,137:20700,137:20800,139:20300,139:20500,139:20800,140:20500,141:20100,144:20600,144:20700,113:20100,122:20000,112:20600,108:20600,129:20000,131:20000,137:20100,107:20600,107:20700,140:20300,135:20100,111:20200,113:20600,113:20500,108:20000,107:20000,121:20200,112:20000,111:20000,134:20200,107:20400,118:20000,121:20100 r - q 110:20000; QCAP-02 [QCAP-02]: s 111:20300,130:20600,113:20000,118:20100,112:20100 r 135:20100,140:20300,107:20700,137:20100,108:20600 q 122:20200,128:20200,129:20200,124:20200,121:20100; QCAP-03a [QCAP-03a]: s 111:20100,121:20300,132:20200,118:20300,131:20100 r - q -; QCAP-03b [QCAP-03b]: s 141:20700,126:20600,124:20800,134:20000,130:20200 r - q -; wallets [WALLET-PREP,WALLET-01]: s 131:20600,119:20300 r 113:20500,111:20200,107:20600,129:20000,112:20600,122:20000,118:20600,121:20400,124:20000,126:20000,128:20000,130:20500,132:20300,134:20500,135:20300,136:20100,137:20300,139:20300,140:20500,141:20100,144:20600,116:20500,113:20600,131:20000,113:20100,108:20400,110:20800,111:20400,111:20600,111:20800 q 110:20000,108:20000; assets [FT-01,NFT-01,SC-01]: s 108:20700,122:20300,119:20000,126:20700,110:20400,140:20200,144:20100,124:20600 r 112:20300,113:20200,118:20700,121:20500,129:20500,130:20800,131:20400,132:20800,134:20700,135:20500,136:20300,137:20500,139:20500,141:20500,111:20500,112:20500,112:20800,113:20400,118:20800,119:20500,119:20600,119:20700,119:20800,121:20600,121:20800,122:20500,122:20600,128:20600,128:20800,129:20800 q 128:20500,107:20000; RACE-01 [RACE-01]: s 107:20300 r 131:20800,134:20800,135:20800,136:20500,137:20700,139:20800,144:20700,140:20000,110:20300,129:20100,126:20500,111:20700,130:20000,132:20000,113:20800,112:20400,141:20400,118:20400,108:20100,124:20100,122:20800,119:20400,128:20100,136:20700 q 121:20200; RACE-02 [RACE-02]: s 111:20300,130:20600 r - q -; LOAD-01 [LOAD-01]: s 111:20300,130:20600 r - q -; CHAIN-01 [CHAIN-01]: s 130:20600,113:20000,132:20200,141:20700,126:20600,124:20800,131:20100,119:20300,140:20200,144:20100,139:20100,129:20300,137:20200,135:20600,136:20800,116:20500,111:20300,111:20100,118:20100,121:20300,112:20100,118:20300,134:20000,130:20200,108:20700,131:20600,107:20700,107:20300,122:20300,119:20000 r - q 110:20000,108:20000,128:20500,107:20000,121:20200,112:20000,111:20000,134:20200,118:20000,122:20100; COMBO-01 [COMBO-01]: s 126:20700,128:20400,110:20400,141:20600,124:20600,108:20300,132:20100,134:20300 r 129:20200,113:20500,111:20200,135:20100,140:20300,137:20100,131:20000,112:20600 q 107:20400,121:20100; FAIL-01 [FAIL-01]: s 111:20300,130:20600,118:20100 r - q -"
+      ],
+      [
+        "Funding",
+        "faucet bafybmih6fkweeuo... on 192.168.1.105:20000, signed by faucet quorum bafybmihpujtqxdf... on 192.168.1.106:20000; no RBT minted; shortfall only"
+      ],
+      [
+        "Quorum floor",
+        "100 RBT before a unit starts, topped up further per transfer"
+      ],
+      [
+        "Fullnode pacing",
+        "each DID waits for every fullnode to process its last transaction before starting the next"
+      ],
+      [
+        "Fullnodes",
+        "192.168.1.101, 192.168.1.102, 192.168.1.103, 192.168.1.104"
+      ],
+      [
+        "Scale knobs",
+        "quorum ladder 10,20,50,100,150,200,300,400 | stop below 50.0% | whole wallet 3000 | parts target 600 | asset hops 6 | scale 1.0"
+      ]
+    ]
+  },
+  "summary": {
+    "total": 17,
+    "passed": 1,
+    "failed": 5,
+    "skipped": 11,
+    "failed_ids": [
+      "AUDIT-START",
+      "QCAP-01",
+      "FT-01",
+      "FAIL-01",
+      "AUDIT-END"
+    ],
+    "skipped_ids": [
+      "QCAP-02",
+      "QCAP-03b",
+      "WALLET-PREP",
+      "WALLET-01",
+      "NFT-01",
+      "SC-01",
+      "RACE-01",
+      "RACE-02",
+      "LOAD-01",
+      "CHAIN-01",
+      "COMBO-01"
+    ]
+  },
+  "results": [
+    {
+      "test_id": "AUDIT-START",
+      "case": "Audit every DID in the fleet and the faucet pair before the run: the total held, locks, stuck tokens, double ownership, counters, chain history",
+      "expected": "Total held equals the 400000 RBT the faucet minted; no token owned by two DIDs; problem tokens quarantined (locked out of use)",
+      "status": "FAIL",
+      "actual": "S3 WRONG: the fleet holds 396664.798 RBT but the faucet minted 400000.000: -3335.202 RBT lost (controller/test-plan/custom/lost_rbt.py shows where)",
+      "note": "S1 PASS: nothing to report | S2 PASS: none needed | S3 WRONG: the fleet holds 396664.798 RBT but the faucet minted 400000.000: -3335.202 RBT lost (controller/test-plan/custom/lost_rbt.py shows where) | S4 PASS: nothing to report | S5 PASS: 23.176 RBT parked in Locked on 4 DID(s) - left as is; KNOWN PRODUCT BUG - 7 DID(s) have a denomination counter that does not match their Free tokens (e.g. {1.0: (178802, 178620)} on 192.168.1.106:20000, as denomination: (counter, real Free tokens)) | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "-",
+      "fullnode": "-",
+      "seconds": 17.47,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "no participants of its own - the case reads the fleet itself"
+        }
+      ]
+    },
+    {
+      "test_id": "QCAP-01",
+      "case": "Senders on machines other than the quorum's, one per node and then a second DID per node, all transfer at once through one quorum, rung by rung up to 400 - first 1 RBT each, then the ladder again with one fractional amount that makes the quorum split its own tokens for every pledge; one ordinary transfer after each ladder",
+      "expected": "Record the largest number of transfers one quorum signs at once in full, whole and fractional; past it, the rest refused gently - a stated reason within 60s, nothing Locked, no node restarted; the quorum signs again after the ladder",
+      "status": "FAIL",
+      "actual": "S2 50 at once, 1.000 RBT each WRONG: 1 accepted transfer(s) never reached the receiver's node in 60s, e.g. tx c361129a9a1940d7 on .130:20200; value not conserved: the participants' RBT changed by -1.000, +0.000 expected; 50/50 accepted in p50 0.4s p95 0.6s ; S4 20 at once, 0.305 RBT each DAMAGE: 8 refusal(s) gave no usable reason: 8x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom fo; 12/20 accepted in p50 12.6s p95 15.8s m",
+      "note": "KNOWN PRODUCT BUG behind 8 refusal(s): 8x token_denom deadlock on concurrent splits (Go map order) - not a lab error, not a capacity limit. S1 PASS: busiest machine .110 at 17% CPU | S2 10 at once, 1.000 RBT each PASS: 10/10 accepted in p50 0.2s p95 0.2s max 0.2s; busiest machine .110 at 30% CPU | S2 20 at once, 1.000 RBT each PASS: 20/20 accepted in p50 0.2s p95 0.3s max 0.3s; busiest machine .110 at 32% CPU | S2 50 at once, 1.000 RBT each WRONG: 1 accepted transfer(s) never reached the receiver's node in 60s, e.g. tx c361129a9a1940d7 on .130:20200; value not conserved: the participants' RBT changed by -1.000, +0.000 expected; 50/50 accepted in p50 0.4s p95 0.6s max 1.3s; busiest machine .116 at 93% CPU | S3 PASS: 1/1 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .130 at 16% CPU | S4 10 at once, 0.855 RBT each PASS: 10/10 accepted in p50 4.7s p95 4.7s max 4.7s; busiest machine .110 at 35% CPU | S4 20 at once, 0.305 RBT each DAMAGE: 8 refusal(s) gave no usable reason: 8x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom fo; 12/20 accepted in p50 12.6s p95 15.8s max 15.8s; KNOWN PRODUCT BUG: token_denom deadlock on concurrent splits (Go map order) (8); busiest machine .110 at 24% CPU | S5 PASS: 1/1 accepted in p50 1.7s p95 1.7s max 1.7s; busiest machine .111 at 12% CPU | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "persisted: 1 transaction(s) that went through are missing from the sender 28's records; conserved: value does NOT balance: the participants' RBT changed by -1.000, but +0.000 should have (0.000 came in, 0.000 went out)",
+      "fullnode": "97/104 accepted by all 4, 23 rejected (prev-txn mismatch, fullnode behind) by .101, fullnodes DISAGREE on 7",
+      "seconds": 236.32,
+      "db_checks": [
+        {
+          "check": "persisted",
+          "ok": false,
+          "detail": "1 transaction(s) that went through are missing from the sender 28's records",
+          "missing": [
+            "c361129a9a1940d7e3fcf0534b997a582b5df161c9e34963b115e23689f653ed"
+          ]
+        },
+        {
+          "check": "conserved",
+          "ok": false,
+          "detail": "value does NOT balance: the participants' RBT changed by -1.000, but +0.000 should have (0.000 came in, 0.000 went out)",
+          "moved": -1.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        },
+        {
+          "check": "fullnode",
+          "ok": false,
+          "detail": "fullnodes DISAGREE on 7 transaction(s) - fullnodes: .101 accepted 97/104, REJECTED 23 (prev-txn mismatch, fullnode behind); .102 accepted 104/104; .103 accepted 104/104; .104 accepted 104/104",
+          "rejected": {
+            "ce63ad8e535756293f246387a16ad458296b3d95c92f9ddf875002bc29d1839e": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102337 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest da0131fcafbba86e34bdeacfe90674eceb40ac866dcfce4111c6c55bb77f4c66 != expected a78b521d5ddbf56cf048f9a10adedad39e8ad8c055b49922ea80310fe98b30e4",
+            "aa3138e5a24d690b6192b8109484c8ef7e80661f20149ef7534eff988908fe1f": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102489 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest daf95bac65bff33ec93036a8f028885245c338263011e33725d4b6d63f6529be != expected 0a6b35142f0f168900f2c976314e6d176abda6121ebdd32d260c77cfa137bab6",
+            "87c4e7742a88f2fbb79c8a055c7d6a7ffa3f7aad78ccf8bc14b04b61dfa2899a": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_10249 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 9cc5947a28cccc69f639c2946b5df8297347e68a6d6acb0c3f50990c32aec3b8 != expected ca8ffacd4337a6eeebd1906ac638842c5e689ddca62c11952dd6eab64f673236",
+            "1b087ecbe5bfcd6210b7a877f5ea84917ebfdf7ccdd5cb0c1bbf3c89044903b1": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102476 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 4b5038ca3d41fac08eb8393dcf86338ad437c55939c9a1f4f1bcc9a24b8c2673 != expected 4e88d814b0c87b1521d147ea672ae65233930b8be2f8017214e657b16501d108",
+            "23f10d28e5dc6d4c5343a5236495e70eec5b480caa7dbd8f6526182b49c0faa4": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102441 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 8a614ca7b3946de2a84dbe47deb0a6a4cfa27a54e0a6332dd3bd4e932f3d3f3d != expected e4138f43934c83fed3ae5e324308ccadf30d017e1e7daacf818fd9bc0729c2f4",
+            "979f3ff11475ba79fe2c796191419f735b37117597dd5909ef001161d8012a42": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102497 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 01b85adb8736fb6c95a51b500003303cee00249f627386a6dc6a9e4fd9d86f35 != expected d97ebdf1d784eb80db6f43cfa12ba99ff92460ef492f29acae601cf01c377528",
+            "861531e84f3817bc7b99c9c960b00afd5fe345fe69a32caadd215715fce33927": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102502 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 513125adbc2afa27a135dbf25ea68dad89f9348f2a6eb9739bce8e5745d35d82 != expected 5d1914144cc997c4270fa09418366e4306aaaf678a200c23ddcfff3736fcd52e",
+            "e427e7df79427417eb214f30c8870c9d3b9ead6579e55efcc20bf0c167b21e06": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102506 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 7b3fdb8162b75b24f9a27b74bc3bc3fe392e900c45498a438ee32d222d5e3690 != expected 8ca820cb945b920fa3f88827d3b63bd8a6a63ba79c96e622e8019fd3afbeeeb9",
+            "b5b946700b225f3539ed8f265f09d5440e74c295b0f43f464d288064f0319c4a": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102422 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest bba71948eb31072b0d05768b0431175c82a33d8af7ac2ef13206c322f31f4531 != expected 35195135f62914492f7dfdf9ca3bb28d9e8fed7fade6ba74a1d2572cb6f32a91",
+            "c9666d150674990bb9b57fdeecda714fdf9d57ced30da5a1ce7fabbf133f6525": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102520 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest b65aff984a8b45327250155f0aad7c648b2ce04274e285c1b3593b0c4d011d86 != expected 18d8c9d40ec7ed107ff1a50f8e27a972f264fff7ece115e35bb9fe4923c8584d",
+            "6d8876e7006c20a2040556d3c8e0205340707f3d0ec63ec0e26fabceb8d53624": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102598 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 122fdf101297fb3688d87af371046aa0c4005aac992b53bc556eaaa6da5876ef != expected 3930b65724994f9bf53ad4b00e530c085f88c0b6004134857862f7a40d590e4e",
+            "55724b0619ca533c35b979ed65969f12b20a0a3c761e90b4ec7338d579f39651": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102590 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest dc51e971e9c49a54ed5c87bfc178086e2cefde98f8689bb3b94d15f5c8f67acb != expected 69856aa6e180aebfd142643daa33497ec4cfec011a6ffb07570aabdbece05f5f",
+            "4a384111d9a25d872df2e4307c9bd352f0c137b8c6974d3dfee7cec5d8f6dadc": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102543 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 2d7272e288fdd28d548710a2fe8da89f363038908cac5beadd134386db8eb750 != expected 72c03988706475f9f733b281d4175bc20f6cfba7878640db5b401a0106380ddc",
+            "2cd0d5e010d05485e6a396fd89c848769b5265e0ba4866d419ecad9b393cab26": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102538 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 1cf51fb1069f39855b85a8da7ab603b1dc6e3035874ec1e7715b6b3616060767 != expected d16d46ec8adf89f7b8007aa848c2abfd7f82f55e901ad9e98ae9172e0116f28b",
+            "577717dc11f39f2b08e2f63befacd55a58dbc4e4c9ddcf2e060f7dfff4945dac": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102541 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest fd1b674ad7381c22e823b4f991c1aa8679d3ac282409aa4e7e307bae2faa604a != expected 886865f9ae3064f5a71d025863397bf304c45ad2f93188e66ba46ec1d6010ed1",
+            "c5b71fc3573c3275c27795a7b62615fcc3898657b23cdadd3c12a15b7092f006": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102441 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 8a614ca7b3946de2a84dbe47deb0a6a4cfa27a54e0a6332dd3bd4e932f3d3f3d != expected 55724b0619ca533c35b979ed65969f12b20a0a3c761e90b4ec7338d579f39651",
+            "6f4e043b57f55526c5c063194b94c5de8f24066f5699980853a0c61ae1df9705": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_10249 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 9cc5947a28cccc69f639c2946b5df8297347e68a6d6acb0c3f50990c32aec3b8 != expected 6682978858eaca0639e4163749fa8a1b7a87d7e371e9684b0b91f65c41192dc4",
+            "f4b0e14ee667ccaa13a66adc7f43f3f6432ca96acb3099c852456f9881102021": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102489 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest daf95bac65bff33ec93036a8f028885245c338263011e33725d4b6d63f6529be != expected c9666d150674990bb9b57fdeecda714fdf9d57ced30da5a1ce7fabbf133f6525",
+            "fbcc92e3e9e50bb330906b0a304628d455450839f5ad27386932387bdf9fefce": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102497 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 01b85adb8736fb6c95a51b500003303cee00249f627386a6dc6a9e4fd9d86f35 != expected aa81f5013a9111bdf76025abe7c95dc0035a96be0a42578a0df8d1e5256ab2ab",
+            "9fb907b98ecd4e929183a3a8bc191f758710e55b76a01ab07d70983dfdeaaf43": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102506 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 7b3fdb8162b75b24f9a27b74bc3bc3fe392e900c45498a438ee32d222d5e3690 != expected 6d8876e7006c20a2040556d3c8e0205340707f3d0ec63ec0e26fabceb8d53624",
+            "278b7f84cb19d82ec611d9c89fb243aa96c8a23033f96ea61b18c14996e9883c": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102619 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest d16e59deb81caafc9b15ea62ca5b9c35d90483b4cf75fdb02e24fc96f6f1127b != expected b92c19692a273978091aa16b2918dba0070fcd0d426efd13599249dc587ee2c2",
+            "51ad24a424b06967febf3b14f1a0b84c938310fe2d6dd0941ec84d297832e4fc": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102520 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest b65aff984a8b45327250155f0aad7c648b2ce04274e285c1b3593b0c4d011d86 != expected 6f4e043b57f55526c5c063194b94c5de8f24066f5699980853a0c61ae1df9705",
+            "75de3b01a1b00364a33b02a1bd29b62b97ce867315b2e8eaf32a0a2d11ea5d93": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102476 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 4b5038ca3d41fac08eb8393dcf86338ad437c55939c9a1f4f1bcc9a24b8c2673 != expected 0350dbf4555632771409b0e6413215b6d92e9ed01a9e9e22a4ea4164427999cb"
+          },
+          "status": {
+            "ce63ad8e535756293f246387a16ad458296b3d95c92f9ddf875002bc29d1839e": "rejected",
+            "aa3138e5a24d690b6192b8109484c8ef7e80661f20149ef7534eff988908fe1f": "accepted",
+            "87c4e7742a88f2fbb79c8a055c7d6a7ffa3f7aad78ccf8bc14b04b61dfa2899a": "accepted",
+            "1b087ecbe5bfcd6210b7a877f5ea84917ebfdf7ccdd5cb0c1bbf3c89044903b1": "accepted",
+            "23f10d28e5dc6d4c5343a5236495e70eec5b480caa7dbd8f6526182b49c0faa4": "accepted",
+            "47db342a534ebd8406e6bc1640c3926b25b179e17b94e77393a159329e78701c": "accepted",
+            "979f3ff11475ba79fe2c796191419f735b37117597dd5909ef001161d8012a42": "accepted",
+            "861531e84f3817bc7b99c9c960b00afd5fe345fe69a32caadd215715fce33927": "rejected",
+            "e427e7df79427417eb214f30c8870c9d3b9ead6579e55efcc20bf0c167b21e06": "accepted",
+            "b5b946700b225f3539ed8f265f09d5440e74c295b0f43f464d288064f0319c4a": "rejected",
+            "c9666d150674990bb9b57fdeecda714fdf9d57ced30da5a1ce7fabbf133f6525": "accepted",
+            "6d8876e7006c20a2040556d3c8e0205340707f3d0ec63ec0e26fabceb8d53624": "rejected",
+            "0350dbf4555632771409b0e6413215b6d92e9ed01a9e9e22a4ea4164427999cb": "accepted",
+            "55724b0619ca533c35b979ed65969f12b20a0a3c761e90b4ec7338d579f39651": "accepted",
+            "aa81f5013a9111bdf76025abe7c95dc0035a96be0a42578a0df8d1e5256ab2ab": "accepted",
+            "6682978858eaca0639e4163749fa8a1b7a87d7e371e9684b0b91f65c41192dc4": "accepted",
+            "2daec81572827015b339e3535b2e6ea2fe9558a313cb16ed81a6a91e5581b02e": "accepted",
+            "583abc85b4dd754b8c034ddbabc49ce00b0013f2819351ddd8ea6f05bbe0005a": "accepted",
+            "f2fa61c9234c1730f9fba3d0a81c0cc62b63e42340b1bc778a21f3bbd7741a40": "accepted",
+            "88c794d317356d1b06fd219e0ca4a64ea3a5324f44a916de59e51611ba3b82d2": "accepted",
+            "38ac7d69ac3f0e54c3fada0b0e039ef0f789a66dc706eae77a1d155fcbafff17": "accepted",
+            "4a384111d9a25d872df2e4307c9bd352f0c137b8c6974d3dfee7cec5d8f6dadc": "accepted",
+            "59a6788081aa8a726930b5e65ab55b1f94e228fd61923ba596ead5cdd4e4ad10": "accepted",
+            "f1e945055ddd37b17cc3c8d57a43250a2c529c045ccd9e01191f023f538accd1": "accepted",
+            "c2156e264662fe86b1b8195d0a8e2281c917268ff27e39f201840fa4667f07fc": "accepted",
+            "0253371bc1bfe63e95a7d67f0133ffc8d5a845c1fab890cd70917e241923a3a4": "accepted",
+            "2cd0d5e010d05485e6a396fd89c848769b5265e0ba4866d419ecad9b393cab26": "rejected",
+            "577717dc11f39f2b08e2f63befacd55a58dbc4e4c9ddcf2e060f7dfff4945dac": "rejected",
+            "7e6072018fec6bf2f32caa6f7eb7cef023a58e41dc8af87a77faf1ddc8d68200": "accepted",
+            "70a53e208f9006f67bc4bfd0f4d721c64ebd089d9ed35547ed4f75c5beb201c9": "accepted",
+            "c5b71fc3573c3275c27795a7b62615fcc3898657b23cdadd3c12a15b7092f006": "accepted",
+            "6f4e043b57f55526c5c063194b94c5de8f24066f5699980853a0c61ae1df9705": "accepted",
+            "10c9adb18a1b063b729f788ffbcf9492ed5016808e3134aa2a54da6429f4278b": "accepted",
+            "41d11a096fc82166e93de0664d13a2d44da39c75b5da8849a5708d6b9b04c63b": "accepted",
+            "fadaf0f434c117f974dbc136cb5c0d39a42f9d1b22b7e8d235345b676ad45d22": "accepted",
+            "8d9083d71b76b22c334259ea690bdbe21b4ca2b2eb1946f348bff281b019c343": "accepted",
+            "900b33e4e36640ce8493262b1099111d4771b250c0ac600c97778b38a3000e2d": "accepted",
+            "997c121f150d52e06de879509a6f67141d9a9705800399bdf2156d08d7004460": "accepted",
+            "0eefed7b19a648855b4ae397cecf7400f0b49c40041d848b9c4dbca633d51dc6": "accepted",
+            "7a4d1377ef261e30bc5999dbb64d8fd309f31386cf70993fb6948559f7e2b1ec": "accepted",
+            "f4b0e14ee667ccaa13a66adc7f43f3f6432ca96acb3099c852456f9881102021": "accepted",
+            "47040d3d210e1bd5d31922b57ffa459ab9ce02f6aea7cf276580e4e3c01cb028": "accepted",
+            "f3842d66d991b7c1e12fa7569b9281d3d29974aa02f4545d06481d4dd3cb0d99": "accepted",
+            "dc8f3f6e467c58ff70c00fef9e6f33a28940f8b32f1eb8724e742fd734ca73ec": "accepted",
+            "6e227fe4c46c91a6837b9437780b7ecd2dd510f26fdf9b295b5b1d0f7eb69d35": "accepted",
+            "32104fd06fcbebec45657e9a0fdcbd243f19cd77105aa3894829c743d0bc60cf": "accepted",
+            "97c07a725c402f461ec68223847f4e56d2047aad4cfda67ff566544551ee4c9c": "accepted",
+            "6bcbaafbc664104a072e6ecd9e59db881cc17d5ee5e54b3809e11b20648e979a": "accepted",
+            "f6bc96f6e601ab79404becf7c4c0a172ccf101087a2ce97ab9619d571e84071d": "accepted",
+            "fbcc92e3e9e50bb330906b0a304628d455450839f5ad27386932387bdf9fefce": "rejected",
+            "57a7468ac59727c8a10b6f29fbab30ae982d8cc3669fd84d87a4ccc15babac9d": "accepted",
+            "9fb907b98ecd4e929183a3a8bc191f758710e55b76a01ab07d70983dfdeaaf43": "accepted",
+            "8a25b7809becb3f35d4dfb10af1bd6ff96670bb0c4e7da88c11aab653733bc4d": "accepted",
+            "278b7f84cb19d82ec611d9c89fb243aa96c8a23033f96ea61b18c14996e9883c": "accepted",
+            "63eae5fbcb0a04df5b2c95568b45b7faaaca69c24f5ce9fefe72118c00745aeb": "accepted",
+            "eca7ef211b6001f2dbf35e53cba7e649d2ab5982b3f5fffcf0c9f0bfcee7c8e0": "accepted",
+            "c276df8328500d1088fd42e6134c89de7cde614f3e48a1296bd89dd49d4617bc": "accepted",
+            "ef9f8d7d51b917969ca098a69b179f6d5cbe6764b64af74377cbec76c533dbe6": "accepted",
+            "2b50caab28f80f50d8a098ed1b57e38033b465c4dafc4263f85dfe8746a88887": "accepted",
+            "f6ac731ac5af1f11b67035ba62c2769879596775643645ae186541150a04019d": "accepted",
+            "1ee202bdfbadeac7546ac2ac568e4445d7e33e368eb80da718f932624dd4c546": "accepted",
+            "527bb37c347376a6c1efbe352bf895ec71e357e855d26375dc8a331e4453d4b2": "accepted",
+            "b3a37562d28632722e509cd86ecc5de4c9f8abfa980508bd14a8abf66d1f77bc": "accepted",
+            "6f0f5f5c00b1f84826162deb3df65000686695f08f42613499e1a33508bdfda6": "accepted",
+            "406364dc8928ce8d1b68dcc77b4fef64d68fcbb4c40f02013699de00da1d1546": "accepted",
+            "6c6bf8ee83791867a1bf70aaa09e86b01f5606805d98ae34f3c48265a3b31ee1": "accepted",
+            "77501591d21154a901287b0499379a4039750becf56e8a3c181dafd71f90d836": "accepted",
+            "832a661dc43f9222f89f8c709616ff6676ba283053e64b4048ccaaf6a8174465": "accepted",
+            "034667e5e75bec45a9bd7f3b4cb182395bae814c9da7df55afcbcc6a95bcf740": "accepted",
+            "c6addd15abcd5a12419eae5ff48e1e7d70e3b890ec7cdb9d1e4bf4724bb4b92c": "accepted",
+            "dd34dc7dca14460c8dd3b05eb50b71cdda56ce1516612a358e0c97a9f52c0156": "accepted",
+            "7dc3bac9e83ca7b08d202c2a2c8c2d2bbef9e4404accd3850877b2e5e7b6c668": "accepted",
+            "861c8ecc39880c92cd2cdc8b134d4fa05feb959c5e5a943d3570cf438f4879c3": "accepted",
+            "c361129a9a1940d7e3fcf0534b997a582b5df161c9e34963b115e23689f653ed": "accepted",
+            "eaeb270586c03f14c999762d4cf5d0111e14d31e68d63c68aa6b48cf5d442978": "accepted",
+            "b5f2355fa34ad79e8a430cd8cc72aa6cb849e1a8633a36dfe81404e19558e694": "accepted",
+            "51d1eab9dd66133e8d4bda4e6102c4592c1e9181a8ff1a7a4039dddcb660958a": "accepted",
+            "d6624c6b796c4a8520fc34dc67b7b7649153d682799e835f883c39df57044c2f": "accepted",
+            "51ad24a424b06967febf3b14f1a0b84c938310fe2d6dd0941ec84d297832e4fc": "accepted",
+            "a23dee5c21a0801a42bc1f0629e6ed7cdf66cba24be5d15680a2382e5971e1dc": "accepted",
+            "75de3b01a1b00364a33b02a1bd29b62b97ce867315b2e8eaf32a0a2d11ea5d93": "accepted",
+            "86ef243194cb58a7cf16001d95a50d598c567cc3a701032568a64e361a56978b": "accepted",
+            "9b193453e4f34b6934ce02b7928a60809274c891657227f8bb4c676114687970": "accepted",
+            "fd69dd86ac0a9ae1768eac6bd4d0b71db7bd23e5286aa9c7f6fdfbb4acc92a12": "accepted",
+            "699bc0f6da8312a19aa1b266e80b1bfb733b19e9257552aef1005b2025f1d738": "accepted",
+            "d11260cbd5b557c01f1ef4182a926fed2d817340d86a67b7f830dadcdd433d6f": "accepted",
+            "ad4bf285b40e1a949af649df2d3aa867947c08b765abe74643f46c838f3b0fcf": "accepted",
+            "76dbdc688014bf52f1899c91fa7c0888905bc0313aeb0b5eb8cc7bc6738e4980": "accepted",
+            "0f0420d62cff1efad3cb2e1975cdbf217744beecd0ed46f76f05116c648a6571": "accepted",
+            "0006c7ec9f22b87688cfa2906dbcb4d7d8e72822ce6c81a59480cbbd0b881905": "accepted",
+            "60f33d551d2f6a03a340e8f95d79598dd25073ef04b5489941944a1768a3149f": "accepted",
+            "33608c537355b79bf6e014cac2a574f2874ec5db9812f514aefa076906dd6d90": "accepted",
+            "1af124d27cb6873d99bfc8211eb6bf77d47fbc858eea350b7aa3a8f2c498135a": "accepted",
+            "6ac2aab175faf5fab56054c2533096c157b8cecf2a3790f796d690fcb10dd4d4": "accepted",
+            "d5c926ed4ac238a5ab81acad7b294973719bd24fff663c9ec670b325dc09704a": "accepted",
+            "cb3e3ea737b9b2338bb196c7c2e96cb2ffb186ab8899b30796ba48dad5812cf5": "accepted",
+            "6c758234587919100b777f34e076a47faad88ff13c343f9c4c3354e28d3c6b2c": "accepted",
+            "3c9a41e5cf98482218b2233873e4f722c6a2a706d28ac7d17a8ce6054543bbb9": "accepted",
+            "a3e8a943f5e1a0628fc18d30cedc2f6ad9ba3e40bc4ea292eaa7344e799c3756": "accepted",
+            "eb8945d650e1b1f4c5175b02a3b51d7290c2bcce1dba491a308f5fce28fc1f2c": "accepted",
+            "c3ea74c62b3dab75bffb1f5cfefa46be4d8548166180742168c10af9639fc2bd": "accepted",
+            "053d3ea3f3b7158dca8f26a44167a6780614736c610f1ed38a04e25e66e654ce": "accepted",
+            "835336de45c890a2f030d9805f2e1dd6f13aa9fd744ec870b1d5c4f8b2b46b4b": "accepted",
+            "5aab160e8cbf4cb70035799a2ba1962095dc825055c4e753d25b477ca30af89f": "accepted"
+          },
+          "per_fullnode": {
+            "192.168.1.101": {
+              "accepted": 97,
+              "rejected": {
+                "ce63ad8e535756293f246387a16ad458296b3d95c92f9ddf875002bc29d1839e": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102337 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest da0131fcafbba86e34bdeacfe90674eceb40ac866dcfce4111c6c55bb77f4c66 != expected a78b521d5ddbf56cf048f9a10adedad39e8ad8c055b49922ea80310fe98b30e4",
+                "aa3138e5a24d690b6192b8109484c8ef7e80661f20149ef7534eff988908fe1f": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102489 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest daf95bac65bff33ec93036a8f028885245c338263011e33725d4b6d63f6529be != expected 0a6b35142f0f168900f2c976314e6d176abda6121ebdd32d260c77cfa137bab6",
+                "87c4e7742a88f2fbb79c8a055c7d6a7ffa3f7aad78ccf8bc14b04b61dfa2899a": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_10249 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 9cc5947a28cccc69f639c2946b5df8297347e68a6d6acb0c3f50990c32aec3b8 != expected ca8ffacd4337a6eeebd1906ac638842c5e689ddca62c11952dd6eab64f673236",
+                "1b087ecbe5bfcd6210b7a877f5ea84917ebfdf7ccdd5cb0c1bbf3c89044903b1": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102476 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 4b5038ca3d41fac08eb8393dcf86338ad437c55939c9a1f4f1bcc9a24b8c2673 != expected 4e88d814b0c87b1521d147ea672ae65233930b8be2f8017214e657b16501d108",
+                "23f10d28e5dc6d4c5343a5236495e70eec5b480caa7dbd8f6526182b49c0faa4": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102441 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 8a614ca7b3946de2a84dbe47deb0a6a4cfa27a54e0a6332dd3bd4e932f3d3f3d != expected e4138f43934c83fed3ae5e324308ccadf30d017e1e7daacf818fd9bc0729c2f4",
+                "979f3ff11475ba79fe2c796191419f735b37117597dd5909ef001161d8012a42": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102497 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 01b85adb8736fb6c95a51b500003303cee00249f627386a6dc6a9e4fd9d86f35 != expected d97ebdf1d784eb80db6f43cfa12ba99ff92460ef492f29acae601cf01c377528",
+                "e427e7df79427417eb214f30c8870c9d3b9ead6579e55efcc20bf0c167b21e06": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102506 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 7b3fdb8162b75b24f9a27b74bc3bc3fe392e900c45498a438ee32d222d5e3690 != expected 8ca820cb945b920fa3f88827d3b63bd8a6a63ba79c96e622e8019fd3afbeeeb9",
+                "861531e84f3817bc7b99c9c960b00afd5fe345fe69a32caadd215715fce33927": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102502 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 513125adbc2afa27a135dbf25ea68dad89f9348f2a6eb9739bce8e5745d35d82 != expected 5d1914144cc997c4270fa09418366e4306aaaf678a200c23ddcfff3736fcd52e",
+                "577717dc11f39f2b08e2f63befacd55a58dbc4e4c9ddcf2e060f7dfff4945dac": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102541 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest fd1b674ad7381c22e823b4f991c1aa8679d3ac282409aa4e7e307bae2faa604a != expected 886865f9ae3064f5a71d025863397bf304c45ad2f93188e66ba46ec1d6010ed1",
+                "b5b946700b225f3539ed8f265f09d5440e74c295b0f43f464d288064f0319c4a": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102422 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest bba71948eb31072b0d05768b0431175c82a33d8af7ac2ef13206c322f31f4531 != expected 35195135f62914492f7dfdf9ca3bb28d9e8fed7fade6ba74a1d2572cb6f32a91",
+                "c9666d150674990bb9b57fdeecda714fdf9d57ced30da5a1ce7fabbf133f6525": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102520 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest b65aff984a8b45327250155f0aad7c648b2ce04274e285c1b3593b0c4d011d86 != expected 18d8c9d40ec7ed107ff1a50f8e27a972f264fff7ece115e35bb9fe4923c8584d",
+                "6d8876e7006c20a2040556d3c8e0205340707f3d0ec63ec0e26fabceb8d53624": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102598 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 122fdf101297fb3688d87af371046aa0c4005aac992b53bc556eaaa6da5876ef != expected 3930b65724994f9bf53ad4b00e530c085f88c0b6004134857862f7a40d590e4e",
+                "55724b0619ca533c35b979ed65969f12b20a0a3c761e90b4ec7338d579f39651": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102590 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest dc51e971e9c49a54ed5c87bfc178086e2cefde98f8689bb3b94d15f5c8f67acb != expected 69856aa6e180aebfd142643daa33497ec4cfec011a6ffb07570aabdbece05f5f",
+                "4a384111d9a25d872df2e4307c9bd352f0c137b8c6974d3dfee7cec5d8f6dadc": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102543 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 2d7272e288fdd28d548710a2fe8da89f363038908cac5beadd134386db8eb750 != expected 72c03988706475f9f733b281d4175bc20f6cfba7878640db5b401a0106380ddc",
+                "2cd0d5e010d05485e6a396fd89c848769b5265e0ba4866d419ecad9b393cab26": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102538 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 1cf51fb1069f39855b85a8da7ab603b1dc6e3035874ec1e7715b6b3616060767 != expected d16d46ec8adf89f7b8007aa848c2abfd7f82f55e901ad9e98ae9172e0116f28b",
+                "c5b71fc3573c3275c27795a7b62615fcc3898657b23cdadd3c12a15b7092f006": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102441 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 8a614ca7b3946de2a84dbe47deb0a6a4cfa27a54e0a6332dd3bd4e932f3d3f3d != expected 55724b0619ca533c35b979ed65969f12b20a0a3c761e90b4ec7338d579f39651",
+                "6f4e043b57f55526c5c063194b94c5de8f24066f5699980853a0c61ae1df9705": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_10249 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 9cc5947a28cccc69f639c2946b5df8297347e68a6d6acb0c3f50990c32aec3b8 != expected 6682978858eaca0639e4163749fa8a1b7a87d7e371e9684b0b91f65c41192dc4",
+                "f4b0e14ee667ccaa13a66adc7f43f3f6432ca96acb3099c852456f9881102021": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102489 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest daf95bac65bff33ec93036a8f028885245c338263011e33725d4b6d63f6529be != expected c9666d150674990bb9b57fdeecda714fdf9d57ced30da5a1ce7fabbf133f6525",
+                "fbcc92e3e9e50bb330906b0a304628d455450839f5ad27386932387bdf9fefce": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102497 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 01b85adb8736fb6c95a51b500003303cee00249f627386a6dc6a9e4fd9d86f35 != expected aa81f5013a9111bdf76025abe7c95dc0035a96be0a42578a0df8d1e5256ab2ab",
+                "9fb907b98ecd4e929183a3a8bc191f758710e55b76a01ab07d70983dfdeaaf43": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102506 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 7b3fdb8162b75b24f9a27b74bc3bc3fe392e900c45498a438ee32d222d5e3690 != expected 6d8876e7006c20a2040556d3c8e0205340707f3d0ec63ec0e26fabceb8d53624",
+                "278b7f84cb19d82ec611d9c89fb243aa96c8a23033f96ea61b18c14996e9883c": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102619 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest d16e59deb81caafc9b15ea62ca5b9c35d90483b4cf75fdb02e24fc96f6f1127b != expected b92c19692a273978091aa16b2918dba0070fcd0d426efd13599249dc587ee2c2",
+                "51ad24a424b06967febf3b14f1a0b84c938310fe2d6dd0941ec84d297832e4fc": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102520 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest b65aff984a8b45327250155f0aad7c648b2ce04274e285c1b3593b0c4d011d86 != expected 6f4e043b57f55526c5c063194b94c5de8f24066f5699980853a0c61ae1df9705",
+                "75de3b01a1b00364a33b02a1bd29b62b97ce867315b2e8eaf32a0a2d11ea5d93": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_102476 (pledge:bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se) chain mismatch after sync from bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: local latest 4b5038ca3d41fac08eb8393dcf86338ad437c55939c9a1f4f1bcc9a24b8c2673 != expected 0350dbf4555632771409b0e6413215b6d92e9ed01a9e9e22a4ea4164427999cb"
+              },
+              "not_seen": []
+            },
+            "192.168.1.102": {
+              "accepted": 104,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.103": {
+              "accepted": 104,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.104": {
+              "accepted": 104,
+              "rejected": {},
+              "not_seen": []
+            }
+          },
+          "disagree": [
+            "ce63ad8e535756293f246387a16ad458296b3d95c92f9ddf875002bc29d1839e",
+            "861531e84f3817bc7b99c9c960b00afd5fe345fe69a32caadd215715fce33927",
+            "b5b946700b225f3539ed8f265f09d5440e74c295b0f43f464d288064f0319c4a",
+            "6d8876e7006c20a2040556d3c8e0205340707f3d0ec63ec0e26fabceb8d53624",
+            "2cd0d5e010d05485e6a396fd89c848769b5265e0ba4866d419ecad9b393cab26",
+            "577717dc11f39f2b08e2f63befacd55a58dbc4e4c9ddcf2e060f7dfff4945dac",
+            "fbcc92e3e9e50bb330906b0a304628d455450839f5ad27386932387bdf9fefce"
+          ],
+          "unreadable": []
+        }
+      ]
+    },
+    {
+      "test_id": "QCAP-02",
+      "case": "Pay an amount just below, at, and just above each quorum's own free holding, to find the exact boundary of what one quorum can pledge",
+      "expected": "Up to the holding: accepted, and the quorum pledges exactly the value; one unit over: refused for insufficient quorum liquidity at once, the quorum's Free and the sender's wallet unchanged",
+      "status": "SKIP",
+      "actual": "NOT RUN - S2 holding 123.001, value 122.901 (-0.100): .111:20300 holds 1.000 RBT free, the step needs 123.001",
+      "note": "S1 PASS: nothing to report | S2 holding 123.001, value 122.901 (-0.100) NOT RUN: .111:20300 holds 1.000 RBT free, the step needs 123.001 | S2 holding 125.931, value 125.930 (-0.001) NOT RUN: .130:20600 holds 3.000 RBT free, the step needs 126.030 | S2 holding 126.691, value 126.691 (+0.000) PASS: 1/1 accepted in p50 8.8s p95 8.8s max 8.8s; busiest machine .113 at 19% CPU | S2 holding 171.624, value 171.625 (+0.001) PASS: 0/1 accepted; 1 refused as expected: 1x insufficient quorum liquidity; busiest machine .118 at 14% CPU | S2 holding 184.045, value 184.145 (+0.100) PASS: 0/1 accepted; 1 refused as expected: 1x insufficient quorum liquidity; busiest machine .112 at 12% CPU | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "ok",
+      "fullnode": "1/1 accepted by all 4",
+      "seconds": 149.93,
+      "db_checks": [
+        {
+          "check": "persisted",
+          "ok": true,
+          "detail": "every transaction that went through is recorded by both sides",
+          "missing": []
+        },
+        {
+          "check": "conserved",
+          "ok": true,
+          "detail": "value balanced",
+          "moved": -0.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        },
+        {
+          "check": "fullnode",
+          "ok": true,
+          "detail": "all 4 fullnode(s) accepted 1 of 1",
+          "rejected": {},
+          "status": {
+            "2e5da2500b88dce4a24f1a9587706b4a3deee7aaab76ad0493145c9311c6c728": "accepted"
+          },
+          "per_fullnode": {
+            "192.168.1.101": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.102": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.103": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.104": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            }
+          },
+          "disagree": [],
+          "unreadable": []
+        }
+      ]
+    },
+    {
+      "test_id": "QCAP-03a",
+      "case": "A quorum that has pledged tokens for one transfer then spends its own free RBT in another transfer",
+      "expected": "The quorum's free send goes through and the tokens it pledged are left untouched",
+      "status": "PASS",
+      "actual": "a quorum spent its free RBT without touching the 20 it had pledged",
+      "note": "S1 PASS: 1/1 accepted in p50 0.6s p95 0.6s max 0.6s; busiest machine .121 at 12% CPU | S2 PASS: 1/1 accepted in p50 0.7s p95 0.7s max 0.7s; busiest machine .118 at 16% CPU | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "ok",
+      "fullnode": "1/2 accepted by all 4, 1 not seen in 30s",
+      "seconds": 22.09,
+      "db_checks": [
+        {
+          "check": "persisted",
+          "ok": true,
+          "detail": "every transaction that went through is recorded by both sides",
+          "missing": []
+        },
+        {
+          "check": "conserved",
+          "ok": true,
+          "detail": "value balanced",
+          "moved": 0.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        },
+        {
+          "check": "fullnode",
+          "ok": null,
+          "detail": "fullnodes: .101 accepted 1/2, 1 not seen after 30s; .102 accepted 2/2; .103 accepted 1/2, 1 not seen after 30s; .104 accepted 1/2, 1 not seen after 30s",
+          "rejected": {},
+          "status": {
+            "3f93a93e26aebb8aad191cb17ba7524d3b371a3177028e53122c8c98df6613de": "accepted",
+            "c1dfe40761aa3604f63fbf0184814b8b9b21dff5133934d7f90e1cb07eb2d027": "not seen"
+          },
+          "per_fullnode": {
+            "192.168.1.101": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": [
+                "c1dfe40761aa3604f63fbf0184814b8b9b21dff5133934d7f90e1cb07eb2d027"
+              ]
+            },
+            "192.168.1.102": {
+              "accepted": 2,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.103": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": [
+                "c1dfe40761aa3604f63fbf0184814b8b9b21dff5133934d7f90e1cb07eb2d027"
+              ]
+            },
+            "192.168.1.104": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": [
+                "c1dfe40761aa3604f63fbf0184814b8b9b21dff5133934d7f90e1cb07eb2d027"
+              ]
+            }
+          },
+          "disagree": [],
+          "unreadable": []
+        }
+      ]
+    },
+    {
+      "test_id": "QCAP-03b",
+      "case": "A quorum holding exactly 20 RBT pledges all of it, tries to spend it, has the pledge released when the receiver spends the exact tokens onward, then spends a released whole token and a split of one",
+      "expected": "Refused gently while pledged; released within 120s of the onward spend; after release a whole-token spend is refused only by the known ex-quorum bug, the split goes through",
+      "status": "SKIP",
+      "actual": "no DID on B's node is free of whole tokens - the case follows the exact tokens pledged and paid",
+      "note": "run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "ok",
+      "fullnode": "-",
+      "seconds": 0.18,
+      "db_checks": [
+        {
+          "check": "conserved",
+          "ok": true,
+          "detail": "value balanced",
+          "moved": 0.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        }
+      ]
+    },
+    {
+      "test_id": "WALLET-PREP",
+      "case": "Build a big wallet of thousands of whole tokens from the faucet, and a fragmented wallet from change sent by 30 wallets at once, round after round",
+      "expected": "Both wallets reach their size; record what it cost",
+      "status": "SKIP",
+      "actual": "participants could not be prepared",
+      "note": "funding 192.168.1.108:20000 to 4500 RBT failed: faucet transfer of 1000 RBT to bafybmieh3ytg7et... rejected: peer request failed: status=404 body={\"status\":false,\"message\":\"requestPledgeTokenHandler : Quorum is not setup\",\"result\":null}\n (sent 0 of 2649 so far) (s 131:20600,119:20300 r 113:20500,111:20200,107:20600,129:20000,112:20600,122:20000,118:20600,121:20400,124:20000,126:20000,128:20000,130:20500,132:20300,134:20500,135:20300,136:20100,137:20300,139:20300,140:20500,141:20100,144:20600,116:20500,113:20600,131:20000,113:20100,108:20400,110:20800,111:20400,111:20600,111:20800 q 110:20000,108:20000)",
+      "db": "-",
+      "fullnode": "-",
+      "seconds": 0.0,
+      "db_checks": []
+    },
+    {
+      "test_id": "WALLET-01",
+      "case": "From a big wallet: one transfer each of 1, 10, 100, 500, 1000 and 2000 RBT; one for 1 RBT more than it holds; ten 50 RBT sends at once; then fractional amounts paid in part tokens from the fragmented wallet",
+      "expected": "Every amount the wallet covers goes through and is credited; past what one transfer can carry, a gentle refusal; more than the holding refused at once with none of its tokens Locked; concurrent sends never reuse a token",
+      "status": "SKIP",
+      "actual": "participants could not be prepared",
+      "note": "funding 192.168.1.108:20000 to 4500 RBT failed: faucet transfer of 1000 RBT to bafybmieh3ytg7et... rejected: peer request failed: status=404 body={\"status\":false,\"message\":\"requestPledgeTokenHandler : Quorum is not setup\",\"result\":null}\n (sent 0 of 2649 so far) (s 131:20600,119:20300 r 113:20500,111:20200,107:20600,129:20000,112:20600,122:20000,118:20600,121:20400,124:20000,126:20000,128:20000,130:20500,132:20300,134:20500,135:20300,136:20100,137:20300,139:20300,140:20500,141:20100,144:20600,116:20500,113:20600,131:20000,113:20100,108:20400,110:20800,111:20400,111:20600,111:20800 q 110:20000,108:20000)",
+      "db": "-",
+      "fullnode": "-",
+      "seconds": 0.0,
+      "db_checks": []
+    },
+    {
+      "test_id": "FT-01",
+      "case": "Every owner at once mints two series at the 1000-per-RBT cap, then 1001 FTs from 1 RBT (over the cap), then re-mints the first; one owner sends 100, 500, 1000 and 2000 FTs in one transfer each; series pass through 6 wallets; five FT sends at once from one wallet; two series in one transaction",
+      "expected": "The over-cap mint refused at once with no RBT burnt; every size one transfer can carry goes through, and past it a gentle refusal - not a dropped connection or a node restart; no FT moved twice; every holder reconciles",
+      "status": "FAIL",
+      "actual": "S5 WRONG: 8 valid operation(s) refused: 5x (no reason given); 3x signature step failed: RemoteDisconnected: Remote end closed connection without response; 8 refusal(s) gave no usable reason: 5x (no reason given); 3x signature step; S8 WRONG: 652erq shows 200 of lab-ft-A-1793340090-a3pghy, expected 1500; rdbqqa shows 200 of lab-ft-A-1793340090-ehgt2i, expected 1500; nqiq2y shows 200 of lab-ft-A-1793340090-6mbucy, expected 1500",
+      "note": "S1 PASS: 16/16 accepted in p50 0.8s p95 3.4s max 3.4s; busiest machine .122 at 25% CPU | S2 PASS: 0/8 accepted; 8 refused as expected: 8x createFTs: max allowed FT count is 1000 for 1 RBT; busiest machine .126 at 10% CPU | S3 PASS: 8/8 accepted in p50 0.8s p95 0.8s max 0.8s; busiest machine .122 at 18% CPU | S4 100 FTs PASS: 1/1 accepted in p50 2.5s p95 2.5s max 2.5s; busiest machine .128 at 16% CPU | S4 500 FTs PASS: 1/1 accepted in p50 10.5s p95 10.5s max 10.5s; busiest machine .119 at 15% CPU | S4 1000 FTs PASS: 1/1 accepted in p50 21.5s p95 21.5s max 21.5s; busiest machine .108 at 46% CPU | S4 2000 FTs PASS: 1/1 accepted in p50 41.0s p95 41.0s max 41.0s; busiest machine .108 at 50% CPU | S5 WRONG: 8 valid operation(s) refused: 5x (no reason given); 3x signature step failed: RemoteDisconnected: Remote end closed connection without response; 8 refusal(s) gave no usable reason: 5x (no reason given); 3x signature step failed: RemoteDisconnected: Remote end closed connection without response; 1300 FT left Locked on .113:20200; 1300 FT left Locked on .132:20800; 1300 FT left Locked on .141:20500; 1.500 RBT left Locked on .128:20500; the token_denom counter was left wrong on .128:20500 (KNOWN PRODUCT BUG: core/pledge_v2.go:287, persist_genesis_tx.go:209); a node on .113 (slot 2) restarted during the step; a node on .113 (slot 2) lost its IPFS p2p listener - it can no longer receive; a node on .121 (slot 8) restarted during the step; a node on .122 (slot 0) lost its IPFS p2p listener - it can no longer receive; a node on .122 (slot 1) lost its IPFS p2p listener - it can no longer receive; a node on .122 (slot 2) lost its IPFS p2p listener - it can no longer receive; a node on .122 (slot 3) lost its IPFS p2p listener - it can no longer receive; a node on .122 (slot 4) lost its IPFS p2p listener - it can no longer receive; a node on .122 (slot 5) lost its IPFS p2p listener - it can no longer receive; a node on .122 (slot 6) lost its IPFS p2p listener - it can no longer receive; a node on .122 (slot 7) lost its IPFS p2p listener - it can no longer receive; a node on .122 (slot 8) lost its IPFS p2p listener - it can no longer receive; a node on .128 (slot 1) lost its IPFS p2p listener - it can no longer receive; a node on .128 (slot 2) lost its IPFS p2p listener - it can no longer receive; a node on .128 (slot 5) lost its IPFS p2p listener - it can no longer receive; a node on .128 (slot 6) lost its IPFS p2p listener - it can no longer receive; a node on .128 (slot 7) lost its IPFS p2p listener - it can no longer receive; a node on .132 (slot 8) restarted during the step; a node on .132 (slot 8) lost its IPFS p2p listener - it can no longer receive; a node on .141 (slot 5) restarted during the step; a node on .141 (slot 5) lost its IPFS p2p listener - it can no longer receive; 12/20 accepted in p50 60.5s p95 66.6s max 66.6s; machines at a ceiling: .113: 2001 MB pushed to swap; .118: 304 MB pushed to swap; .121: 35% of CPU time waiting on disk, 1480 MB pushed to swap; .122: 71% of CPU time waiting on disk, 2540 MB pushed to swap; .126: 949 MB pushed to swap; .128: CPU 96% busy, only 2.1% of memory available, 2146 MB pushed to swap; .131: 1786 MB pushed to swap; .132: 1483 MB pushed to swap; .141: 1896 MB pushed to swap | S6 NOT RUN: participant node(s) cannot receive - no IPFS p2p listener: .122:20300, .122:20500, .122:20600, .128:20500, .128:20600 (restart that machine with restart-nodes.sh --force) | S7 NOT RUN: participant node(s) cannot receive - no IPFS p2p listener: .122:20300, .122:20500, .122:20600, .128:20500, .128:20600 (restart that machine with restart-nodes.sh --force) | S8 WRONG: 652erq shows 200 of lab-ft-A-1793340090-a3pghy, expected 1500; rdbqqa shows 200 of lab-ft-A-1793340090-ehgt2i, expected 1500; nqiq2y shows 200 of lab-ft-A-1793340090-6mbucy, expected 1500 | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "ok",
+      "fullnode": "8/16 accepted by all 4, 10 rejected (prev-txn mismatch, fullnode behind; unpledged token not in its pledge txn) by .101, .102, .103, .104, fullnodes DISAGREE on 7",
+      "seconds": 618.62,
+      "db_checks": [
+        {
+          "check": "persisted",
+          "ok": true,
+          "detail": "every transaction that went through is recorded by both sides",
+          "missing": []
+        },
+        {
+          "check": "conserved",
+          "ok": true,
+          "detail": "value balanced",
+          "moved": -0.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        },
+        {
+          "check": "fullnode",
+          "ok": false,
+          "detail": "fullnodes DISAGREE on 7 transaction(s) - fullnodes: .101 accepted 9/16, REJECTED 10 (prev-txn mismatch, fullnode behind; unpledged token not in its pledge txn); .102 accepted 13/16, REJECTED 7 (prev-txn mismatch, fullnode behind); .103 accepted 13/16, REJECTED 6 (prev-txn mismatch, fullnode behind); .104 accepted 12/16, REJECTED 5 (prev-txn mismatch, fullnode behind)",
+          "rejected": {
+            "d87fbf527685e030e1547ff49c587c9e6c0ddc7b15623b05f7012865fb7cf052": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_100244 (pledge:bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony) chain mismatch after sync from bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony: local latest dcde352ea996ffa5e1386067fe0313573d59876c61e272e725dc8a8c4746c9cd != expected 44cfc7f9c1e1ca8a8e5560a90533c8b270bd4653406b86cd7a94b43ab13a66a7",
+            "5cd7f825186cef745c554dedcb96020bc93dfc0edec3d0c6061ed3daf1e46acf": "processSingleTransaction: failed to validate transaction: ValidateTransaction: token 60001_100434 is marked unpledged but not found in quorum tokens of pledged transaction 621a3d188de99b3ebf5d9f5120e862b34233c0c63a1583d268b9ec728bb69834",
+            "374b6c5f1d8c85ff3be8943083a5eb3b11715f97a8a64892c4f9f34141c0718f": "processSingleTransaction: failed to validate transaction: ValidateTransaction: token 60001_10043 is marked unpledged but not found in quorum tokens of pledged transaction fbe31700fb733d4b6c049a91b819559a49c1eac9f4e7fe5a1c2c989fbf5bb6a5",
+            "8f38fda337558c659c03532f531ec7e8546324eacae19851781c15971f832f7d": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+            "762670eaf5721aa0099a0d8bb869cffa0cf2fcb1cf4ce5db9c31cca71e4892cc": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+            "e8540301e6d6f641d6a07342acb459c2dd49dd323687774071c3bbf49c7cf285": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+            "f3f805dbe8cf63375d0a276abd14201513e32ebdb00238287636db088d247521": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+            "c024bbd6da91be728fd54f1a020132650684cae8a80c55f3ce595f4feb49bf21": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+            "a8c5815afcd43e77da83182b288a91e7368c653ef15aa03dcdcd144becf88178": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+            "42d3b87b658de970a6539a63bdba44e22cb9e24d638b1b621fb7bc893cac2321": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmicx36blwcemcwxvoy6qkynguvir2zp244s5ndmgqggwludzrnwgra: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer"
+          },
+          "status": {
+            "384a79b9a42b37c42b3f67cdb563ccd4d67038869243772c55b5edde2cdf2c8d": "accepted",
+            "4254c4ef8d9e725b5358948ee5f65f935d245dd868d2070f1be261bdfdcb8566": "accepted",
+            "48db606123ffdd79245fa4cb22d83167ef5ba3d4c4faa20d3f0931a0cf8a1a9e": "accepted",
+            "6b6ad30aaec9c93aed552c75f53660e183f4d7b0833be850ae23d011044d2718": "accepted",
+            "d87fbf527685e030e1547ff49c587c9e6c0ddc7b15623b05f7012865fb7cf052": "rejected",
+            "5cd7f825186cef745c554dedcb96020bc93dfc0edec3d0c6061ed3daf1e46acf": "rejected",
+            "374b6c5f1d8c85ff3be8943083a5eb3b11715f97a8a64892c4f9f34141c0718f": "rejected",
+            "acfd1b0ee559b04f56d9c4fd455bdbbde00c8b8fec70bb603e72657a2fedb39d": "accepted",
+            "8f38fda337558c659c03532f531ec7e8546324eacae19851781c15971f832f7d": "accepted",
+            "762670eaf5721aa0099a0d8bb869cffa0cf2fcb1cf4ce5db9c31cca71e4892cc": "rejected",
+            "e8540301e6d6f641d6a07342acb459c2dd49dd323687774071c3bbf49c7cf285": "rejected",
+            "f3f805dbe8cf63375d0a276abd14201513e32ebdb00238287636db088d247521": "accepted",
+            "c024bbd6da91be728fd54f1a020132650684cae8a80c55f3ce595f4feb49bf21": "rejected",
+            "2eacd0d317f0f3f308a8f1b8782cf89a73fdb202bc8074ad665ea2fd68b1cb32": "accepted",
+            "a8c5815afcd43e77da83182b288a91e7368c653ef15aa03dcdcd144becf88178": "rejected",
+            "42d3b87b658de970a6539a63bdba44e22cb9e24d638b1b621fb7bc893cac2321": "rejected"
+          },
+          "per_fullnode": {
+            "192.168.1.101": {
+              "accepted": 9,
+              "rejected": {
+                "d87fbf527685e030e1547ff49c587c9e6c0ddc7b15623b05f7012865fb7cf052": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token 60001_100244 (pledge:bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony) chain mismatch after sync from bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony: local latest dcde352ea996ffa5e1386067fe0313573d59876c61e272e725dc8a8c4746c9cd != expected 44cfc7f9c1e1ca8a8e5560a90533c8b270bd4653406b86cd7a94b43ab13a66a7",
+                "374b6c5f1d8c85ff3be8943083a5eb3b11715f97a8a64892c4f9f34141c0718f": "processSingleTransaction: failed to validate transaction: ValidateTransaction: token 60001_10043 is marked unpledged but not found in quorum tokens of pledged transaction fbe31700fb733d4b6c049a91b819559a49c1eac9f4e7fe5a1c2c989fbf5bb6a5",
+                "5cd7f825186cef745c554dedcb96020bc93dfc0edec3d0c6061ed3daf1e46acf": "processSingleTransaction: failed to validate transaction: ValidateTransaction: token 60001_100434 is marked unpledged but not found in quorum tokens of pledged transaction 621a3d188de99b3ebf5d9f5120e862b34233c0c63a1583d268b9ec728bb69834",
+                "e8540301e6d6f641d6a07342acb459c2dd49dd323687774071c3bbf49c7cf285": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "c024bbd6da91be728fd54f1a020132650684cae8a80c55f3ce595f4feb49bf21": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "762670eaf5721aa0099a0d8bb869cffa0cf2fcb1cf4ce5db9c31cca71e4892cc": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "8f38fda337558c659c03532f531ec7e8546324eacae19851781c15971f832f7d": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "f3f805dbe8cf63375d0a276abd14201513e32ebdb00238287636db088d247521": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "42d3b87b658de970a6539a63bdba44e22cb9e24d638b1b621fb7bc893cac2321": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmicx36blwcemcwxvoy6qkynguvir2zp244s5ndmgqggwludzrnwgra: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "a8c5815afcd43e77da83182b288a91e7368c653ef15aa03dcdcd144becf88178": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer"
+              },
+              "not_seen": []
+            },
+            "192.168.1.102": {
+              "accepted": 13,
+              "rejected": {
+                "8f38fda337558c659c03532f531ec7e8546324eacae19851781c15971f832f7d": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "762670eaf5721aa0099a0d8bb869cffa0cf2fcb1cf4ce5db9c31cca71e4892cc": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "e8540301e6d6f641d6a07342acb459c2dd49dd323687774071c3bbf49c7cf285": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "f3f805dbe8cf63375d0a276abd14201513e32ebdb00238287636db088d247521": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "c024bbd6da91be728fd54f1a020132650684cae8a80c55f3ce595f4feb49bf21": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmidsadi2rduexe5xpvin6g3rny5adgwrwzw7dkvzee6yuk5rvsntzu: SyncTransactionChainsFromPeer: peer returned error: ",
+                "a8c5815afcd43e77da83182b288a91e7368c653ef15aa03dcdcd144becf88178": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "42d3b87b658de970a6539a63bdba44e22cb9e24d638b1b621fb7bc893cac2321": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmicx36blwcemcwxvoy6qkynguvir2zp244s5ndmgqggwludzrnwgra: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer"
+              },
+              "not_seen": []
+            },
+            "192.168.1.103": {
+              "accepted": 13,
+              "rejected": {
+                "8f38fda337558c659c03532f531ec7e8546324eacae19851781c15971f832f7d": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "e8540301e6d6f641d6a07342acb459c2dd49dd323687774071c3bbf49c7cf285": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "f3f805dbe8cf63375d0a276abd14201513e32ebdb00238287636db088d247521": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "c024bbd6da91be728fd54f1a020132650684cae8a80c55f3ce595f4feb49bf21": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmidsadi2rduexe5xpvin6g3rny5adgwrwzw7dkvzee6yuk5rvsntzu: SyncTransactionChainsFromPeer: peer returned error: ",
+                "42d3b87b658de970a6539a63bdba44e22cb9e24d638b1b621fb7bc893cac2321": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "a8c5815afcd43e77da83182b288a91e7368c653ef15aa03dcdcd144becf88178": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer"
+              },
+              "not_seen": []
+            },
+            "192.168.1.104": {
+              "accepted": 12,
+              "rejected": {
+                "42d3b87b658de970a6539a63bdba44e22cb9e24d638b1b621fb7bc893cac2321": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "c024bbd6da91be728fd54f1a020132650684cae8a80c55f3ce595f4feb49bf21": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmidsadi2rduexe5xpvin6g3rny5adgwrwzw7dkvzee6yuk5rvsntzu: SyncTransactionChainsFromPeer: peer returned error: ",
+                "e8540301e6d6f641d6a07342acb459c2dd49dd323687774071c3bbf49c7cf285": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "f3f805dbe8cf63375d0a276abd14201513e32ebdb00238287636db088d247521": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer",
+                "a8c5815afcd43e77da83182b288a91e7368c653ef15aa03dcdcd144becf88178": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmib5xilvjwn5vfqhqj3gfqgmvuza3f5p7euergig7clx53cwgt7j24: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer"
+              },
+              "not_seen": []
+            }
+          },
+          "disagree": [
+            "d87fbf527685e030e1547ff49c587c9e6c0ddc7b15623b05f7012865fb7cf052",
+            "5cd7f825186cef745c554dedcb96020bc93dfc0edec3d0c6061ed3daf1e46acf",
+            "374b6c5f1d8c85ff3be8943083a5eb3b11715f97a8a64892c4f9f34141c0718f",
+            "762670eaf5721aa0099a0d8bb869cffa0cf2fcb1cf4ce5db9c31cca71e4892cc",
+            "c024bbd6da91be728fd54f1a020132650684cae8a80c55f3ce595f4feb49bf21",
+            "a8c5815afcd43e77da83182b288a91e7368c653ef15aa03dcdcd144becf88178",
+            "42d3b87b658de970a6539a63bdba44e22cb9e24d638b1b621fb7bc893cac2321"
+          ],
+          "unreadable": []
+        }
+      ]
+    },
+    {
+      "test_id": "NFT-01",
+      "case": "Every owner at once creates and deploys 2 NFTs, mints 3 children, executes; a subscriber on another machine executes once caught up; the owner and the subscriber execute at the same instant; the second NFT passes through 6 owners; a former owner tries to send it again",
+      "expected": "Children listed under their parent; never a fork - the chains end equal on owner and subscriber; the former owner refused, never a second deploy; each NFT with its last owner only",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: participant node(s) cannot receive - no IPFS p2p listener: .122:20300, .128:20500 (restart that machine with restart-nodes.sh --force)",
+      "note": "S1 NOT RUN: participant node(s) cannot receive - no IPFS p2p listener: .122:20300, .128:20500 (restart that machine with restart-nodes.sh --force) | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "ok",
+      "fullnode": "-",
+      "seconds": 4.76,
+      "db_checks": [
+        {
+          "check": "conserved",
+          "ok": true,
+          "detail": "value balanced",
+          "moved": 0.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        }
+      ]
+    },
+    {
+      "test_id": "SC-01",
+      "case": "Contracts from every owner at once; 4 subscribers per contract join at depths 1, 3, 4 and 6 while the owner and two subscribers keep executing; then two caught-up subscribers execute the same contract at the same instant",
+      "expected": "Every subscriber's chain equals the owner's on every contract; a race never forks a chain",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: participant node(s) cannot receive - no IPFS p2p listener: .122:20300, .128:20500 (restart that machine with restart-nodes.sh --force)",
+      "note": "S1 NOT RUN: participant node(s) cannot receive - no IPFS p2p listener: .122:20300, .128:20500 (restart that machine with restart-nodes.sh --force) | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "ok",
+      "fullnode": "-",
+      "seconds": 4.52,
+      "db_checks": [
+        {
+          "check": "conserved",
+          "ok": true,
+          "detail": "value balanced",
+          "moved": 0.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        }
+      ]
+    },
+    {
+      "test_id": "RACE-01",
+      "case": "A wallet holding exactly one token sends 1 RBT to 20 receivers at the same instant; one holding exactly five does the same; a one-token wallet sends 0.3 RBT to 10 at once, so the token must split",
+      "expected": "Never more paid than the wallet holds - one winner, at most five, at most three; the losing sends refused gently; nothing Locked",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: no DID on the sender's node holds nothing - a 1-token wallet cannot be made without draining, and draining is not reliable",
+      "note": "S1 NOT RUN: no DID on the sender's node holds nothing - a 1-token wallet cannot be made without draining, and draining is not reliable | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "ok",
+      "fullnode": "-",
+      "seconds": 0.27,
+      "db_checks": [
+        {
+          "check": "conserved",
+          "ok": true,
+          "detail": "value balanced",
+          "moved": 0.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        }
+      ]
+    },
+    {
+      "test_id": "RACE-02",
+      "case": "2, 5 then 10 DIDs on one node, and 9, 18 then 38 DIDs on one machine, all transfer at once through quorums on other machines",
+      "expected": "Record how many concurrent transfers one node and one machine sustain with every transfer correct; past it, the rest refused gently - a stated reason within 60s, nothing Locked, no node restarted",
+      "status": "SKIP",
+      "actual": "NOT RUN - S2 38 DIDs at once: the DIDs could not be funded",
+      "note": "S1 2 DIDs at once PASS: 2/2 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .107 at 26% CPU | S1 5 DIDs at once PASS: 5/5 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .108 at 29% CPU | S1 10 DIDs at once PASS: 10/10 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .108 at 16% CPU | S2 9 DIDs at once PASS: 8/8 accepted in p50 0.1s p95 0.2s max 0.2s; 1 set aside (the sender's own tokens or clock): 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100438: tokenID ; busiest machine .107 at 33% CPU | S2 18 DIDs at once PASS: 17/17 accepted in p50 0.2s p95 0.2s max 0.2s; 1 set aside (the sender's own tokens or clock): 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_10042: tokenID \"; busiest machine .107 at 37% CPU | S2 38 DIDs at once NOT RUN: the DIDs could not be funded | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "ok",
+      "fullnode": "-",
+      "seconds": 58.24,
+      "db_checks": [
+        {
+          "check": "conserved",
+          "ok": true,
+          "detail": "value balanced",
+          "moved": 0.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        }
+      ]
+    },
+    {
+      "test_id": "LOAD-01",
+      "case": "More and more of the fleet transfer at the same instant - 10, 20, up the ladder to every DID that can send",
+      "expected": "Record the largest number of fleet-wide concurrent transfers that all complete correctly; past it, the rest refused gently - a stated reason within 60s, nothing Locked, no node restarted; an ordinary transfer goes through after",
+      "status": "SKIP",
+      "actual": "NOT RUN - S2 10 DIDs at once: participant node(s) cannot receive - no IPFS p2p listener: .122:20000, .131:20000 (restart that machine with restart-nodes.sh --force)",
+      "note": "S1 PASS: nothing to report | S2 10 DIDs at once NOT RUN: participant node(s) cannot receive - no IPFS p2p listener: .122:20000, .131:20000 (restart that machine with restart-nodes.sh --force) | S3 NOT RUN: participant node(s) cannot receive - no IPFS p2p listener: .122:20000, .131:20000 (restart that machine with restart-nodes.sh --force) | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "ok",
+      "fullnode": "-",
+      "seconds": 533.17,
+      "db_checks": [
+        {
+          "check": "conserved",
+          "ok": true,
+          "detail": "value balanced",
+          "moved": 0.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        }
+      ]
+    },
+    {
+      "test_id": "CHAIN-01",
+      "case": "One token, followed by its token_id, passed along 200 hops with a different quorum validating each hop, beside a control chain of the same depth signed by one quorum",
+      "expected": "Both chains reach full depth with the token arriving at every hop; the time per hop does not grow much with depth",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: needs at least three holders with an empty DID on their node and two quorums (0 holders, 10 quorums)",
+      "note": "S1 NOT RUN: needs at least three holders with an empty DID on their node and two quorums (0 holders, 10 quorums) | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "ok",
+      "fullnode": "-",
+      "seconds": 2.14,
+      "db_checks": [
+        {
+          "check": "conserved",
+          "ok": true,
+          "detail": "value balanced",
+          "moved": 0.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        }
+      ]
+    },
+    {
+      "test_id": "COMBO-01",
+      "case": "Each owner mints an FT series and deploys an NFT and a contract, then sends combinations in one transaction each: RBT+FT, RBT+NFT, RBT+SC, FT+NFT, FT+SC, and all in one; then an NFT deploy bundled with RBT, which Rubix must refuse",
+      "expected": "Every combined transfer lands every part, or a refused one moves none of them; the forbidden combination refused with nothing moved or Locked",
+      "status": "SKIP",
+      "actual": "participants could not be prepared",
+      "note": "funding 192.168.1.121:20100 to 200 RBT failed: faucet transfer of 16 RBT to bafybmieudlh277v... rejected: peer request failed: status=404 body={\"status\":false,\"message\":\"requestPledgeTokenHandler : Quorum is not setup\",\"result\":null}\n (sent 0 of 16 so far) (s 126:20700,128:20400,110:20400,141:20600,124:20600,108:20300,132:20100,134:20300 r 129:20200,113:20500,111:20200,135:20100,140:20300,137:20100,131:20000,112:20600 q 107:20400,121:20100)",
+      "db": "-",
+      "fullnode": "-",
+      "seconds": 0.0,
+      "db_checks": []
+    },
+    {
+      "test_id": "FAIL-01",
+      "case": "A node is killed mid-transfer - the sender, the receiver and the quorum, each just after the transfer is initiated and again just after consensus - and the fleet must put itself right",
+      "expected": "Each transfer goes through (reaching the receiver once it is up) or is refused with a stated reason within 120s; after each kill value conserved, nothing Locked, the machine's other nodes still answering and able to receive, and an ordinary transfer goes through",
+      "status": "FAIL",
+      "actual": "S2 DAMAGE: an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60) - it did not recover; 0/1 accepted; 1 refused gently:; S3 DAMAGE: an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60) - it did not recover; 0/1 accepted; 1 refused gently:; S4 DAMAGE: an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60) - it did not recover; 0/1 accepted; 1 refused gently:",
+      "note": "S1 PASS: nothing to report | S2 DAMAGE: an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60) - it did not recover; 0/1 accepted; 1 refused gently: 1x failed to connect swarm peer, peerID 12D3KooWASmazgc6Ko3KhkGKuq7FdnJcfkHJwAiHdhannEMttQRt; busiest machine .107 at 16% CPU; killed on its log line | S3 DAMAGE: an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60) - it did not recover; 0/1 accepted; 1 refused gently: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100246: tokenID ; KNOWN PRODUCT BUG: ex-quorum cannot spend tokens it pledged (checks.go:309) (1); busiest machine .107 at 19% CPU; killed on timeout (the log line did not come in 40s) | S4 DAMAGE: an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60) - it did not recover; 0/1 accepted; 1 refused gently: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100246: tokenID ; KNOWN PRODUCT BUG: ex-quorum cannot spend tokens it pledged (checks.go:309) (1); busiest machine .110 at 16% CPU; killed on its log line | S5 DAMAGE: an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60) - it did not recover; 0/1 accepted; 1 refused gently: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100246: tokenID ; KNOWN PRODUCT BUG: ex-quorum cannot spend tokens it pledged (checks.go:309) (1); busiest machine .107 at 24% CPU; killed on timeout (the log line did not come in 40s) | S6 DAMAGE: an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60) - it did not recover; 0/1 accepted; 1 refused gently: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100246: tokenID ; KNOWN PRODUCT BUG: ex-quorum cannot spend tokens it pledged (checks.go:309) (1); busiest machine .107 at 20% CPU; killed 0.4s after the transfer was sent | S7 DAMAGE: an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60) - it did not recover; 0/1 accepted; 1 refused gently: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100246: tokenID ; KNOWN PRODUCT BUG: ex-quorum cannot spend tokens it pledged (checks.go:309) (1); busiest machine .110 at 22% CPU; killed 2.0s after the transfer was sent | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "ok",
+      "fullnode": "-",
+      "seconds": 250.03,
+      "db_checks": [
+        {
+          "check": "conserved",
+          "ok": true,
+          "detail": "value balanced",
+          "moved": 0.0,
+          "expected": 0
+        },
+        {
+          "check": "no_locks",
+          "ok": true,
+          "detail": "nothing left locked"
+        },
+        {
+          "check": "rows_valid",
+          "ok": true,
+          "detail": "wallet records consistent",
+          "raw": []
+        }
+      ]
+    },
+    {
+      "test_id": "AUDIT-END",
+      "case": "Audit every DID in the fleet and the faucet pair after the run and compare with AUDIT-START",
+      "expected": "Total equal to the 400000 RBT minted and unchanged since AUDIT-START; no token owned by two DIDs",
+      "status": "FAIL",
+      "actual": "S2 WRONG: the fleet holds 396663.798 RBT but the faucet minted 400000.000: -3336.202 RBT lost (controller/test-plan/custom/lost_rbt.py shows where); the fleet total moved -1.000 RBT during this run (396664.798 -> 396663.798)",
+      "note": "S1 PASS: nothing to report | S2 WRONG: the fleet holds 396663.798 RBT but the faucet minted 400000.000: -3336.202 RBT lost (controller/test-plan/custom/lost_rbt.py shows where); the fleet total moved -1.000 RBT during this run (396664.798 -> 396663.798) | S3 PASS: nothing to report | S4 PASS: 23.176 RBT parked in Locked on 4 DID(s) - left as is; KNOWN PRODUCT BUG - 7 DID(s) have a denomination counter that does not match their Free tokens (e.g. {1.0: (178802, 178620)} on 192.168.1.106:20000, as denomination: (counter, real Free tokens)); committed +0.000, burnt for FT +48.000 since the start | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "-",
+      "fullnode": "-",
+      "seconds": 14.53,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "no participants of its own - the case reads the fleet itself"
+        }
+      ]
+    }
+  ]
+}

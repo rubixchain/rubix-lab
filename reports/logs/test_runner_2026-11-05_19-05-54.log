@@ -1,0 +1,52 @@
+Log: /home/rubix/Desktop/rubix/rubix-lab/reports/logs/test_runner_2026-11-05_19-05-54.log
+Faucet: bafybmih6fkweeuo... on 192.168.1.105:20000, quorum bafybmihpujtqxdf... on 192.168.1.106:20000 - faucet holds 118609.000 RBT free
+Fullnodes: 192.168.1.101, 192.168.1.102, 192.168.1.103, 192.168.1.104
+
+== Fleet: reachability + DIDs ==
+Traceback (most recent call last):
+  File "/home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/test_runner.py", line 1071, in discover_pool
+    list(ex.map(announce, nodes))
+  File "/usr/lib/python3.12/concurrent/futures/_base.py", line 619, in result_iterator
+    yield _result_or_cancel(fs.pop())
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/_base.py", line 317, in _result_or_cancel
+    return fut.result(timeout)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/_base.py", line 451, in result
+    self._condition.wait(timeout)
+  File "/usr/lib/python3.12/threading.py", line 355, in wait
+    waiter.acquire()
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/test_runner.py", line 1791, in <module>
+    main()
+  File "/home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/test_runner.py", line 1592, in main
+    pool_nodes, excluded = discover_pool(specs, rc.DEFAULT_TIMEOUT)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/test_runner.py", line 1070, in discover_pool
+    with ThreadPoolExecutor(max_workers=min(40, len(nodes))) as ex:
+  File "/usr/lib/python3.12/concurrent/futures/_base.py", line 647, in __exit__
+    self.shutdown(wait=True)
+  File "/usr/lib/python3.12/concurrent/futures/thread.py", line 238, in shutdown
+    t.join()
+  File "/usr/lib/python3.12/threading.py", line 1147, in join
+    self._wait_for_tstate_lock()
+  File "/usr/lib/python3.12/threading.py", line 1167, in _wait_for_tstate_lock
+    if lock.acquire(block, timeout):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+Exception ignored in: <module 'threading' from '/usr/lib/python3.12/threading.py'>
+Traceback (most recent call last):
+  File "/usr/lib/python3.12/threading.py", line 1592, in _shutdown
+    atexit_call()
+  File "/usr/lib/python3.12/concurrent/futures/thread.py", line 31, in _python_exit
+    t.join()
+  File "/usr/lib/python3.12/threading.py", line 1147, in join
+    self._wait_for_tstate_lock()
+  File "/usr/lib/python3.12/threading.py", line 1167, in _wait_for_tstate_lock
+    if lock.acquire(block, timeout):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt: 

@@ -1,0 +1,103 @@
+Log: /home/rubix/Desktop/rubix/rubix-lab/reports/logs/smoke_test_2026-10-29_14-23-49.log
+== Common: pool + reachability + DID readiness ==
+Clocks: 32 machine(s) read, 0 more than 50 ms off the fleet's median; largest -23 ms on 192.168.1.132
+234 node(s) in the pool, 234 ready, 0 excluded
+
+== Common: role assignment ==
+Roles by balance: senders hold 1256-41 RBT, receivers 35-41
+Role assignment written to /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/smoke-test-roles.txt
+Quorum: 3  Senders: 14  Receivers: 14
+
+== Common: quorum setup + funding ==
+  [PASS  ] quorum-setup-1                 0.00s  Quorum setup done successfully
+  [PASS  ] quorum-fund-1                  2.58s  992.1 -> 1000.1
+  [PASS  ] quorum-setup-2                 0.00s  Quorum setup done successfully
+  [PASS  ] quorum-fund-2                  0.02s  already at 1829.467 RBT
+  [PASS  ] quorum-setup-3                 0.00s  Quorum setup done successfully
+  [PASS  ] quorum-fund-3                  0.02s  already at 2522.518 RBT
+Letting quorum funding settle (2s)...
+
+== Common: assign quorum to each sender (round-robin) + fund senders ==
+  [PASS  ] assign-quorum-sender-1         0.02s  quorum list set to ['bafybmickf232xmb']
+  [PASS  ] fund-sender-1                  0.00s  already at 1255.546 RBT
+  [PASS  ] assign-quorum-sender-2         0.01s  quorum list set to ['bafybmieh3ytg7et']
+  [PASS  ] fund-sender-2                  0.01s  already at 1246.894 RBT
+  [PASS  ] assign-quorum-sender-3         0.03s  quorum list set to ['bafybmidb7pl5at2']
+  [PASS  ] fund-sender-3                  0.01s  already at 1148.214 RBT
+  [PASS  ] assign-quorum-sender-4         0.01s  quorum list set to ['bafybmickf232xmb']
+  [PASS  ] fund-sender-4                  0.00s  already at 1079.358 RBT
+  [PASS  ] assign-quorum-sender-5         0.01s  quorum list set to ['bafybmieh3ytg7et']
+  [PASS  ] fund-sender-5                  0.00s  already at 264.863 RBT
+  [PASS  ] assign-quorum-sender-6         0.02s  quorum list set to ['bafybmidb7pl5at2']
+  [PASS  ] fund-sender-6                  0.00s  already at 141.581 RBT
+  [PASS  ] assign-quorum-sender-7         0.02s  quorum list set to ['bafybmickf232xmb']
+  [PASS  ] fund-sender-7                  0.00s  already at 57.19 RBT
+  [PASS  ] assign-quorum-sender-8         0.02s  quorum list set to ['bafybmieh3ytg7et']
+  [PASS  ] fund-sender-8                  0.00s  already at 47.001 RBT
+  [PASS  ] assign-quorum-sender-9         0.01s  quorum list set to ['bafybmidb7pl5at2']
+  [PASS  ] fund-sender-9                  0.00s  already at 42.0 RBT
+  [PASS  ] assign-quorum-sender-10        0.01s  quorum list set to ['bafybmickf232xmb']
+  [PASS  ] fund-sender-10                 0.00s  already at 42.0 RBT
+  [PASS  ] assign-quorum-sender-11        0.02s  quorum list set to ['bafybmieh3ytg7et']
+  [PASS  ] fund-sender-11                 0.00s  already at 42.0 RBT
+  [PASS  ] assign-quorum-sender-12        0.02s  quorum list set to ['bafybmidb7pl5at2']
+  [PASS  ] fund-sender-12                 0.00s  already at 41.596 RBT
+  [PASS  ] assign-quorum-sender-13        0.02s  quorum list set to ['bafybmickf232xmb']
+  [PASS  ] fund-sender-13                 0.00s  already at 41.0 RBT
+  [PASS  ] assign-quorum-sender-14        0.02s  quorum list set to ['bafybmieh3ytg7et']
+  [PASS  ] fund-sender-14                 0.00s  already at 41.0 RBT
+
+== Test cases (test_cases.py) ==
+Letting everything settle before the first test case fires (3s)...
+  [PASS  ] rbt-transfer-1                 2.16s  sender 1255.546->1254.546  receiver 34.678->35.678
+  [PASS  ] rbt-transfer-2                 2.19s  sender 1246.894->1245.894  receiver 38.448->39.448
+  [PASS  ] rbt-transfer-3                 2.18s  sender 1148.214->1147.214  receiver 39.089->40.089
+  [PASS  ] rbt-transfer-4                 2.12s  sender 1079.358->1078.358  receiver 39.101->40.101
+  [PASS  ] rbt-transfer-5                 2.14s  sender 264.863->263.863  receiver 39.152->40.152
+  [PASS  ] rbt-transfer-6                 2.15s  sender 141.581->140.581  receiver 39.411->40.411
+  [PASS  ] rbt-transfer-7                 2.12s  sender 57.19->56.19  receiver 39.522->40.522
+  [PASS  ] rbt-transfer-8                 2.14s  sender 47.001->46.001  receiver 39.821->40.821
+  [PASS  ] rbt-transfer-9                 2.11s  sender 42.0->41.0  receiver 40.0->41.0
+  [PASS  ] rbt-transfer-10                2.10s  sender 42.0->41.0  receiver 40.181->41.181
+  [PASS  ] rbt-transfer-11                2.17s  sender 42.0->41.0  receiver 40.396->41.396
+  [PASS  ] rbt-transfer-12                2.10s  sender 41.596->40.596  receiver 40.958->41.958
+  [PASS  ] rbt-transfer-13                2.16s  sender 41.0->40.0  receiver 41.0->42.0
+  [PASS  ] rbt-transfer-14                2.11s  sender 41.0->40.0  receiver 41.0->42.0
+  [PASS  ] ft-mint-1                      0.04s  FT created successfully
+  [PASS  ] ft-transfer-1                  1.44s  receiver holds 5 of smoketest-1-1793264082
+  [PASS  ] ft-mint-2                      0.05s  FT created successfully
+  [PASS  ] ft-transfer-2                  1.37s  receiver holds 5 of smoketest-2-1793264083
+  [PASS  ] ft-mint-3                      0.05s  FT created successfully
+  [PASS  ] ft-transfer-3                  1.46s  receiver holds 5 of smoketest-3-1793264085
+  [PASS  ] ft-mint-4                      0.05s  FT created successfully
+  [PASS  ] ft-transfer-4                  1.32s  receiver holds 5 of smoketest-4-1793264086
+  [PASS  ] ft-mint-5                      0.05s  FT created successfully
+  [PASS  ] ft-transfer-5                  1.34s  receiver holds 5 of smoketest-5-1793264088
+  [PASS  ] ft-mint-6                      0.04s  FT created successfully
+  [PASS  ] ft-transfer-6                  1.39s  receiver holds 5 of smoketest-6-1793264089
+  [PASS  ] ft-mint-7                      0.05s  FT created successfully
+  [PASS  ] ft-transfer-7                  1.53s  receiver holds 5 of smoketest-7-1793264091
+  [PASS  ] ft-mint-8                      0.06s  FT created successfully
+  [PASS  ] ft-transfer-8                  1.43s  receiver holds 5 of smoketest-8-1793264092
+  [PASS  ] ft-mint-9                      0.06s  FT created successfully
+  [PASS  ] ft-transfer-9                  1.38s  receiver holds 5 of smoketest-9-1793264094
+  [PASS  ] ft-mint-10                     0.05s  FT created successfully
+  [PASS  ] ft-transfer-10                 1.44s  receiver holds 5 of smoketest-10-1793264095
+  [PASS  ] ft-mint-11                     0.05s  FT created successfully
+  [PASS  ] ft-transfer-11                 1.33s  receiver holds 5 of smoketest-11-1793264097
+  [PASS  ] ft-mint-12                     0.05s  FT created successfully
+  [PASS  ] ft-transfer-12                 1.43s  receiver holds 5 of smoketest-12-1793264098
+  [PASS  ] ft-mint-13                     0.06s  FT created successfully
+  [PASS  ] ft-transfer-13                 1.45s  receiver holds 5 of smoketest-13-1793264099
+  [PASS  ] ft-mint-14                     0.04s  FT created successfully
+  [PASS  ] ft-transfer-14                 1.33s  receiver holds 5 of smoketest-14-1793264101
+  [PASS  ] nft-create                     0.07s  nft_id=QmaeREfxWNqpeS5182i9SCHG72XZksZEGFC4pdWv9c6Ahv
+  [PASS  ] nft-deploy                     0.13s  Transaction f937a77da41a9314b2fbcf46d08aeb6bfd21099c8c37dfea965b2cf7879e41a3 completed successfully
+  [PASS  ] nft-execute                    9.28s  Transaction 819ecfd4738c452ce45a6c5a46939a33d667f57a25d97e5517ff8a0be50eae31 completed successfully
+  [PASS  ] sc-generate                    0.07s  sc_id=QmTet6xwQJwc2YM2htiz19GyViUnAB2ZcL6FGkpeZjUmdL
+  [PASS  ] sc-deploy                      0.31s  Transaction 653592ffdfde36f9a26e426899a0d2deec5036b7ee1fc7e04044b29eefbd3ca1 completed successfully
+  [PASS  ] sc-execute                     6.87s  Transaction 31d65450334827737ca64b8a35d6859b46e18815d94304d893b8438791d96a2c completed successfully
+
+
+82/82 steps passed. Report: /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/../../../reports/pdf/smoke_test_2026-10-29_14-25-20.pdf
+Log: /home/rubix/Desktop/rubix/rubix-lab/reports/logs/smoke_test_2026-10-29_14-23-49.log

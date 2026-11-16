@@ -1,0 +1,54 @@
+Log: /home/rubix/Desktop/rubix/rubix-lab/reports/logs/test_runner_2026-10-22_10-11-04.log
+Faucet: bafybmih6fkweeuo... on 192.168.1.105:20000, quorum bafybmihpujtqxdf... on 192.168.1.106:20000 - faucet holds 186693.000 RBT free
+Fullnodes: 192.168.1.101, 192.168.1.102, 192.168.1.103, 192.168.1.104
+
+== Fleet: reachability + DIDs ==
+234 node(s) on 26 pool machine(s) in hosts.txt, 234 usable with 988 DID(s), 0 excluded
+
+== 8 case(s) in 5 unit(s) ==
+Each unit gets its own participants when enough nodes are free; output is interleaved, the report is in catalogue order.
+  -> AUDIT-START            s - r - q -
+  [FAIL] AUDIT-START    1.63s  the fleet is not clean before the run
+  -> QCAP-01                s 108:20000,113:20000,112:20000,144:20100,118:20100,111:20100,107:20100,119:20100,128:20100,124:20100,121:20100,126:20100,122:20100,116:20000,131:20200,132:20100,134:20100,135:20100,136:20100,137:20100,139:20100,140:20100,141:20000,129:20000,130:20000,107:20200,107:20300,107:20400,107:20500,107:20600,107:20700,107:20800,108:20100,108:20200,108:20300,108:20400,108:20500,108:20600,110:20100,111:20200,112:20100,113:20100,116:20100,144:20600,144:20700,144:20800,119:20000,121:20000,122:20000,124:20000,126:20000,128:20000,131:20000,111:20000,141:20400,144:20200,141:20700,144:20300,131:20100,132:20000,130:20100,134:20000,139:20000,141:20500,141:20800,129:20100,136:20000,137:20000,135:20000,140:20000,108:20700,108:20800,110:20200,110:20300,110:20400,110:20500,110:20600,110:20700,110:20800,111:20300,111:20400,111:20500,111:20600,111:20700,111:20800,112:20200,112:20300,112:20400,112:20500,112:20600,112:20700,112:20800,113:20200,113:20300,113:20400,113:20500,113:20600,113:20700,113:20800,116:20200,116:20300,116:20400,116:20500,116:20600,116:20700,116:20800,118:20200,118:20300,118:20400,118:20500,118:20600,118:20700,118:20800,119:20200,119:20300,119:20400,119:20500,119:20600,119:20700,119:20800,121:20200,121:20300,121:20400,121:20500,121:20600,121:20700,121:20800,122:20200,122:20300,122:20400,122:20500,122:20600,122:20700,122:20800,124:20200,124:20300,124:20400,124:20500,124:20600,124:20700,124:20800,126:20200,126:20300,126:20400,126:20500,126:20600,126:20700,126:20800,128:20200,128:20300,128:20400,128:20500,128:20600,128:20700,128:20800,129:20200,129:20300,129:20400,129:20500,129:20600,129:20700,129:20800,130:20200,130:20300,130:20400,130:20500,130:20600,130:20700,130:20800,131:20300,131:20400,131:20500,131:20600,131:20700,131:20800,132:20200,132:20300,132:20400,132:20500,132:20600,132:20700,132:20800,134:20200,134:20300,134:20400,134:20500,134:20600,134:20700,134:20800,135:20200,135:20300,135:20400,135:20500,135:20600,135:20700,135:20800,136:20200,136:20300,136:20400,136:20500,136:20600,136:20700,136:20800,137:20200,137:20300,137:20400,137:20500,137:20600,137:20700,137:20800,139:20200,139:20300,139:20400,139:20500,139:20600,139:20700,139:20800,140:20200,140:20300,140:20400 r - q 110:20000
+    QCAP-01 whole 10: 10/10 in p50 0.1s p95 0.3s max 0.3s
+    QCAP-01 whole 20: 19/19 in p50 0.1s p95 0.2s max 0.2s - 1 sender(s) refused for their own tokens, not counted: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100952: tokenID "60001_100952" not f
+    QCAP-01 whole 50: 49/49 in p50 0.3s p95 0.4s max 0.4s - 1 sender(s) refused for their own tokens, not counted: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100952: tokenID "60001_100952" not f
+    QCAP-01 whole 70: 69/69 in p50 0.3s p95 0.5s max 1.3s - 1 sender(s) refused for their own tokens, not counted: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100952: tokenID "60001_100952" not f
+    QCAP-01 whole 90: 89/89 in p50 0.4s p95 0.7s max 0.8s - 1 sender(s) refused for their own tokens, not counted: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100952: tokenID "60001_100952" not f
+    QCAP-01 whole 100: 99/99 in p50 0.5s p95 0.9s max 1.0s - 1 sender(s) refused for their own tokens, not counted: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100952: tokenID "60001_100952" not f
+    QCAP-01 whole 150: 149/149 in p50 0.8s p95 1.2s max 1.2s - 1 sender(s) refused for their own tokens, not counted: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100952: tokenID "60001_100952" not f
+    QCAP-01 whole 200: 199/199 in p50 0.8s p95 1.5s max 1.6s - 1 sender(s) refused for their own tokens, not counted: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100952: tokenID "60001_100952" not f
+    QCAP-01 whole 220: 219/219 in p50 0.7s p95 1.8s max 1.9s - 1 sender(s) refused for their own tokens, not counted: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100952: tokenID "60001_100952" not f
+    QCAP-01 fractional (0.192 each) 10: 1/10 in p50 11.5s p95 11.5s max 11.5s - refused: 4x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom for denom value 0.0010; 3x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom for denom value 0.0500; 1x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom for denom value 1.0000
+  [PASS] QCAP-01      156.19s  one quorum signed whole-RBT transfers 220 at once in full (the top of the ladder - the real limit is higher); fractional transfers not even 10 at once in full
+  -> assets                 s 144:20100,111:20100,119:20100,128:20100,124:20100,121:20100,126:20100,122:20100 r 110:20700,112:20200,113:20200,116:20300,129:20300,130:20300,131:20400,132:20300,134:20300,135:20300,136:20300,137:20300,139:20300,140:20300,141:20100,108:20100,110:20800,111:20400,111:20500,111:20600,111:20700,111:20800,112:20300,112:20400,112:20500,112:20600,112:20700,112:20800,113:20300,113:20400 q 107:20000,118:20000
+  -> wallets                s 113:20000,112:20000 r 144:20500,141:20600,111:20300,116:20200,118:20200,119:20200,121:20200,122:20200,124:20200,126:20200,128:20200,129:20200,130:20200,131:20300,132:20200,134:20200,135:20200,136:20200,137:20200,139:20200,140:20200,107:20200,144:20400,108:20700,108:20800,110:20200,110:20300,110:20400,110:20500,110:20600 q 108:20000,110:20000
+  [FAIL] WALLET-PREP  125.78s  wallets ready: 3000 whole tokens, 733 part tokens - but the database check failed: the denomination counter (token_denom) disagrees with the actual tokens (on the quorum 2)
+  [PASS] WALLET-01     79.09s  every amount the wallets could cover went through
+  [FAIL] FT-01        398.38s  FT hop of 1300 refused: signature step failed: RemoteDisconnected: Remote end closed connection without response; FT hop of 1500 refused: signature step failed: RemoteDisconnected: Remote end closed connection without response; FT hop of 1300 refused: 
+  [FAIL] NFT-01         2.76s  transfer by owner 3 refused: requestPledgeTokenHandler : Quorum is not setup; deploy by the owner refused: requestPledgeTokenHandler : Quorum is not setup; transfer by owner 3 refused: requestPledgeTokenHandler : Quorum is not setup
+  [FAIL] SC-01          2.35s  execute by subscriber 2 refused: requestPledgeTokenHandler : Quorum is not setup; execute by subscriber 2 refused: requestPledgeTokenHandler : Quorum is not setup; deploy by the owner refused: requestPledgeTokenHandler : Quorum is not setup
+  -> AUDIT-END              s - r - q -
+  [FAIL] AUDIT-END      1.67s  the fleet is not clean after the run
+
+Collecting per-node versions over SSH...
+DB evidence for 8 case(s) -> /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/../../../reports/json/master_db-evidence_2026-10-22_10-25-32.json
+
+Known product bugs behind refusals this run (not new findings - do not baseline):
+  token_denom deadlock on concurrent splits (Go map order): 15 refusal(s) in FT-01 (1), QCAP-01 (9), WALLET-PREP (5)
+    two splits or pledges at once on one DID - a quorum pledging fractional amounts for several transfers, or one wallet deploying or minting several things - update its token_denom rows one by one in Go map order, which is random (core/wallet/persist_genesis_tx.go:209, post_consensus_persistence.go:716), so Postgres finds a lock cycle and kills one. Sorting the denominations before the updates removes it. A pledge also decrements token_denom in a second DB transaction after the pledge itself is committed (core/pledge_v2.go:287): when that one fails, the counter stays above the real Free tokens
+  ex-quorum cannot spend tokens it pledged (checks.go:308): 8 refusal(s) in QCAP-01 (8)
+    the sender was a quorum earlier and is spending a token it pledged then, now unpledged and Free; core looks that token up in the CURRENT transaction's pledges instead of the pledge transaction (core/consensus/checks.go:308, FindDIDByTokenID(txnInfo.Quorums ...)), so it always refuses
+
+
+fleet ledger over 990 DID(s): spendable 399873.000 (free 390910.268, locked 3.900, pledged 8958.832), sunk 127.000 (committed 25.000, burnt-for-ft 102.000)
+  since master: spendable -56.000, sinks +56.000
+  conserved: every RBT that left the spendable pool is accounted for by a sink
+
+2 passed, 6 failed, 0 skipped (of 8).
+Pass rate of ATTEMPTED cases: 25.0% (2/8) - skipped are not counted as passes.
+FAILED: AUDIT-START, WALLET-PREP, FT-01, NFT-01, SC-01, AUDIT-END
+
+JSON: /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/../../../reports/json/catalogue_master_2026-10-22_10-25-35.json
+PDF : /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/../../../reports/pdf/catalogue_master_2026-10-22_10-25-35.pdf
+Log : /home/rubix/Desktop/rubix/rubix-lab/reports/logs/test_runner_2026-10-22_10-11-04.log

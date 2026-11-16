@@ -1,0 +1,186 @@
+Log: /home/rubix/Desktop/rubix/rubix-lab/reports/logs/test_runner_2026-11-03_12-21-49.log
+Faucet: bafybmih6fkweeuo... on 192.168.1.105:20000, quorum bafybmihpujtqxdf... on 192.168.1.106:20000 - faucet holds 145883.000 RBT free
+  the faucet quorum was not set up on its node (it restarted since controller/faucet-setup.py last ran) - set it up again
+Fullnodes: 192.168.1.101, 192.168.1.102, 192.168.1.103, 192.168.1.104
+
+== Fleet: reachability + DIDs ==
+Clocks: 32 machine(s) read, 0 more than 50 ms off the fleet's median; largest +27 ms on 192.168.1.119
+234 node(s) on 26 pool machine(s) in hosts.txt, 234 usable with 988 DID(s), 0 excluded
+
+== 17 case(s) in 14 unit(s) ==
+Each unit gets its own participants when enough nodes are free; output is interleaved, the report is in catalogue order.
+  -> AUDIT-START            s - r - q -
+    AUDIT-START S1: PASS - nothing to report
+    AUDIT-START S2: PASS - none needed
+    AUDIT-START S3: WRONG - the fleet holds 399916.794 RBT but the faucet minted 400000.000: -83.206 RBT lost (controller/test-plan/custom/lost_rbt.py shows where)
+    AUDIT-START S4: PASS - nothing to report
+    AUDIT-START S5: PASS - 23.176 RBT parked in Locked on 4 DID(s) - left as is; KNOWN PRODUCT BUG - 8 DID(s) have a denomination counter that does not match their Free tokens (e.g. {1.0: (176519, 176337)} on 192.168.1.106:20000, as denomination: (counter, real Free tokens))
+  [FAIL] AUDIT-START   17.52s  S3 WRONG: the fleet holds 399916.794 RBT but the faucet minted 400000.000: -83.206 RBT lost (controller/test-plan/custom/lost_rbt.py shows where)
+  -> QCAP-01                s 131:20000,130:20600,111:20300,118:20100,121:20300,132:20200,112:20100,129:20000,113:20000,137:20100,124:20800,134:20000,126:20600,135:20100,116:20100,119:20300,107:20700,122:20300,128:20400,110:20400,144:20100,140:20200,141:20600,139:20100,136:20800,111:20100,131:20100,130:20200,108:20700,131:20600,107:20300,129:20200,119:20000,126:20700,116:20400,124:20600,124:20700,124:20500,124:20300,126:20200,119:20500,126:20000,128:20000,121:20400,108:20300,112:20600,122:20000,132:20100,141:20300,134:20300,128:20300,107:20500,129:20300,118:20500,137:20200,135:20600,129:20600,130:20700,135:20700,140:20400,128:20700,140:20600,126:20800,128:20100,113:20700,141:20200,134:20600,137:20600,132:20700,131:20700,129:20700,124:20400,139:20700,136:20600,134:20400,130:20400,122:20700,131:20500,126:20300,122:20400,129:20400,132:20400,119:20200,134:20500,126:20100,119:20100,113:20500,141:20100,137:20400,110:20600,108:20800,139:20600,136:20400,116:20600,135:20200,118:20200,110:20800,130:20100,110:20200,116:20800,144:20500,119:20400,135:20400,136:20200,116:20700,131:20300,140:20500,122:20800,116:20300,119:20600,122:20500,124:20000,140:20700,132:20600,108:20200,107:20800,108:20500,107:20100,110:20100,141:20000,139:20000,124:20100,107:20200,132:20500,112:20700,144:20000,112:20200,136:20000,134:20100,108:20100,110:20700,113:20300,140:20100,113:20600,144:20400,141:20800,118:20400,121:20000,141:20400,112:20400,130:20300,113:20800,140:20300,132:20000,132:20300,144:20200,131:20200,126:20400,130:20000,111:20500,111:20700,121:20700,144:20800,126:20500,141:20500,135:20300,129:20100,107:20600,140:20800,139:20200,137:20000,110:20500,144:20300,110:20300,135:20000,116:20200,140:20000,139:20300,139:20400,116:20500,108:20400,111:20800,112:20300,112:20500,112:20800,113:20200,113:20400,118:20600,118:20700,118:20800,119:20700,119:20800,121:20500,121:20600,121:20800,122:20600,124:20200,128:20600,128:20800,129:20500,129:20800,130:20500,130:20800,131:20400,131:20800,132:20800,134:20700,134:20800,135:20500,135:20800,136:20100,136:20300,136:20500,136:20700,137:20300,137:20500,137:20700,137:20800,139:20500,139:20800,144:20600,144:20700,113:20100,111:20400,111:20600,108:20600,111:20200,118:20300,128:20500,110:20000 r - q 108:20000
+     note: not enough clean nodes free - 128:20500 (10.920 RBT), 110:20000 (59.237 RBT) hold(s) tokens pledged as a quorum earlier; their 'failed to get quorum DID' refusals are the known product bug
+    QCAP-01 S1: PASS - busiest machine .108 at 63% CPU
+    QCAP-01 S2 10 at once, 1.000 RBT each: PASS - 10/10 accepted in p50 0.2s p95 0.2s max 0.2s; busiest machine .108 at 27% CPU
+    QCAP-01 S2 20 at once, 1.000 RBT each: PASS - 20/20 accepted in p50 0.3s p95 0.5s max 0.5s; busiest machine .126 at 90% CPU
+    QCAP-01 S2 50 at once, 1.000 RBT each: PASS - 50/50 accepted in p50 0.5s p95 0.6s max 0.6s; busiest machine .108 at 49% CPU
+    QCAP-01 S2 100 at once, 1.000 RBT each: PASS - 100/100 accepted in p50 0.7s p95 1.0s max 1.1s; busiest machine .108 at 44% CPU
+    QCAP-01 S2 150 at once, 1.000 RBT each: PASS - 150/150 accepted in p50 0.9s p95 1.4s max 1.5s; busiest machine .108 at 43% CPU
+    QCAP-01 S2 200 at once, 1.000 RBT each: PASS - 200/200 accepted in p50 1.1s p95 2.0s max 2.1s; busiest machine .108 at 48% CPU
+    QCAP-01 S2 300 at once, 1.000 RBT each (2 DIDs on some nodes): PASS - 298/298 accepted in p50 2.0s p95 3.1s max 3.2s; 2 set aside (the sender's own tokens or clock): 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_129166: tokenID ; 1x initiateConsensusHandler: transaction info validation fa
+    QCAP-01 S2 400 at once, 1.000 RBT each (2 DIDs on some nodes): LIMIT - 372/399 accepted in p50 2.5s p95 4.2s max 4.3s; 27 refused gently: 1x initiateConsensusHandler: PledgeV2 failed: PledgeV2: 1 token(s) not locked by this referenceID "266C4141-31BB-4414-AF62-02D86D152BE7": | [60; 1x initiateConsensusHandler: PledgeV2 failed: PledgeV2: 1 token(s) not locked by this re
+    QCAP-01 S3: PASS - 1/1 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .108 at 20% CPU
+    QCAP-01 S4 10 at once, 0.519 RBT each: PASS - 10/10 accepted in p50 6.1s p95 6.8s max 6.8s; busiest machine .108 at 37% CPU
+    QCAP-01 S4 20 at once, 0.376 RBT each: DAMAGE - 13 refusal(s) gave no usable reason: 5x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom fo; 1x initiateConsensusHandler: PledgeV2 failed: PledgeV2: decrement token_denom for mainTxID "172967b2f94c66b0b855944023
+    QCAP-01 S5: PASS - 1/1 accepted in p50 1.6s p95 1.6s max 1.6s; busiest machine .108 at 20% CPU
+  [FAIL] QCAP-01      262.78s  S4 20 at once, 0.376 RBT each DAMAGE: 13 refusal(s) gave no usable reason: 5x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom fo; 1x initiateConsensusHandler: PledgeV2 
+  -> QCAP-03a               s 111:20100,118:20100,121:20300,129:20000,113:20000 r - q -
+  -> QCAP-03b               s 124:20800,126:20600,108:20700,131:20600,119:20300 r - q -
+  -> QCAP-02                s 131:20000,130:20600,111:20300,132:20200,112:20100 r 108:20600,144:20300,137:20000,113:20100,119:20700 q 122:20200,128:20200,121:20100,118:20000,107:20400
+    QCAP-02 S1: PASS - nothing to report
+    QCAP-03a S1: PASS - 1/1 accepted in p50 0.8s p95 0.8s max 0.8s; busiest machine .129 at 14% CPU
+    QCAP-03a S2: PASS - 1/1 accepted in p50 0.8s p95 0.8s max 0.8s; busiest machine .129 at 21% CPU
+  [PASS] QCAP-03a      22.65s  a quorum spent its free RBT without touching the 20 it had pledged
+    QCAP-02 S2 holding 123.100, value 123.000 (-0.100): PASS - 1/1 accepted in p50 5.7s p95 5.7s max 5.7s; busiest machine .122 at 18% CPU
+    QCAP-03b S1: PASS - nothing to report
+    QCAP-02 S2 holding 125.931, value 125.930 (-0.001): WRONG - 1 valid operation(s) refused: 1x requestPledgeTokenHandler : CollectRBTTokens: insufficient balance: current balance 125.92999999999999, transfer amount 125.93; 0/1 accepted; busiest machine .130 at 20% CPU
+    QCAP-03b S2: PASS - 1/1 accepted in p50 0.7s p95 0.7s max 0.7s; busiest machine .126 at 9% CPU
+    QCAP-03b S3: PASS - 0/1 accepted; 1 refused as expected: 1x BuildTransactionInfoFromRequest: lock RBT tokens for split: lockSelectedTokens: no tokens provided; busiest machine .119 at 18% CPU
+    QCAP-03b S4: PASS - 1/1 accepted in p50 0.5s p95 0.5s max 0.5s; busiest machine .126 at 14% CPU; released after 0s
+    QCAP-03b S5: PASS - 0/0 accepted; 1 set aside (the sender's own tokens or clock): 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_149300: tokenID ; busiest machine .126 at 17% CPU
+    QCAP-03b S6: PASS - 1/1 accepted in p50 0.3s p95 0.3s max 0.3s; busiest machine .126 at 24% CPU
+  [PASS] QCAP-03b     118.04s  pledged RBT is unspendable until released, and released once the receiver spends onward
+  -> wallets                s 137:20100,134:20000 r 118:20300,111:20600,121:20000,112:20300,113:20200,119:20800,122:20600,124:20200,129:20500,130:20500,131:20400,132:20800,135:20500,136:20100,139:20500,144:20600,116:20500,140:20000,110:20300,107:20600,141:20500,126:20500,111:20200,108:20400,111:20800,112:20500,112:20800,113:20400,118:20600,118:20700 q 108:20000,128:20500
+    QCAP-02 S2 holding 184.045, value 184.045 (+0.000): WRONG - 1 valid operation(s) refused: 1x requestPledgeTokenHandler : CollectRBTTokens: insufficient balance: current balance 179.6, transfer amount 184.045; 0/1 accepted; busiest machine .111 at 21% CPU
+    QCAP-02 S2 holding 197.800, value 197.801 (+0.001): PASS - 0/1 accepted; 1 refused as expected: 1x insufficient quorum liquidity; busiest machine .132 at 16% CPU
+    QCAP-02 S2 holding 206.620, value 206.720 (+0.100): PASS - 0/1 accepted; 1 refused as expected: 1x insufficient quorum liquidity; busiest machine .112 at 12% CPU
+  [FAIL] QCAP-02      274.61s  S2 holding 125.931, value 125.930 (-0.001) WRONG: 1 valid operation(s) refused: 1x requestPledgeTokenHandler : CollectRBTTokens: insufficient balance: current balance 125.92999999999999, transfer amount 125.93; 0/1 accepted; busiest machine .130 at 20% CPU; S2 holding 184.045, value 184.045 (+0.000) WRONG: 1 valid operation(s) refused: 1x requestPledgeTokenHandler : CollectRBTTokens: insufficient balance: current balance 179.6, transfer amount 184.045; 0/1 accepted; busiest machine .111 at 21% CPU
+  WARNING: the faucet quorum on 192.168.1.106 restarted while QCAP-02, wallets ran (its node's MainPID changed) - 'journalctl -k' on it shows whether the kernel killed it for memory
+    WALLET-PREP S1: PASS - busiest machine .137 at 22% CPU; 579 -> 3000 whole tokens, 32 ms per token
+    WALLET-PREP S2 round 1: DAMAGE - 3 refusal(s) gave no usable reason: 2x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom fo; 1x initiateConsensusHandler: PledgeV2 failed: PledgeV2: decrement token_denom for mainTxID "b4f1cf66edd1ad6c20d1e3029e8
+  [FAIL] WALLET-PREP  100.90s  S2 round 1 DAMAGE: 3 refusal(s) gave no usable reason: 2x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom fo; 1x initiateConsensusHandler: PledgeV2 f
+    WALLET-01 S1 1 RBT: PASS - 1/1 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .128 at 19% CPU
+    WALLET-01 S1 10 RBT: PASS - 1/1 accepted in p50 0.2s p95 0.2s max 0.2s; busiest machine .108 at 25% CPU
+    WALLET-01 S1 100 RBT: PASS - 1/1 accepted in p50 4.4s p95 4.4s max 4.4s; busiest machine .108 at 17% CPU
+    WALLET-01 S1 500 RBT: PASS - 1/1 accepted in p50 22.6s p95 22.6s max 22.6s; busiest machine .108 at 22% CPU
+    WALLET-01 S1 1000 RBT: PASS - 1/1 accepted in p50 31.0s p95 31.0s max 31.0s; busiest machine .108 at 21% CPU
+    WALLET-01 S1 2000 RBT: PASS - 1/1 accepted in p50 58.7s p95 58.7s max 58.7s; busiest machine .108 at 21% CPU
+    WALLET-01 S2 2.234 RBT from a wallet holding 1.234: PASS - 0/1 accepted; 1 refused as expected: 1x BuildTransactionInfoFromRequest: RBT collection failed: CollectRBTTokens: insufficient balance: current balance 1.234, transfer amount 2.234; busiest machine .122 at 20% CPU
+    WALLET-01 S3: PASS - 10/10 accepted in p50 3.1s p95 3.2s max 3.2s; busiest machine .108 at 35% CPU
+    WALLET-01 S4 0.999 RBT: PASS - 1/1 accepted in p50 5.7s p95 5.7s max 5.7s; busiest machine .128 at 14% CPU
+    WALLET-01 S4 7.777 RBT: PASS - 1/1 accepted in p50 2.1s p95 2.1s max 2.1s; busiest machine .128 at 16% CPU
+  [PASS] WALLET-01    318.95s  every amount the wallets could cover went through; wallets now: big 86 row(s) totalling 1.234: 0 whole, 86 part (largest part 0.100), fragmented 606 row(s) totalling 266.757: 244 whole, 362 part (largest part 0.500)
+  -> assets                 s 119:20800,131:20000,130:20600,111:20300,118:20100,121:20300,132:20200,113:20200 r 137:20100,144:20300,135:20500,107:20600,112:20800,108:20400,140:20000,116:20500,141:20500,126:20500,129:20800,134:20700,136:20300,139:20800,124:20100,122:20500,118:20300,111:20200,118:20700,137:20000,144:20600,111:20800,113:20100,113:20400,112:20500,118:20600,118:20800,119:20700,121:20500,121:20600 q 128:20500,110:20000
+    FT-01 S1: PASS - 16/16 accepted in p50 0.8s p95 3.0s max 3.0s; busiest machine .119 at 20% CPU
+    FT-01 S2: PASS - 0/8 accepted; 8 refused as expected: 8x createFTs: max allowed FT count is 1000 for 1 RBT; busiest machine .130 at 15% CPU
+    FT-01 S3: PASS - 8/8 accepted in p50 0.8s p95 0.8s max 0.8s; busiest machine .113 at 21% CPU
+    FT-01 S4 100 FTs: PASS - 1/1 accepted in p50 2.9s p95 2.9s max 2.9s; busiest machine .128 at 19% CPU
+    FT-01 S4 500 FTs: PASS - 1/1 accepted in p50 12.9s p95 12.9s max 12.9s; busiest machine .128 at 33% CPU
+    FT-01 S4 1000 FTs: PASS - 1/1 accepted in p50 23.6s p95 23.6s max 23.6s; busiest machine .119 at 50% CPU
+    FT-01 S4 2000 FTs: PASS - 1/1 accepted in p50 48.3s p95 48.3s max 48.3s; machines at a ceiling: .119: 32% of CPU time waiting on disk, 1950 MB pushed to swap
+    FT-01 S5: WRONG - 6 valid operation(s) refused: 5x signature step failed: RemoteDisconnected: Remote end closed connection without response; 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmigb3f6rj; 5 refusal(s) gave no usable reas
+    FT-01 S6: DAMAGE - 3 refusal(s) gave no usable reason: 3x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom fo; 32/35 accepted in p50 29.9s p95 33.7s max 33.8s; KNOWN PRODUCT BUG: token_denom deadlock on concurrent splits (Go map o
+    FT-01 S7: PASS - 8/8 accepted in p50 7.5s p95 9.0s max 9.0s; busiest machine .128 at 38% CPU
+    FT-01 S8: WRONG - 2aa2mm shows 200 of lab-ft-A-1793689769-7j6yzu, expected 1500; jqyp5q shows 200 of lab-ft-A-1793689769-dtacby, expected 1300; tfm6sa shows 200 of lab-ft-A-1793689769-v5z7em, expected 1700; oglya4 shows 200 of lab-ft-A-1793689769-7tvvsu, expected 1700; vayofi shows 200 of lab-ft-A-1793689769-652erq, 
+  [FAIL] FT-01        851.01s  S5 WRONG: 6 valid operation(s) refused: 5x signature step failed: RemoteDisconnected: Remote end closed connection without response; 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainI; S6 DAMAGE: 3 refusal(s) gave no usable reason: 3x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom fo; 32/35 accepted in p50 29.9s p95 33.7s m; S8 WRONG: 2aa2mm shows 200 of lab-ft-A-1793689769-7j6yzu, expected 1500; jqyp5q shows 200 of lab-ft-A-1793689769-dtacby, expected 1300; tfm6sa shows 200 of lab-ft-A-1793689769-v5z7em, expected 1700; oglya4 shows 200 of lab-ft-A-17
+    NFT-01 S1: PASS - 32/32 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .132 at 28% CPU
+    NFT-01 S2: PASS - 8/8 accepted in p50 0.2s p95 0.2s max 0.2s; busiest machine .110 at 24% CPU
+    NFT-01 S3: PASS - 24/24 accepted in p50 0.1s p95 0.2s max 0.2s; busiest machine .128 at 39% CPU
+    NFT-01 S4: PASS - 16/16 accepted in p50 0.1s p95 0.2s max 0.2s; busiest machine .118 at 21% CPU
+    NFT-01 S5: WRONG - NFT QmNhBpyYWA FORKED: the chains differ at position 6: 3f6ce267c554d8a9 vs 002268d423e6f168; NFT QmTjqTf8UQ FORKED: the chains differ at position 6: 77827fa1d716166e vs e211774446a1c086; 2 refusal(s) gave no usable reason: 2x initiateConsensusHandler: PledgeV2 failed: PledgeV2: failed to insert tok
+    NFT-01 S6: PASS - 48/48 accepted in p50 0.1s p95 0.2s max 0.2s; busiest machine .128 at 31% CPU
+    NFT-01 S7: PASS - 0/8 accepted; 8 refused as expected: 1x BuildTransactionInfoFromRequest: NFT lock failed for QmZ9zGtVMHXLPzgvuZ11D7xHXzJttWvpFtrrDxmKaLzq7C: QueryAndLockForExecution(nft): tokens n; 1x BuildTransactionInfoFromRequest: NFT lock failed for QmVaYJGJ2aHtPGPVV4mwgLqgAs7BgZYhdkeUsJuaxmh8xd: QueryAndLockFo
+    NFT-01 S8: WRONG - QmNhBpyYWA: the chains differ at position 6: 3f6ce267c554d8a9 vs 002268d423e6f168; QmTjqTf8UQ: the chains differ at position 6: 77827fa1d716166e vs e211774446a1c086
+  [FAIL] NFT-01        92.05s  S5 WRONG: NFT QmNhBpyYWA FORKED: the chains differ at position 6: 3f6ce267c554d8a9 vs 002268d423e6f168; NFT QmTjqTf8UQ FORKED: the chains differ at position 6: 77827fa1d716166e vs e211774446a1c086; 2 refusal(s) gave no usable reas; S8 WRONG: QmNhBpyYWA: the chains differ at position 6: 3f6ce267c554d8a9 vs 002268d423e6f168; QmTjqTf8UQ: the chains differ at position 6: 77827fa1d716166e vs e211774446a1c086
+    SC-01 S1: PASS - 16/16 accepted in p50 0.2s p95 0.3s max 0.3s; busiest machine .128 at 40% CPU
+    SC-01 S2: PASS - 144/144 accepted in p50 0.1s p95 0.2s max 0.3s; busiest machine .118 at 44% CPU
+    SC-01 S3: WRONG - contract QmeGYJhzSy FORKED: the chains differ at position 6: bd55342a3d1c3622 vs 5fdff311fbd4617c; contract QmbKPTkhYu FORKED: the chains differ at position 6: 29a86e98921d19de vs b1827f442450eaaa; the token_denom counter was left wrong on .110:20000 (KNOWN PRODUCT BUG: core/pledge_v2.go:287, persis
+    SC-01 S4: WRONG - contract QmeGYJhzSy on spw3ka: the chains differ at position 6: bd55342a3d1c3622 vs 5fdff311fbd4617c; contract QmbKPTkhYu on 3dsix4: the chains differ at position 6: 29a86e98921d19de vs b1827f442450eaaa
+  [FAIL] SC-01         20.86s  S3 WRONG: contract QmeGYJhzSy FORKED: the chains differ at position 6: bd55342a3d1c3622 vs 5fdff311fbd4617c; contract QmbKPTkhYu FORKED: the chains differ at position 6: 29a86e98921d19de vs b1827f442450eaaa; the token_denom counte; S4 WRONG: contract QmeGYJhzSy on spw3ka: the chains differ at position 6: bd55342a3d1c3622 vs 5fdff311fbd4617c; contract QmbKPTkhYu on 3dsix4: the chains differ at position 6: 29a86e98921d19de vs b1827f442450eaaa
+  -> RACE-01                s 119:20800 r 112:20500,118:20300,121:20500,128:20600,129:20800,130:20800,131:20800,134:20700,135:20800,136:20300,137:20300,139:20800,144:20700,116:20200,140:20800,111:20200,126:20400,113:20100,132:20300,107:20600,108:20400,141:20500,124:20100,122:20500 q 110:20000
+    RACE-01 S1: PASS - nothing to report
+    RACE-01 S2: LIMIT - 1/20 accepted in p50 0.1s p95 0.1s max 0.1s; 19 refused gently: 19x BuildTransactionInfoFromRequest: lock RBT tokens for split: lockSelectedTokens: no tokens provided; busiest machine .113 at 12% CPU
+    RACE-01 S3: LIMIT - 5/20 accepted in p50 0.1s p95 0.2s max 0.2s; 15 refused gently: 15x BuildTransactionInfoFromRequest: lock RBT tokens for split: lockSelectedTokens: no tokens provided; busiest machine .110 at 12% CPU
+    RACE-01 S4: LIMIT - 1/10 accepted in p50 4.4s p95 4.4s max 4.4s; 9 refused gently: 9x BuildTransactionInfoFromRequest: lock RBT tokens for split: lockSelectedTokens: no tokens provided; busiest machine .119 at 15% CPU
+  [PASS] RACE-01       66.30s  no wallet paid more than it held; the sends the wallet could not cover were refused gently at S2: 1/20 accepted in p50 0.1s p95 0.1s max 0.1s; 19 refused gently: 19x BuildTransactionInfoFromRequest: lock RBT tokens for split: lockSelectedTokens: no tokens provided; busiest machine .113 at 12% CPU
+  -> RACE-02                s 119:20800,131:20000 r - q -
+    RACE-02 S1 2 DIDs at once: PASS - 2/2 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .108 at 25% CPU
+    RACE-02 S1 5 DIDs at once: PASS - 5/5 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .108 at 20% CPU
+    RACE-02 S1 10 DIDs at once: PASS - 10/10 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .108 at 32% CPU
+    RACE-02 S2 9 DIDs at once: PASS - 8/8 accepted in p50 0.1s p95 0.2s max 0.2s; 1 set aside (the sender's own tokens or clock): 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100246: tokenID ; busiest machine .107 at 28% CPU
+    RACE-02 S2 18 DIDs at once: PASS - 17/17 accepted in p50 0.2s p95 0.2s max 0.2s; 1 set aside (the sender's own tokens or clock): 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100246: tokenID ; busiest machine .107 at 31% CPU
+    RACE-02 S2 38 DIDs at once: PASS - 36/36 accepted in p50 0.3s p95 0.4s max 0.4s; 2 set aside (the sender's own tokens or clock): 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_100246: tokenID ; 1x initiateConsensusHandler: transaction info validation fail
+  [PASS] RACE-02       36.75s  node- and machine-level concurrency held
+  -> LOAD-01                s 119:20800,131:20000 r - q -
+    LOAD-01 S1: PASS - nothing to report
+    LOAD-01 S2 10 DIDs at once: PASS - 10/10 accepted in p50 0.1s p95 0.2s max 0.2s; busiest machine .107 at 28% CPU
+    LOAD-01 S2 20 DIDs at once: PASS - 20/20 accepted in p50 0.2s p95 0.5s max 0.5s; busiest machine .107 at 32% CPU
+    LOAD-01 S2 50 DIDs at once: PASS - 49/49 accepted in p50 0.2s p95 0.5s max 0.6s; 1 set aside (the sender's own tokens or clock): 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_103217: tokenID ; busiest machine .107 at 35% CPU
+    LOAD-01 S2 100 DIDs at once: LIMIT - 98/99 accepted in p50 0.3s p95 0.6s max 0.7s; 1 refused gently: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: ValidateMinterAllowlist: token 60001_103300 minter bafybm; 1 set aside (the sender's own tokens or clock): 1x initiateConsensusHandler: transaction in
+    LOAD-01 S3: PASS - 1/1 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .107 at 22% CPU
+  [PASS] LOAD-01       82.08s  50 DIDs transacted at once with every transfer going through; the fleet's limit, met gently at S2 100 DIDs at once: 98/99 accepted in p50 0.3s p95 0.6s max 0.7s; 1 refused gently: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: ValidateMinterAllowlist: token 60001_103300 minter
+  -> CHAIN-01               s 119:20800,130:20600,124:20800,126:20600,131:20600,122:20300,128:20400,141:20600,132:20800,135:20600,136:20800,140:20600,113:20700,137:20600,139:20700,144:20500,111:20300,121:20300,112:20300,108:20700,107:20700,108:20600,107:20300,119:20300,126:20700,110:20400,116:20400,124:20600,124:20700,124:20500 r - q 110:20000,129:20000,107:20000,121:20200,116:20000,112:20000,108:20000,111:20000,134:20200,118:20000
+  -> COMBO-01               s 131:20000,118:20100,111:20100,132:20200,112:20100,113:20200,134:20000,130:20200 r 107:20100,119:20700,121:20500,129:20800,136:20300,137:20500,139:20800,144:20700 q 128:20500,141:20700
+    COMBO-01 S1: PASS - 40/40 accepted in p50 0.1s p95 0.4s max 0.4s; busiest machine .118 at 30% CPU
+    CHAIN-01 S1: PASS - nothing to report
+    COMBO-01 S2: WRONG - 2 valid operation(s) refused: 2x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom fo; 2 refusal(s) gave no usable reason: 2x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err
+    COMBO-01 S3: PASS - 0/1 accepted; 1 refused as expected: 1x BuildTransactionInfoFromRequest: NFT deploy cannot be combined with RBT/FT/SC in a single transaction; busiest machine .107 at 9% CPU
+  [FAIL] COMBO-01      28.48s  S2 WRONG: 2 valid operation(s) refused: 2x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom fo; 2 refusal(s) gave no usable reason: 2x reques
+    CHAIN-01 S2: PASS - 200/200 accepted in p50 0.1s p95 0.1s max 0.2s; busiest machine .128 at 22% CPU; a hop took 0.11s at the start and 0.11s at the end (1.0x)
+    CHAIN-01 S3: PASS - 200/200 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .110 at 16% CPU; a hop took 0.07s at the start and 0.07s at the end (1.0x)
+  [FAIL] CHAIN-01     341.65s  a 200-hop chain held with a new quorum at every hop, and in the single-quorum control - but the database check failed: value does NOT balance: the participants' RBT changed by +25.000, but +26.000 should have (26.000 came in, 0.000 went out)
+  -> FAIL-01                s 119:20800,131:20000,130:20600 r - q -
+    FAIL-01 S1: PASS - nothing to report
+    FAIL-01 S2: LIMIT - 0/1 accepted; 1 refused gently: 1x failed to connect swarm peer, peerID 12D3KooWASmazgc6Ko3KhkGKuq7FdnJcfkHJwAiHdhannEMttQRt; an ordinary operation afterwards went through in 0.1s; busiest machine .107 at 22% CPU; killed on its log line
+    FAIL-01 S3: PASS - 1/1 accepted in p50 0.1s p95 0.1s max 0.1s; an ordinary operation afterwards went through in 0.1s; busiest machine .107 at 19% CPU; killed on its log line
+    FAIL-01 S4: DAMAGE - 1 refusal(s) gave no usable reason: 1x (no reason given); an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: token 60001) - it did not recover; 0/1 accepted; busiest machine .107 at 16% CPU; killed
+    FAIL-01 S5: DAMAGE - an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: token 60001) - it did not recover; 0/1 accepted; 1 refused gently: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransa
+    FAIL-01 S6: DAMAGE - an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: token 60001) - it did not recover; 0/1 accepted; 1 refused gently: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransa
+    FAIL-01 S7: DAMAGE - an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: token 60001) - it did not recover; 0/1 accepted; 1 refused gently: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransa
+  [FAIL] FAIL-01      216.12s  S4 DAMAGE: 1 refusal(s) gave no usable reason: 1x (no reason given); an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: token 60; S5 DAMAGE: an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: token 60001) - it did not recover; 0/1 accepted; 1 refused gently:; S6 DAMAGE: an ordinary operation afterwards failed too (initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: token 60001) - it did not recover; 0/1 accepted; 1 refused gently:
+  -> AUDIT-END              s - r - q -
+    AUDIT-END S1: PASS - nothing to report
+    AUDIT-END S2: WRONG - the fleet total moved -1.000 RBT during this run (399916.794 -> 399915.794; controller/test-plan/custom/lost_rbt.py shows where); -84.206 RBT against the 400000.000 minted, as at AUDIT-START - from before this run
+    AUDIT-END S3: PASS - nothing to report
+    AUDIT-END S4: PASS - 23.176 RBT parked in Locked on 4 DID(s) - left as is; KNOWN PRODUCT BUG - 9 DID(s) have a denomination counter that does not match their Free tokens (e.g. {1.0: (173357, 173170)} on 192.168.1.106:20000, as denomination: (counter, real Free tokens)); committed +24.000, burnt for FT +56.000 since the 
+  [FAIL] AUDIT-END     14.82s  S2 WRONG: the fleet total moved -1.000 RBT during this run (399916.794 -> 399915.794; controller/test-plan/custom/lost_rbt.py shows where); -84.206 RBT against the 400000.000 minted, as at AUDIT-START - from before this run
+
+Collecting per-node versions over SSH...
+DB evidence for 17 case(s) -> /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/../../../reports/json/master_db-evidence_2026-11-03_13-09-00.json
+
+Fullnode rejections this run:
+  8 case(s), by .101, .102, .103, .104: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token <id> (pledge:<id>) chain mismatch after sync from <id>: local latest <id> != exp  <- CHAIN-01, COMBO-01, FT-01, NFT-01, QCAP-01, RACE-01, SC-01, WALLET-01
+  3 case(s), by .101, .102, .103, .104: processSingleTransaction:  ValidateTransaction: token <id> is marked unpledged but not found in quorum tokens of pledged transaction <id>  <- COMBO-01, QCAP-01, RACE-01
+  1 case(s), by .101, .102, .103, .104: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token <id> (rbt) chain mismatch after sync from <id>: local latest <id> != expected <i  <- QCAP-01
+  1 case(s), by .101, .102, .103, .104: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token <id> (nft) chain mismatch after sync from <id>: local latest <id> != expected <i  <- NFT-01
+  1 case(s), by .101: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token <id> (smart_contract) still not found locally after sync from <id>  <- SC-01
+  1 case(s), by .101: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction  <- SC-01
+  1 case(s), by .101, .102, .103, .104: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token <id> (smart_contract) chain mismatch after sync from <id>: local latest <id> !=   <- SC-01
+  1 case(s), by .101, .102, .103: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token <id> (nft) still not found locally after sync from <id>  <- COMBO-01
+Fullnodes reached DIFFERENT verdicts on the same transaction in: CHAIN-01, COMBO-01, FT-01, QCAP-01, RACE-01, SC-01
+
+Known product bugs behind refusals this run (not new findings - do not baseline):
+  token_denom deadlock on concurrent splits (Go map order): 21 refusal(s) in COMBO-01 (2), FT-01 (3), QCAP-01 (13), WALLET-PREP (3)
+    two splits or pledges at once on one DID - a quorum pledging fractional amounts for several transfers, or one wallet deploying or minting several things - update its token_denom rows one by one in Go map order, which is random (core/wallet/persist_genesis_tx.go:209, post_consensus_persistence.go:672, :703), so Postgres finds a lock cycle and kills one. Sorting the denominations before the updates removes it. A pledge also decrements token_denom in a second DB transaction after the pledge itself is committed (core/pledge_v2.go:287): when that one fails, the counter stays above the real Free tokens
+  ex-quorum cannot spend tokens it pledged (checks.go:309): 4 refusal(s) in QCAP-01 (3), QCAP-03b (1)
+    the sender was a quorum earlier and is spending a token it pledged then, now unpledged and Free; core looks that token up in the CURRENT transaction's pledges instead of the pledge transaction (core/consensus/checks.go:309, FindDIDByTokenID(txnInfo.Quorums ...)), so it always refuses
+
+During the run (the faucet pair, the fullnodes, deaf nodes, memory):
+  the faucet quorum on 192.168.1.106 restarted while QCAP-02, wallets ran (its node's MainPID changed) - 'journalctl -k' on it shows whether the kernel killed it for memory
+  12:29:45 a faucet draw found the faucet quorum not set up (Quorum is not setup) and set it up again
+  fullnode on 192.168.1.101, Rubix memory: 0.1 GB at the start, 0.1 GB after AUDIT-START, 0.1 GB after QCAP-01, 0.3 GB after QCAP-02, QCAP-03a, QCAP-03b, wallets, 2.9 GB after QCAP-02, QCAP-03b, wallets, 0.1 GB after QCAP-02, wallets, 3.1 GB after wallets, 0.1 GB after assets, 0.1 GB after RACE-01, 0.1 GB after RACE-02, 0.1 GB after LOAD-01, 0.1 GB after CHAIN-01, COMBO-01, 0.1 GB after CHAIN-01, 0.1 GB after FAIL-01, 0.1 GB after AUDIT-END
+  fullnode on 192.168.1.102, Rubix memory: 0.1 GB at the start, 0.1 GB after AUDIT-START, 0.1 GB after QCAP-01, 0.3 GB after QCAP-02, QCAP-03a, QCAP-03b, wallets, 2.9 GB after QCAP-02, QCAP-03b, wallets, 0.1 GB after QCAP-02, wallets, 3.1 GB after wallets, 0.1 GB after assets, 0.1 GB after RACE-01, 0.1 GB after RACE-02, 0.1 GB after LOAD-01, 0.1 GB after CHAIN-01, COMBO-01, 0.1 GB after CHAIN-01, 0.1 GB after FAIL-01, 0.1 GB after AUDIT-END
+  fullnode on 192.168.1.103, Rubix memory: 0.1 GB at the start, 0.1 GB after AUDIT-START, 0.1 GB after QCAP-01, 0.3 GB after QCAP-02, QCAP-03a, QCAP-03b, wallets, 3.4 GB after QCAP-02, QCAP-03b, wallets, 0.1 GB after QCAP-02, wallets, 3.1 GB after wallets, 0.1 GB after assets, 0.1 GB after RACE-01, 0.1 GB after RACE-02, 0.1 GB after LOAD-01, 0.1 GB after CHAIN-01, COMBO-01, 0.1 GB after CHAIN-01, 0.1 GB after FAIL-01, 0.1 GB after AUDIT-END
+  fullnode on 192.168.1.104, Rubix memory: 0.1 GB at the start, 0.1 GB after AUDIT-START, 0.1 GB after QCAP-01, 0.3 GB after QCAP-02, QCAP-03a, QCAP-03b, wallets, 2.9 GB after QCAP-02, QCAP-03b, wallets, 0.1 GB after QCAP-02, wallets, 3.1 GB after wallets, 0.1 GB after assets, 0.1 GB after RACE-01, 0.1 GB after RACE-02, 0.1 GB after LOAD-01, 0.1 GB after CHAIN-01, COMBO-01, 0.1 GB after CHAIN-01, 0.1 GB after FAIL-01, 0.1 GB after AUDIT-END
+  faucet quorum on 192.168.1.106, Rubix memory: 0.0 GB at the start, 0.0 GB after AUDIT-START, 0.2 GB after QCAP-01, 2.5 GB after QCAP-02, QCAP-03a, QCAP-03b, wallets, 13.3 GB after QCAP-02, QCAP-03b, wallets, 5.9 GB after QCAP-02, wallets, 8.0 GB after wallets, 0.1 GB after assets, 0.2 GB after RACE-01, 0.2 GB after RACE-02, 0.8 GB after LOAD-01, 0.8 GB after CHAIN-01, COMBO-01, 0.2 GB after CHAIN-01, 0.1 GB after FAIL-01, 0.1 GB after AUDIT-END
+
+
+fleet ledger over 990 DID(s): spendable 399236.794 (free 357640.580, locked 23.176, pledged 41573.038), sunk 679.000 (committed 159.000, burnt-for-ft 520.000)
+  since master: spendable -81.000, sinks +80.000
+  UNEXPLAINED -1.000 RBT - value left the fleet without being burnt or committed. That is a leak, not wear and tear.
+
+6 passed, 11 failed, 0 skipped (of 17).
+Pass rate of ATTEMPTED cases: 35.3% (6/17) - skipped are not counted as passes.
+FAILED: AUDIT-START, QCAP-01, QCAP-02, WALLET-PREP, FT-01, NFT-01, SC-01, CHAIN-01, COMBO-01, FAIL-01, AUDIT-END
+
+JSON: /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/../../../reports/json/catalogue_master_2026-11-03_13-09-03.json
+PDF : /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/../../../reports/pdf/catalogue_master_2026-11-03_13-09-03.pdf
+Log : /home/rubix/Desktop/rubix/rubix-lab/reports/logs/test_runner_2026-11-03_12-21-49.log

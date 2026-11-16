@@ -1,0 +1,87 @@
+Log: /home/rubix/Desktop/rubix/rubix-lab/reports/logs/test_runner_2026-10-30_15-28-41.log
+Faucet: bafybmih6fkweeuo... on 192.168.1.105:20000, quorum bafybmihpujtqxdf... on 192.168.1.106:20000 - faucet holds 152143.000 RBT free
+Fullnodes: 192.168.1.101, 192.168.1.102, 192.168.1.103, 192.168.1.104
+
+== Fleet: reachability + DIDs ==
+Clocks: 32 machine(s) read, 0 more than 50 ms off the fleet's median; largest -22 ms on 192.168.1.132
+234 node(s) on 26 pool machine(s) in hosts.txt, 204 usable with 867 DID(s), 30 excluded
+  excluded: 192.168.1.116:20000 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force)
+  excluded: 192.168.1.116:20100 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force)
+  excluded: 192.168.1.116:20200 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force)
+  excluded: 192.168.1.116:20300 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force)
+  excluded: 192.168.1.116:20400 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force)
+  excluded: 192.168.1.116:20600 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force)
+  excluded: 192.168.1.116:20700 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force)
+  excluded: 192.168.1.116:20800 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.116 --force)
+  excluded: 192.168.1.122:20000 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.122 --force)
+  excluded: 192.168.1.122:20100 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.122 --force)
+  excluded: 192.168.1.122:20200 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.122 --force)
+  excluded: 192.168.1.122:20300 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.122 --force)
+  excluded: 192.168.1.122:20400 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.122 --force)
+  excluded: 192.168.1.122:20500 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.122 --force)
+  excluded: 192.168.1.122:20600 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.122 --force)
+  excluded: 192.168.1.122:20700 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.122 --force)
+  excluded: 192.168.1.122:20800 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.122 --force)
+  excluded: 192.168.1.128:20100 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.128 --force)
+  excluded: 192.168.1.128:20200 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.128 --force)
+  excluded: 192.168.1.128:20500 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.128 --force)
+  excluded: 192.168.1.128:20600 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.128 --force)
+  excluded: 192.168.1.128:20700 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.128 --force)
+  excluded: 192.168.1.131:20000 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.131 --force)
+  excluded: 192.168.1.131:20100 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.131 --force)
+  excluded: 192.168.1.131:20200 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.131 --force)
+  excluded: 192.168.1.131:20300 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.131 --force)
+  excluded: 192.168.1.131:20500 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.131 --force)
+  excluded: 192.168.1.131:20600 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.131 --force)
+  excluded: 192.168.1.131:20700 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.131 --force)
+  excluded: 192.168.1.131:20800 - its IPFS has no p2p listener, so no peer can reach it (fix: restart-nodes.sh --host 192.168.1.131 --force)
+
+== 17 case(s) in 14 unit(s) ==
+Each unit gets its own participants when enough nodes are free; output is interleaved, the report is in catalogue order.
+  -> AUDIT-START            s - r - q -
+    AUDIT-START S1: PASS - nothing to report
+    AUDIT-START S2: PASS - none needed
+    AUDIT-START S3: WRONG - the fleet holds 393342.911 RBT but the faucet minted 400000.000: -6657.089 RBT lost (controller/test-plan/custom/lost_rbt.py shows where)
+    AUDIT-START S4: PASS - nothing to report
+Traceback (most recent call last):
+  File "/home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/test_runner.py", line 724, in run_units
+    done, _ = wait(list(running), return_when=FIRST_COMPLETED)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/_base.py", line 305, in wait
+    waiter.event.wait(timeout)
+  File "/usr/lib/python3.12/threading.py", line 655, in wait
+    signaled = self._cond.wait(timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/threading.py", line 355, in wait
+    waiter.acquire()
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/test_runner.py", line 1392, in <module>
+    main()
+  File "/home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/test_runner.py", line 1246, in main
+    run_units(units, pool_nodes, fleet, module.CASES, master, case_info, args)
+  File "/home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/test_runner.py", line 685, in run_units
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+  File "/usr/lib/python3.12/concurrent/futures/_base.py", line 647, in __exit__
+    self.shutdown(wait=True)
+  File "/usr/lib/python3.12/concurrent/futures/thread.py", line 238, in shutdown
+    t.join()
+  File "/usr/lib/python3.12/threading.py", line 1147, in join
+    self._wait_for_tstate_lock()
+  File "/usr/lib/python3.12/threading.py", line 1167, in _wait_for_tstate_lock
+    if lock.acquire(block, timeout):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+Exception ignored in atexit callback: <function end at 0x70e5041e5d00>
+Traceback (most recent call last):
+  File "/home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/node_screens.py", line 142, in end
+    t.join(max(0, deadline - time.time()))
+  File "/usr/lib/python3.12/threading.py", line 1151, in join
+    self._wait_for_tstate_lock(timeout=max(timeout, 0))
+  File "/usr/lib/python3.12/threading.py", line 1167, in _wait_for_tstate_lock
+    if lock.acquire(block, timeout):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt: 

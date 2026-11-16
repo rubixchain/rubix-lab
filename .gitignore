@@ -44,7 +44,7 @@ controller/ui/server.log
 
 # Every test-plan script's report lands here (repo-root reports/), timestamped
 # per run — real fleet data, not something to commit.
-/reports/
+#/reports/
 
 # Python runtime artifacts and local virtualenvs — regenerated on every run,
 # never meant to be tracked.

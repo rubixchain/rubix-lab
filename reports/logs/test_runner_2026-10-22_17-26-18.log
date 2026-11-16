@@ -1,0 +1,111 @@
+Log: /home/rubix/Desktop/rubix/rubix-lab/reports/logs/test_runner_2026-10-22_17-26-18.log
+Faucet: bafybmih6fkweeuo... on 192.168.1.105:20000, quorum bafybmihpujtqxdf... on 192.168.1.106:20000 - faucet holds 169217.000 RBT free
+Fullnodes: 192.168.1.101, 192.168.1.102, 192.168.1.103, 192.168.1.104
+
+== Fleet: reachability + DIDs ==
+234 node(s) on 26 pool machine(s) in hosts.txt, 234 usable with 988 DID(s), 0 excluded
+
+== 17 case(s) in 14 unit(s) ==
+Each unit gets its own participants when enough nodes are free; output is interleaved, the report is in catalogue order.
+  -> AUDIT-START            s - r - q -
+  [FAIL] AUDIT-START    2.86s  the fleet is not clean before the run
+  -> QCAP-01                s 111:20100,113:20000,121:20300,118:20300,124:20200,122:20300,144:20100,141:20600,116:20400,119:20300,134:20200,126:20200,128:20100,107:20100,129:20400,132:20400,131:20500,130:20400,135:20400,136:20400,108:20200,139:20600,140:20700,112:20200,137:20100,124:20300,111:20300,113:20500,118:20100,122:20200,124:20400,116:20200,122:20400,119:20400,126:20300,134:20400,122:20700,119:20200,119:20100,126:20100,128:20200,118:20200,116:20700,132:20600,124:20100,111:20500,112:20700,113:20300,121:20700,132:20500,140:20100,144:20800,130:20300,134:20100,107:20600,107:20700,107:20800,108:20300,108:20400,108:20500,108:20600,110:20700,111:20400,111:20600,111:20700,111:20800,112:20400,112:20500,112:20600,113:20100,113:20200,113:20400,116:20100,116:20300,118:20500,118:20600,118:20700,118:20800,119:20500,119:20600,119:20700,119:20800,121:20400,121:20500,121:20600,121:20800,122:20500,122:20600,128:20300,129:20500,130:20500,131:20400,132:20300,134:20300,134:20500,135:20100,135:20300,135:20500,136:20100,136:20300,136:20500,137:20300,139:20300,139:20500,140:20300,140:20500,141:20000,141:20100,144:20600,144:20700,107:20500,112:20300,112:20800,132:20100,137:20500,139:20100,141:20300,129:20300,112:20100,107:20200,144:20300,110:20800,126:20000,108:20100,119:20000,121:20000,122:20000,128:20000,129:20000,130:20000,131:20200,107:20300,110:20100,111:20200,124:20000,131:20000,110:20300,141:20400,144:20500,132:20000,144:20200,139:20000,141:20700,131:20300,110:20600,128:20600,129:20600,135:20700,136:20800,140:20600,137:20200,144:20400,141:20200,137:20400,132:20200,108:20800,131:20100,110:20400,135:20200,113:20800,110:20200,130:20100,140:20200,130:20200,134:20000,141:20500,136:20200,140:20400,129:20100,136:20000,139:20200,137:20000,110:20500,135:20000,140:20000,139:20400,116:20500,122:20800,124:20500,124:20600,124:20700,124:20800,126:20400,126:20500,126:20700,126:20800,128:20400,128:20500,128:20700,128:20800,129:20700,129:20800,130:20600,130:20700,130:20800,131:20600,131:20700,131:20800,132:20700,132:20800,134:20600,134:20700,134:20800,135:20600,135:20800,136:20600,136:20700,137:20600,137:20700,137:20800,139:20700,139:20800,140:20800,113:20700,118:20400,116:20600,116:20800,113:20600,144:20000,141:20800 r - q 110:20000
+    QCAP-01 whole 10: 10/10 in p50 0.1s p95 0.1s max 0.1s
+    QCAP-01 whole 20: 20/20 in p50 0.1s p95 0.2s max 0.2s
+    QCAP-01 whole 50: 50/50 in p50 0.3s p95 0.5s max 0.6s
+    QCAP-01 whole 70: 70/70 in p50 0.3s p95 0.5s max 0.5s
+    QCAP-01 whole 90: 90/90 in p50 0.4s p95 0.6s max 0.7s
+    QCAP-01 whole 100: 100/100 in p50 0.4s p95 0.7s max 0.8s
+    QCAP-01 whole 150: 150/150 in p50 0.8s p95 1.7s max 1.8s
+    QCAP-01 whole 200: 200/200 in p50 0.9s p95 1.8s max 1.9s
+    QCAP-01 whole 220: 220/220 in p50 1.1s p95 2.1s max 2.2s
+    QCAP-01 fractional (0.290 each) 10: 8/10 in p50 5.7s p95 5.8s max 5.8s - refused: 1x initiateConsensusHandler: PledgeV2 failed: PledgeV2: decrement token_denom for mainTxID "2cc469b4e7b5555861b9eba552b34afe748ef877c5f5936795f498ec54207ed0": ERRO; 1x initiateConsensusHandler: PledgeV2 failed: PledgeV2: decrement token_denom for mainTxID "601749c8961b71977fd9c2cfbd93ef90c528f7a337d75d3b1063d72ea3a89225": ERRO
+    QCAP-01 fractional (0.576 each) 20: 12/20 in p50 11.8s p95 21.3s max 21.3s - refused: 3x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom for denom value 1.0000; 2x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom for denom value 0.1000; 1x initiateConsensusHandler: PledgeV2 failed: PledgeV2: decrement token_denom for mainTxID "b224c3a226bc90a3f4956904b419d38bb2e57347fd0a9ce81f5a3c4b312d5999": ERRO
+    QCAP-01 fractional (0.235 each) 50: 25/50 in p50 21.5s p95 60.2s max 65.2s - refused: 7x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom for denom value 0.0100; 4x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom for denom value 0.5000; 3x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom for denom value 0.0500
+    QCAP-01 fractional (0.596 each) 70: 25/70 in p50 95.0s p95 95.0s max 95.0s - refused: 9x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom for denom value 0.0500; 8x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom for denom value 0.0100; 4x requestPledgeTokenHandler : reqPledgeToken: failed to persist genesis transaction, err: PersistPreConsensus: failed to update token_denom for denom value 1.0000
+  [FAIL] QCAP-01      377.13s  one quorum signed whole-RBT transfers 220 at once in full (the top of the ladder - the real limit is higher); fractional transfers not even 10 at once in full - but the database check failed: 0.576 RBT left LOCKED on the quorum
+  -> QCAP-03a               s 111:20100,121:20300,122:20300,124:20300,141:20600 r - q -
+  -> QCAP-03b               s 116:20400,111:20300,134:20200,113:20500,122:20200 r - q -
+  -> RACE-01                s 119:20400 r 140:20400,136:20200,134:20000,130:20200,116:20800,110:20200,135:20200,131:20100,132:20200,137:20400,141:20200,113:20700,128:20600,129:20600,139:20000,144:20200,124:20000,108:20100,112:20800,111:20400,118:20500,121:20400,122:20500,126:20100 q 107:20000
+  [PASS] QCAP-03a       6.90s  a quorum spent its free RBT without touching the 20.000 it had pledged
+  [FAIL] RACE-01       31.13s  DOUBLE SPEND: 2 of 20 simultaneous sends were accepted from a wallet holding one token
+  [FAIL] QCAP-03b     177.47s  the pledge was not released after the receiver spent the token onward
+  -> QCAP-02                s 113:20000,118:20300,124:20200,119:20300,144:20100 r 108:20700,126:20600,128:20400,130:20600,131:20600 q 129:20200,111:20000,122:20100,121:20100,107:20400
+  [FAIL] QCAP-02       63.59s  value 169.287 <= holding 169.287 was refused: initiateConsensusHandler: transaction info validation failed: ValidateTransaction: ValidateMinterAllowlist: whole-token genesis fetch failed for 60001_102964_3 (whole 60001_102964): FetchGenesisTransactionFromPeer: peer returned error: transaction not found at height 0 for token 60001_102964
+  -> wallets                s 118:20100,126:20200 r 122:20800,124:20500,128:20500,129:20700,130:20700,131:20700,132:20700,134:20600,135:20600,136:20600,137:20600,139:20700,140:20800,141:20800,144:20000,113:20600,108:20800,107:20300,111:20200,119:20000,121:20000,112:20100,124:20600,124:20700,124:20800,126:20400,126:20500,126:20700,126:20800,128:20700 q 110:20000,116:20000
+  -> assets                 s 128:20100,107:20100,124:20400,116:20200,129:20400,132:20400,130:20400,131:20500 r 134:20700,135:20800,136:20700,137:20700,139:20800,140:20000,110:20500,141:20500,113:20800,118:20400,144:20400,122:20000,126:20000,112:20300,111:20700,119:20500,128:20800,129:20800,130:20800,131:20800,132:20800,134:20800,137:20800,116:20500,139:20400,135:20000,137:20000,139:20200,136:20000,129:20100 q 108:20000,121:20200
+  [PASS] WALLET-PREP  186.65s  wallets ready: 3000 whole tokens, 630 part tokens
+  [PASS] WALLET-01    143.41s  every amount the wallets could cover went through
+  [FAIL] FT-01        459.81s  FT hop of 1300 refused: signature step failed: RemoteDisconnected: Remote end closed connection without response; FT hop of 1100 refused: initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: token lab-ft-A-1792671089-lr6csm_bafybmif3pxp4pkj2uthteuacdhjvzp3t7plfkumisrcgym2chd27lr6csm_0 (ft) chain mismatch after sync from bafybmif2rsjuyfvo6pqi5qgm6bpg64dtsrxuorq4mssgargs6kf2sb5ayu:; FT hop of 1300 refused: signature step failed: RemoteDisconnected: Remote end closed connection without response
+  [FAIL] NFT-01        92.87s  children by the owner refused: initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmifvw542pakbrkoghos2itespth6tjifxz3fikzsaqu6qpi2kdztm4: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer; execute by the owner refused: initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmifvw542pakbrkoghos2itespth6tjifxz3fikzsaqu6qpi2kdztm4: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer; execute by the owner refused: initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmifvw542pakbrkoghos2itespth6tjifxz3fikzsaqu6qpi2kdztm4: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer
+  [FAIL] SC-01          6.78s  deploy by the owner refused: initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmifvw542pakbrkoghos2itespth6tjifxz3fikzsaqu6qpi2kdztm4: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer; contract QmUMRRRWHt has no chain on its owner; deploy by the owner refused: initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmifvw542pakbrkoghos2itespth6tjifxz3fikzsaqu6qpi2kdztm4: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer
+  -> RACE-02                s 118:20100,111:20100 r - q -
+  [PASS] RACE-02       10.75s  node- and machine-level concurrency measured (quorums sized from QCAP-01)
+  -> LOAD-01                s 118:20100,111:20100 r - q -
+    LOAD-01 10: 10/10 at once, p50 0.3s p95 1.2s max 1.2s
+    LOAD-01 20: 19/20 at once, p50 0.3s p95 0.5s max 0.5s - refused: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_103126: tokenID "60001_103126" not f
+    LOAD-01 50: 49/50 at once, p50 0.7s p95 0.8s max 0.9s - refused: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_103126: tokenID "60001_103126" not f
+    LOAD-01 100: 100/100 at once, p50 0.7s p95 1.1s max 1.1s
+  [pacing] fullnode 192.168.1.101 database not readable (DBUnavailable: cannot reach Postgres at 192.168.1.101:5433 (connection to server at "192.168.1.101", port 5433 failed: FATAL:  sorry, too many clients already
+). Check the node's container is up:  ssh rubix@192.168.1.101 'docker ps | grep rubix-db') - not waited on for the rest of the run
+    LOAD-01 200: 199/200 at once, p50 1.3s p95 1.9s max 2.5s - refused: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_103126: tokenID "60001_103126" not f
+  [pacing] fullnode 192.168.1.102 database not readable (DBUnavailable: cannot reach Postgres at 192.168.1.102:5433 (connection to server at "192.168.1.102", port 5433 failed: FATAL:  sorry, too many clients already
+). Check the node's container is up:  ssh rubix@192.168.1.102 'docker ps | grep rubix-db') - not waited on for the rest of the run
+  [pacing] fullnode 192.168.1.103 database not readable (DBUnavailable: cannot reach Postgres at 192.168.1.103:5433 (connection to server at "192.168.1.103", port 5433 failed: FATAL:  sorry, too many clients already
+). Check the node's container is up:  ssh rubix@192.168.1.103 'docker ps | grep rubix-db') - not waited on for the rest of the run
+  [pacing] fullnode 192.168.1.104 database not readable (DBUnavailable: cannot reach Postgres at 192.168.1.104:5433 (connection to server at "192.168.1.104", port 5433 failed: FATAL:  sorry, too many clients already
+). Check the node's container is up:  ssh rubix@192.168.1.104 'docker ps | grep rubix-db') - not waited on for the rest of the run
+    LOAD-01 300: 294/300 at once, p50 0.7s p95 1.4s max 1.7s - refused: 3x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: invalid epoch 1792671836: must be a positive Unix time on or after 2026-04-01; 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_103126: tokenID "60001_103126" not f; 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_103630: tokenID "60001_103630" not f
+    LOAD-01 500: 496/500 at once, p50 0.7s p95 1.6s max 30.5s - refused: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_106726: tokenID "60001_106726" not f; 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_110484: tokenID "60001_110484" not f; 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: failed to get quorum DID for token 60001_116011: tokenID "60001_116011" not f
+  [PASS] LOAD-01      315.77s  10 DIDs transacted at once with every transfer going through
+  -> CHAIN-01               s 113:20000,126:20600,134:20200,124:20200,119:20300,144:20100,130:20600,131:20600,141:20600,139:20700,136:20600,135:20600,137:20600,132:20700,129:20700,140:20400,118:20100,111:20100,121:20300,128:20500,118:20300,108:20700,122:20300,111:20300,128:20400,116:20400,124:20500,126:20200,124:20300,128:20100 r - q 116:20000,121:20200,110:20000,108:20000,107:20000,112:20000,111:20000,118:20000,122:20100,128:20200
+  -> COMBO-01               s 131:20700,130:20700,134:20600,124:20400,126:20300,122:20400,129:20400,132:20400 r 119:20400,140:20800,136:20200,144:20000,116:20800,110:20200,135:20200,137:20400 q 107:20400,121:20100
+  [FAIL] CHAIN-01      20.11s  the chain fails at depth regardless of the quorum (6 rotating, 6 control of 200 hops)
+  [FAIL] COMBO-01      28.53s  3 combined transfer(s) refused: RBT+FT: initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmiah5dbm7gr3wgcjzlw2qvuu7wglyvlgljexn6zaxencvq5auss6te: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer; RBT+NFT: initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmiah5dbm7gr3wgcjzlw2qvuu7wglyvlgljexn6zaxencvq5auss6te: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer; FT+NFT: initiateConsensusHandler: transaction info validation failed: ValidateTransaction: TokenChainIntigrityCheck: sync failed from bafybmiah5dbm7gr3wgcjzlw2qvuu7wglyvlgljexn6zaxencvq5auss6te: SyncTransactionChainsFromPeer: getPeer failed: did not exist with the peer
+  -> FAIL-01                s 118:20100,111:20100,113:20000 r - q -
+    FAIL-01 sender after initiating: killed on log marker; node back up; neighbours stayed up; RBT left Locked on Q
+    FAIL-01 sender after consensus: killed on timeout (marker not seen in 40s); node back up; neighbours stayed up; RBT left Locked on Q
+    FAIL-01 quorum after initiating: killed on log marker; node back up; neighbours stayed up; RBT left Locked on Q
+    FAIL-01 quorum after consensus: killed on timeout (marker not seen in 40s); node back up; neighbours stayed up; RBT left Locked on Q
+    FAIL-01 receiver after initiating: killed 0.4s after dispatch; node back up; neighbours stayed up; RBT left Locked on Q
+    FAIL-01 receiver after consensus: killed 2.0s after dispatch; node back up; neighbours stayed up; RBT left Locked on Q
+  [FAIL] FAIL-01      229.43s  6 of 6 kill scenario(s) left the fleet wrong: sender after initiating; sender after consensus; quorum after initiating; quorum after consensus; receiver after initiating; receiver after consensus
+  -> AUDIT-END              s - r - q -
+  [FAIL] AUDIT-END      2.54s  the fleet is not clean after the run
+
+Collecting per-node versions over SSH...
+DB evidence for 17 case(s) -> /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/../../../reports/json/master_db-evidence_2026-10-22_18-02-31.json
+
+Fullnode rejections this run:
+  6 case(s), by .101, .102, .103, .104: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token <id> (pledge:<id>) chain mismatch after sync from <id>: local latest <id> != exp  <- CHAIN-01, COMBO-01, FT-01, NFT-01, QCAP-01, SC-01
+  3 case(s), by .101, .102, .103, .104: processSingleTransaction:  ValidateTransaction: token <id> is marked unpledged but not found in quorum tokens of pledged transaction <id>  <- COMBO-01, FT-01, SC-01
+  2 case(s), by .101, .102, .103, .104: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token <id> (nft) chain mismatch after sync from <id>: local latest <id> != expected <i  <- COMBO-01, NFT-01
+  2 case(s), by .101, .103: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token <id> (smart_contract) chain mismatch after sync from <id>: local latest <id> !=   <- COMBO-01, SC-01
+  2 case(s), by .101, .102, .103, .104: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token <id> (smart_contract) still not found locally after sync from <id>  <- COMBO-01, SC-01
+  1 case(s), by .101, .104: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token lab-ft-A-1792671089-lr6csm_<id> (ft) chain mismatch after sync from <id>: local   <- FT-01
+  1 case(s), by .101, .102, .103, .104: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: sync failed from <id>: SyncTransactionChainsFromPeer: getPeer failed: did not exist wi  <- FT-01
+  1 case(s), by .101: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: sync failed from <id>: SyncTransactionChainsFromPeer: peer returned error:  <- FT-01
+  1 case(s), by .101, .102: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction  <- SC-01
+  1 case(s), by .101, .102, .103, .104: processSingleTransaction:  ValidateTransaction: TokenChainIntigrityCheck: token <id> (nft) still not found locally after sync from <id>  <- COMBO-01
+Fullnodes reached DIFFERENT verdicts on the same transaction in: CHAIN-01, COMBO-01, FT-01, SC-01
+
+Known product bugs behind refusals this run (not new findings - do not baseline):
+  token_denom deadlock on concurrent splits (Go map order): 83 refusal(s) in FT-01 (1), QCAP-01 (66), WALLET-PREP (16)
+    two splits or pledges at once on one DID - a quorum pledging fractional amounts for several transfers, or one wallet deploying or minting several things - update its token_denom rows one by one in Go map order, which is random (core/wallet/persist_genesis_tx.go:209, post_consensus_persistence.go:716), so Postgres finds a lock cycle and kills one. Sorting the denominations before the updates removes it. A pledge also decrements token_denom in a second DB transaction after the pledge itself is committed (core/pledge_v2.go:287): when that one fails, the counter stays above the real Free tokens
+  minter allowlist on second-hand part tokens (fix not in lab build): 2 refusal(s) in QCAP-02 (1), RACE-01 (1)
+    the quorum asks the sender for the whole token's genesis, which a second-hand holder of a part token does not have; fixed by f890aa01, 257a9e9d and 4601dd04, none of which is in the build the lab runs
+  ex-quorum cannot spend tokens it pledged (checks.go:308): 2 refusal(s) in LOAD-01 (2)
+    the sender was a quorum earlier and is spending a token it pledged then, now unpledged and Free; core looks that token up in the CURRENT transaction's pledges instead of the pledge transaction (core/consensus/checks.go:308, FindDIDByTokenID(txnInfo.Quorums ...)), so it always refuses
+
+
+fleet ledger over 990 DID(s): spendable 399678.471 (free 379692.983, locked 8.976, pledged 19976.512), sunk 284.000 (committed 70.000, burnt-for-ft 214.000)
+  since master: spendable -81.000, sinks +77.000
+  UNEXPLAINED -4.000 RBT - value left the fleet without being burnt or committed. That is a leak, not wear and tear.
+
+5 passed, 12 failed, 0 skipped (of 17).
+Pass rate of ATTEMPTED cases: 29.4% (5/17) - skipped are not counted as passes.
+FAILED: AUDIT-START, QCAP-01, QCAP-02, QCAP-03b, FT-01, NFT-01, SC-01, RACE-01, CHAIN-01, COMBO-01, FAIL-01, AUDIT-END
+
+JSON: /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/../../../reports/json/catalogue_master_2026-10-22_18-02-35.json
+PDF : /home/rubix/Desktop/rubix/rubix-lab/controller/test-plan/full-test/../../../reports/pdf/catalogue_master_2026-10-22_18-02-35.pdf
+Log : /home/rubix/Desktop/rubix/rubix-lab/reports/logs/test_runner_2026-10-22_17-26-18.log

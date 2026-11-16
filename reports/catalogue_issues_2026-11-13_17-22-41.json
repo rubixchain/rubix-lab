@@ -1,0 +1,703 @@
+{
+  "run": {
+    "asset": "issues",
+    "started_at": "2026-11-13T17:13:06",
+    "duration_seconds": 570.8,
+    "conditions": [
+      [
+        "Run started",
+        "2026-11-13 17:13:06"
+      ],
+      [
+        "Duration",
+        "571s"
+      ],
+      [
+        "Cases run",
+        "18 of 18 in the catalogue"
+      ],
+      [
+        "Version",
+        "uniform: v1.0.5-45-g9ccac171 @ 9ccac171"
+      ],
+      [
+        "Hosts file",
+        "/home/rubix/Desktop/rubix/rubix-lab/controller/hosts.txt"
+      ],
+      [
+        "Pool",
+        "234 node(s) on 26 machine(s), 988 DID(s); excluded: none"
+      ],
+      [
+        "Participants",
+        "per unit (node = last octet of 192.168.1.x : API port; s=senders r=receivers q=quorums) - none"
+      ],
+      [
+        "Funding",
+        "faucet bafybmih6fkweeuo... on 192.168.1.105:20000, signed by faucet quorum bafybmihpujtqxdf... on 192.168.1.106:20000; no RBT minted; shortfall only"
+      ],
+      [
+        "Quorum floor",
+        "300 RBT before a unit starts, topped up further per transfer"
+      ],
+      [
+        "Fullnode pacing",
+        "each DID waits for every fullnode to process its last transaction before starting the next"
+      ],
+      [
+        "Fullnodes",
+        "192.168.1.101, 192.168.1.102, 192.168.1.103, 192.168.1.104"
+      ],
+      [
+        "During the run",
+        "faucet quorum on 192.168.1.106, Rubix memory: 0.2 GB at the start, 0.2 GB after AUDIT-START, 0.2 GB after QUORUM-SETUP, 0.1 GB after EXACT-DECIMAL, 0.1 GB after PAY-TO-NODE-DOWN, 0.1 GB after RECEIVE-OLD-COPY, 0.1 GB after EX-QUORUM-SPEND, 0.1 GB after RELEASE-ONE-OF-MANY, 0.1 GB after QUORUM-STOPPED, 0.1 GB after SMALL-SPLITS, 0.1 GB after FULLNODES-ORDER, 0.0 GB after CLOCK-EDGE, 0.2 GB after ASSET-FORK, 0.2 GB after FOREIGN-EXECUTE, 0.2 GB after MANY-PARTS-AT-ONCE, 0.1 GB after PLEDGES-AT-ONCE, 0.1 GB after BIG-TRANSFER-MEMORY, 0.0 GB after IPFS-RESTART, 0.0 GB after AUDIT-END"
+      ],
+      [
+        "Scale knobs",
+        "quorum ladder 10,20,50,100,150,200,300,400 | stop below 50.0% | whole wallet 3000 | parts target 600 | asset hops 6 | scale 1.0"
+      ]
+    ]
+  },
+  "summary": {
+    "total": 18,
+    "passed": 2,
+    "failed": 5,
+    "skipped": 11,
+    "failed_ids": [
+      "QUORUM-SETUP",
+      "CLOCK-EDGE",
+      "ASSET-FORK",
+      "FOREIGN-EXECUTE",
+      "IPFS-RESTART"
+    ],
+    "skipped_ids": [
+      "EXACT-DECIMAL",
+      "PAY-TO-NODE-DOWN",
+      "RECEIVE-OLD-COPY",
+      "EX-QUORUM-SPEND",
+      "RELEASE-ONE-OF-MANY",
+      "QUORUM-STOPPED",
+      "SMALL-SPLITS",
+      "FULLNODES-ORDER",
+      "MANY-PARTS-AT-ONCE",
+      "PLEDGES-AT-ONCE",
+      "BIG-TRANSFER-MEMORY"
+    ]
+  },
+  "results": [
+    {
+      "test_id": "AUDIT-START",
+      "case": "Audit every DID in the fleet and the faucet pair before the run: the total held, locks, stuck tokens, double ownership, counters, chain history",
+      "expected": "Every Free token of the pool checked before any case may pick it (one owner, a whole chain at the owner, every other node's copy agreeing) and each unfit one taken out of use with its reason's code (999-444; Rubix stuck states 333), its DID's token_denom lowered with it; then every RBT of the 400000 minted accounted for - held (by status, locked included), out of use, not delivered (each transfer named with its time, sender and receiver), on the wrong node, untraced - and tokens held twice counted; reported, not failed",
+      "status": "PASS",
+      "actual": "400000.000 RBT minted: 399304.380 held, 106.414 out of use, 591.206 not delivered (108 transfer(s)), 0.000 on the wrong node, 2.000 counted twice, untraced -0.000; locked 43.129; held by two DIDs 2",
+      "note": "S1 PASS: nothing to report | S2 PASS: checked 101543 Free token(s), 68821.886 RBT, held by the pool's DIDs: 101491 fit for testing (68798.952 RBT); 999 more than one owner: 1 token(s), 1.000 RBT, 1 marked; e.g. 60001_100165 on 192.168.1.107:20000 - 999 also held by bafybmieh3ytg7et on 192.168.1.108:20000 (Pledged); 444 192.168.1.108:20000 has another transaction at position 18; 777 broken chain at the owner: 1 token(s), 1.000 RBT, 1 marked; e.g. 60001_180554 on 192.168.1.108:20000 - 777 position 0 is a transfer entry, not a mint; 444 192.168.1.107:20200 has it to position 2, the owner only to 0; 444 another node's copy of the chain disagrees: 50 token(s), 20.934 RBT, 50 marked; e.g. 60001_180556 on 192.168.1.107:20200 - 444 192.168.1.110:20000 has it to position 2, the owner only to 1; already out of use from earlier checks: 444 x780 (74.480 RBT), 777 x9 (9.000 RBT); not checked now, not Free: 800 BurntForFT, 279 Committed, 99 Locked, 28918 Pledged; fullnode 192.168.1.101 against the owner's chain: same 79066, behind 20157, ahead 1, another transaction 462, no record 1857, names another owner 0; fullnode 192.168.1.102 against the owner's chain: same 83091, behind 17097, ahead 1, another transaction 230, no record 1124, names another owner 0; fullnode 192.168.1.103 against the owner's chain: same 83280, behind 17034, ahead 1, another transaction 202, no record 1026, names another owner 0; fullnode 192.168.1.104 against the owner's chain: same 83096, behind 17059, ahead 1, another transaction 261, no record 1126, names another owner 0; 9 DID(s) whose token_denom differs from their Free tokens (not corrected; denomination: counter vs Free tokens):;   192.168.1.107:20000 bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony: 1.0: 603 vs 602;   192.168.1.108:20000 bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: 0.001: 353 vs 343, 0.005: 82 vs 73, 0.01: 407 vs 385, 0.05: 109 vs 99, 0.1: 541 vs 511, 0.5: 226 vs 225, 1.0: 3130 vs 3132;   192.168.1.110:20000 bafybmidb7pl5at2pfdxvfmp6jxlewqh6jmy4fyvek3cvyt2ncmvs6vv5se: 0.001: 1369 vs 1298, 0.005: 375 vs 337, 0.01: 1409 vs 1256, 0.05: 350 vs 318, 0.1: 1673 vs 1596, 0.5: 503 vs 480, 1.0: 3849 vs 3840;   192.168.1.116:20000 bafybmieivhilsmqwiih2iti2xj2fistoenblthgv5ukbn7y2j7xuowtc2y: 0.001: 636 vs 586, 0.005: 175 vs 164, 0.01: 696 vs 654, 0.05: 160 vs 146, 0.1: 764 vs 723, 0.5: 229 vs 224, 1.0: 1661 vs 1668;   192.168.1.118:20000 bafybmifm7qx4wurbeghne5f2mexvynbmv5zs2qsnf3icspgirzigaulyoa: 0.1: 107 vs 98, 1.0: 173 vs 170;   ... (all in the evidence) | S3 PASS: 400000.000 RBT minted: 399304.380 held, 106.414 out of use, 591.206 not delivered (108 transfer(s)), 0.000 on the wrong node, 2.000 counted twice, untraced -0.000; locked 43.129; held by two DIDs 2; not delivered: 591.206 RBT in 108 transfer(s), newest first: 2026-11-05 20:27:29 tx b8c5afc34bee5743 1.000 RBT from .107:20200 to .108:20000 (copies on .106:20000, .108:20000, .110:20000); 2026-11-05 20:26:00 tx d6c582e2a7840d38 1.000 RBT from .107:20200 to .108:20000 (copies on .106:20000, .108:20000, .110:20000); 2026-11-05 20:24:58 tx 16136d91d175d017 1.000 RBT from .107:20200 to .108:20000 (copies on .106:20000, .108:20000, .110:20000); 2026-11-05 19:48:46 tx 02c6b4b53b80711a 500.000 RBT from .144:20200 to .113:20500 (copies on .106:20000, .110:20000, .113:20500); 2026-11-05 16:56:29 tx 720b7a37fa2b10c8 1.000 RBT from .107:20200 to .108:20000 (copies on .106:20000, .108:20000, .110:20000); ... (all in the evidence) | S4 PASS: 2 token(s) held under two different DIDs, their RBT counted twice: 60001_100127 held by bafybmickf23 (Pledged) on 192.168.1.107:20000 and bafybmieh3yt (Pledged) on 192.168.1.108:20000; 60001_100165 held by bafybmickf23 (Q999) on 192.168.1.107:20000 and bafybmieh3yt (Pledged) on 192.168.1.108:20000 | S5 PASS: out of use, by reason: 444 (another node's copy of the chain disagrees) 95.414 RBT, 777 (broken chain at the owner) 10.000 RBT, 999 (more than one owner) 1.000 RBT; 43.129 RBT parked in Locked on 5 DID(s) - left as is; KNOWN PRODUCT BUG - 9 DID(s) have a denomination counter that does not match their Free tokens (e.g. {1.0: (164199, 164012)} on 192.168.1.106:20000, as denomination: (counter, real Free tokens)) | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "-",
+      "fullnode": "-",
+      "seconds": 51.44,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "no participants of its own - the case reads the fleet itself"
+        }
+      ]
+    },
+    {
+      "test_id": "QUORUM-SETUP",
+      "case": "A quorum forgets its set-up when its node restarts, and payments through it are refused until it is set up again; adding a quorum twice answers an error.",
+      "expected": "A quorum signs again after its node restarts; adding a quorum twice is harmless.",
+      "status": "FAIL",
+      "actual": "REPRODUCED - the quorum did not sign after its restart, or a repeat add answered an error: S2 WRONG: adding Q again answered: Failed to add quorums, quorum did bafybmiaj3b3637vu7c5ruisuqghiuhzdm3vxhmg4lyb6kf4hjnff7xkn5q already exists; S3 WRONG: 1 valid operation(s) refused: 1x requestPledgeTokenHandler : Quorum is not setup; 1/2 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .116 at 16% CPU",
+      "note": "S1 PASS: A = bafybmidn2pe2yd7 on .112:20800; B = bafybmickf232xmb on .107:20000; Q = bafybmiaj3b3637v on .116:20800; N = .108:20000 | S2 WRONG: adding Q again answered: Failed to add quorums, quorum did bafybmiaj3b3637vu7c5ruisuqghiuhzdm3vxhmg4lyb6kf4hjnff7xkn5q already exists | S3 WRONG: 1 valid operation(s) refused: 1x requestPledgeTokenHandler : Quorum is not setup; 1/2 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .116 at 16% CPU | 2 token(s) moved, 31-51 chain entries each (at least 5 required) | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "1/1 accepted by all 4",
+      "seconds": 33.22,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)"
+        },
+        {
+          "check": "persisted",
+          "ok": true,
+          "detail": "every transaction that went through is recorded by both sides",
+          "missing": []
+        },
+        {
+          "check": "fullnode",
+          "ok": true,
+          "detail": "all 4 fullnode(s) accepted 1 of 1",
+          "rejected": {},
+          "status": {
+            "ece85c652bc37288fb05aa8efe3522db23bd6cabc1826171aec1a17fb560d69f": "accepted"
+          },
+          "per_fullnode": {
+            "192.168.1.101": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.102": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.103": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.104": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            }
+          },
+          "disagree": [],
+          "unreadable": []
+        }
+      ]
+    },
+    {
+      "test_id": "EXACT-DECIMAL",
+      "case": "Paying exactly what a wallet's part tokens add up to (0.035, 2.015) is refused 'insufficient balance'; a quorum holding exactly the amount is refused the same way.",
+      "expected": "A wallet can pay exactly what it holds; a quorum can pledge exactly what it holds.",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history",
+      "note": "S1 NOT RUN: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "-",
+      "seconds": 0.82,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)"
+        }
+      ]
+    },
+    {
+      "test_id": "PAY-TO-NODE-DOWN",
+      "case": "A payment to a wallet whose node is down is reported as done, and the tokens never reach the wallet - not even after its node is back.",
+      "expected": "Rubix refuses the payment with a reason saying the receiver cannot be reached, or delivers it once the receiver's node is back.",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history",
+      "note": "S1 NOT RUN: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "-",
+      "seconds": 0.81,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)"
+        }
+      ]
+    },
+    {
+      "test_id": "RECEIVE-OLD-COPY",
+      "case": "A token paid to a wallet on a node that once checked that token as quorum is refused by that node, while the payer has already given it up - the token is lost.",
+      "expected": "The wallet on that node receives the token like any other.",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history",
+      "note": "S1 NOT RUN: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "1/1 accepted by all 4",
+      "seconds": 2.84,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)"
+        },
+        {
+          "check": "persisted",
+          "ok": true,
+          "detail": "every transaction that went through is recorded by both sides",
+          "missing": []
+        },
+        {
+          "check": "fullnode",
+          "ok": true,
+          "detail": "all 4 fullnode(s) accepted 1 of 1",
+          "rejected": {},
+          "status": {
+            "e03f4b855a5341fd4bf7714f69a38ad25ed1dcb2428448e0610900dbd7b15bae": "accepted"
+          },
+          "per_fullnode": {
+            "192.168.1.101": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.102": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.103": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.104": {
+              "accepted": 1,
+              "rejected": {},
+              "not_seen": []
+            }
+          },
+          "disagree": [],
+          "unreadable": []
+        }
+      ]
+    },
+    {
+      "test_id": "EX-QUORUM-SPEND",
+      "case": "A wallet that was a quorum cannot spend the token it pledged, once the pledge is back.",
+      "expected": "The token, Free again, can be spent like any other.",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history",
+      "note": "S1 NOT RUN: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "-",
+      "seconds": 20.36,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)"
+        }
+      ]
+    },
+    {
+      "test_id": "RELEASE-ONE-OF-MANY",
+      "case": "On a node with several quorum DIDs, a pledge often never comes back after the receiver spends onward.",
+      "expected": "Every pledge comes back once the token it covered is spent onward.",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: no DID on .110:20100 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history",
+      "note": "S1 NOT RUN: no DID on .110:20100 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "-",
+      "seconds": 23.66,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)"
+        }
+      ]
+    },
+    {
+      "test_id": "QUORUM-STOPPED",
+      "case": "A quorum stopped in the middle of a payment refuses that token from then on, and leaves its pledge Locked.",
+      "expected": "After the quorum is back, the same token goes through it; nothing stays Locked.",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history",
+      "note": "S1 NOT RUN: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "-",
+      "seconds": 21.19,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)"
+        }
+      ]
+    },
+    {
+      "test_id": "SMALL-SPLITS",
+      "case": "Many small part payments from one wallet in a row are refused as double spends, or fail on a duplicate split row.",
+      "expected": "Every small payment goes through.",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history",
+      "note": "S1 NOT RUN: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "-",
+      "seconds": 1.68,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)"
+        }
+      ]
+    },
+    {
+      "test_id": "FULLNODES-ORDER",
+      "case": "A token passed on quickly: the fullnodes reject some hops, fall behind, or disagree with each other.",
+      "expected": "Every fullnode accepts every hop and ends with the token's full chain.",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history",
+      "note": "S1 NOT RUN: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "-",
+      "seconds": 1.64,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)"
+        }
+      ]
+    },
+    {
+      "test_id": "CLOCK-EDGE",
+      "case": "A payer whose machine's clock is a few milliseconds ahead of its quorum's is refused 'invalid epoch'.",
+      "expected": "Payments go through when two machines' clocks differ by less than a second.",
+      "status": "FAIL",
+      "actual": "REPRODUCED - a payer a few milliseconds ahead of its quorum was refused: S2 WRONG: 1 valid operation(s) refused: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: invalid epoch 1794570374: must be a positive Unix time on; 1/2 accepted in p50 0.1s p95 0.1s max 0.1s; K",
+      "note": "KNOWN PRODUCT BUG behind 1 refusal(s): 1x zero clock tolerance (checks.go:62) - not a lab error, not a capacity limit. S1 PASS: 192.168.1.116 is 53.6 ms ahead of 192.168.1.131 (fleet median: +12.8 / -40.8 ms); A = bafybmicl5myata5 on .116:20300; B = bafybmibkeqfyutr on .116:20400; Q = bafybmigfnvrxdai on .131:20000 | S2 WRONG: 1 valid operation(s) refused: 1x initiateConsensusHandler: transaction info validation failed: ValidateTransaction: invalid epoch 1794570374: must be a positive Unix time on; 1/2 accepted in p50 0.1s p95 0.1s max 0.1s; KNOWN PRODUCT BUG: zero clock tolerance (checks.go:62) (1); busiest machine .131 at 10% CPU; .116:20300 held no token to pay with after 60s; 1 of 2 refused 'invalid epoch' with the payer 53.6 ms ahead (about 0.1 expected if any difference is refused) | 4 token(s) moved, 207-228 chain entries each (at least 5 required) | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "5/5 accepted by all 4",
+      "seconds": 78.51,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)"
+        },
+        {
+          "check": "persisted",
+          "ok": true,
+          "detail": "every transaction that went through is recorded by both sides",
+          "missing": []
+        },
+        {
+          "check": "fullnode",
+          "ok": true,
+          "detail": "all 4 fullnode(s) accepted 5 of 5",
+          "rejected": {},
+          "status": {
+            "0e21a2b8b1197ca75c5cd910d992573690b1a722858aeb411d53534857f1553b": "accepted",
+            "1548c6543737967faef2c1d25d6700352dcc425aec8b16deecf7ccd01dcec9a7": "accepted",
+            "46c3b80851c22331a2225176cf2fa5dd2bf2007552923b54c9c86f360cd342b3": "accepted",
+            "e2d4fd1e65dadc90c215b6f2c3173d5f92a55410ccad0ef6b2809b646b6bb4e7": "accepted",
+            "63a6839faeb55e5592998972540b6e902a92d0fb5768df2c0667d4e402bf3e69": "accepted"
+          },
+          "per_fullnode": {
+            "192.168.1.101": {
+              "accepted": 5,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.102": {
+              "accepted": 5,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.103": {
+              "accepted": 5,
+              "rejected": {},
+              "not_seen": []
+            },
+            "192.168.1.104": {
+              "accepted": 5,
+              "rejected": {},
+              "not_seen": []
+            }
+          },
+          "disagree": [],
+          "unreadable": []
+        }
+      ]
+    },
+    {
+      "test_id": "ASSET-FORK",
+      "case": "Two executes of one NFT (or one contract) at the same moment, through two quorums, are both accepted and leave two different chains.",
+      "expected": "One of the two is refused, or both are applied one after the other; there is only ever one chain.",
+      "status": "FAIL",
+      "actual": "REPRODUCED - two executes at once forked the chain: S3 WRONG: the NFT's chain FORKED in 3 of 3 rounds: O and S hold different entries at the same position; 6/6 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .108 at 15% CPU; round 1: the chains differ at position 6: 3336dcf; S5 WRONG: the contract's chain FORKED in 3 of 3 rounds: O and S hold different entries at the same position; 6/6 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .113 at 10% CPU; round 1: the chains differ at position 6: d2",
+      "note": "S1 PASS: O = bafybmickf232xmb on .107:20000; S = bafybmieh3ytg7et on .108:20000; Q1 = bafybmigew4ayeip on .113:20100; Q2 = bafybmidvnoge3oz on .131:20200 | S2 PASS: 8/8 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .107 at 23% CPU; NFT QmUUVJyFaLm4 has 5 chain entries | S3 WRONG: the NFT's chain FORKED in 3 of 3 rounds: O and S hold different entries at the same position; 6/6 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .108 at 15% CPU; round 1: the chains differ at position 6: 3336dcfe3bc10170 vs 3432727830f6633e; round 2: the chains differ at position 6: 3336dcfe3bc10170 vs 3432727830f6633e; round 3: the chains differ at position 6: 3336dcfe3bc10170 vs 3432727830f6633e | S4 PASS: 7/7 accepted in p50 0.1s p95 0.2s max 0.2s; busiest machine .107 at 18% CPU; contract QmYXBu7q6ov2 has 5 chain entries | S5 WRONG: the contract's chain FORKED in 3 of 3 rounds: O and S hold different entries at the same position; 6/6 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .113 at 10% CPU; round 1: the chains differ at position 6: d2e0fdd332297844 vs a7704fc63be49081; round 2: the chains differ at position 6: d2e0fdd332297844 vs a7704fc63be49081; round 3: the chains differ at position 6: d2e0fdd332297844 vs a7704fc63be49081 | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "22/24 accepted by all 4, 7 rejected (prev-txn mismatch, fullnode behind) by .101, .102, .103, .104, fullnodes DISAGREE on 2",
+      "seconds": 60.03,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)"
+        },
+        {
+          "check": "persisted",
+          "ok": true,
+          "detail": "every transaction that went through is recorded by both sides",
+          "missing": []
+        },
+        {
+          "check": "fullnode",
+          "ok": false,
+          "detail": "fullnodes DISAGREE on 2 transaction(s) - fullnodes: .101 accepted 23/24, REJECTED 5 (prev-txn mismatch, fullnode behind); .102 accepted 23/24, REJECTED 5 (prev-txn mismatch, fullnode behind); .103 accepted 23/24, REJECTED 5 (prev-txn mismatch, fullnode behind); .104 accepted 23/24, REJECTED 5 (prev-txn mismatch, fullnode behind)",
+          "rejected": {
+            "eea1e97bd4879709c9517e24f6abb2f2a7df601dda57fc1dcbd325305aac2c7b": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmUUVJyFaLm4dPpLgWYUCQuFAXPyPbQ1pNC44hrDUZpeiS (nft) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 86d94dc2301e051ad2f95eb7b0c1d2d85bd40186e749348f6d9c5ac589485e8d != expected 3432727830f6633e9397debc89542cc1b577b3edfb4abff1ccf35c26c4746858",
+            "e18287f7b9c4165928131b1223903f4fa01f5b9e2f09bd290431f73633a40609": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmUUVJyFaLm4dPpLgWYUCQuFAXPyPbQ1pNC44hrDUZpeiS (nft) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 20a0b6e97601776d479a243e5791b6c20a3506f5f9dd6da10731a442715857d4 != expected eea1e97bd4879709c9517e24f6abb2f2a7df601dda57fc1dcbd325305aac2c7b",
+            "5fc8d467795ecb8e0dccaeae52a169fd9bcda8ab6e9e1eb907a7bb5a3c02483a": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm: latestTransactionID a7704fc63be49081d7b7a743ba2795b5d0921d5da0a17b2bdf672a18b534bf3c != currentTxID 5fc8d467795ecb8e0dccaeae52a169fd9bcda8ab6e9e1eb907a7bb5a3c02483a",
+            "89d03e080be654f90677a0c36c555ed25ec9f7c9a022de1a2e3c1896cc6dbbaf": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony: local latest c08e29caada8a31f9e3b969ffd3cb8120810288660bde55a0f85e91ff29653fe != expected d2e0fdd33229784433348c6f5ab337084305f86778a6cd4f2ffccd863f55cdd6",
+            "c08e29caada8a31f9e3b969ffd3cb8120810288660bde55a0f85e91ff29653fe": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 89d03e080be654f90677a0c36c555ed25ec9f7c9a022de1a2e3c1896cc6dbbaf != expected a7704fc63be49081d7b7a743ba2795b5d0921d5da0a17b2bdf672a18b534bf3c",
+            "f9cda5150b65a14437b160da20101595f7e793a7c45fdeaa819b500944170ece": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony: local latest 27150bdc3e6e4d348e22f39bcddbd88fec225ad8c34072161987337532bc70bb != expected 89d03e080be654f90677a0c36c555ed25ec9f7c9a022de1a2e3c1896cc6dbbaf",
+            "27150bdc3e6e4d348e22f39bcddbd88fec225ad8c34072161987337532bc70bb": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest f9cda5150b65a14437b160da20101595f7e793a7c45fdeaa819b500944170ece != expected c08e29caada8a31f9e3b969ffd3cb8120810288660bde55a0f85e91ff29653fe"
+          },
+          "status": {
+            "01712b5570e106bd54169b831b2e49bd9408388b7baf9098328dacd096c9e548": "accepted",
+            "2f5dc25ccd3a844a8419485f326fca2155febb04a7a90fec924ff3c3d879d5c3": "accepted",
+            "7361b1ac4d8327585efca8b9ad1a539e843c38893507a0f4ca482a82014cee3a": "accepted",
+            "b773e54ec7cf6d4b810a03fc32760ea58678ddf2497817f3746186a9f5809505": "accepted",
+            "29965c48356fa5fea0df08266903134307df69681548dcbdff6b2db7583012a1": "accepted",
+            "9b6c1bc2fb30a2820e76a0918047dfe64344b242973b02c2f1963618e2c5fc7d": "accepted",
+            "3432727830f6633e9397debc89542cc1b577b3edfb4abff1ccf35c26c4746858": "accepted",
+            "3336dcfe3bc10170f8c0435506faaca6357c82092ebcfb7aa48878cfd7e48143": "accepted",
+            "86d94dc2301e051ad2f95eb7b0c1d2d85bd40186e749348f6d9c5ac589485e8d": "accepted",
+            "eea1e97bd4879709c9517e24f6abb2f2a7df601dda57fc1dcbd325305aac2c7b": "accepted",
+            "20a0b6e97601776d479a243e5791b6c20a3506f5f9dd6da10731a442715857d4": "accepted",
+            "e18287f7b9c4165928131b1223903f4fa01f5b9e2f09bd290431f73633a40609": "accepted",
+            "5fc8d467795ecb8e0dccaeae52a169fd9bcda8ab6e9e1eb907a7bb5a3c02483a": "accepted",
+            "95af01e5ec39c311d7359f1cc40b2a415b4fc1de4bc0e0656ed4c9c32dae282d": "accepted",
+            "60e7ad2d84112f9a2c1ef5b704d5c14bcd46087eec7f0bfb3e19326d8c5baf62": "accepted",
+            "a26649793d5dcea0cfd56046622f320dff50d210f4033e4c7182608f3127f640": "accepted",
+            "93982163891128df56a71ff2487658ea164f3a5ea12d5c450c944ff85f5b9ee6": "accepted",
+            "7a7dbb58054957af5780a43bc6f45a28052ddbcc672ff466db4cd9c0dd2014a0": "accepted",
+            "d2e0fdd33229784433348c6f5ab337084305f86778a6cd4f2ffccd863f55cdd6": "accepted",
+            "a7704fc63be49081d7b7a743ba2795b5d0921d5da0a17b2bdf672a18b534bf3c": "accepted",
+            "89d03e080be654f90677a0c36c555ed25ec9f7c9a022de1a2e3c1896cc6dbbaf": "accepted",
+            "c08e29caada8a31f9e3b969ffd3cb8120810288660bde55a0f85e91ff29653fe": "accepted",
+            "f9cda5150b65a14437b160da20101595f7e793a7c45fdeaa819b500944170ece": "rejected",
+            "27150bdc3e6e4d348e22f39bcddbd88fec225ad8c34072161987337532bc70bb": "rejected"
+          },
+          "per_fullnode": {
+            "192.168.1.101": {
+              "accepted": 23,
+              "rejected": {
+                "eea1e97bd4879709c9517e24f6abb2f2a7df601dda57fc1dcbd325305aac2c7b": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmUUVJyFaLm4dPpLgWYUCQuFAXPyPbQ1pNC44hrDUZpeiS (nft) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 86d94dc2301e051ad2f95eb7b0c1d2d85bd40186e749348f6d9c5ac589485e8d != expected 3432727830f6633e9397debc89542cc1b577b3edfb4abff1ccf35c26c4746858",
+                "e18287f7b9c4165928131b1223903f4fa01f5b9e2f09bd290431f73633a40609": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmUUVJyFaLm4dPpLgWYUCQuFAXPyPbQ1pNC44hrDUZpeiS (nft) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 20a0b6e97601776d479a243e5791b6c20a3506f5f9dd6da10731a442715857d4 != expected eea1e97bd4879709c9517e24f6abb2f2a7df601dda57fc1dcbd325305aac2c7b",
+                "5fc8d467795ecb8e0dccaeae52a169fd9bcda8ab6e9e1eb907a7bb5a3c02483a": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm: latestTransactionID a7704fc63be49081d7b7a743ba2795b5d0921d5da0a17b2bdf672a18b534bf3c != currentTxID 5fc8d467795ecb8e0dccaeae52a169fd9bcda8ab6e9e1eb907a7bb5a3c02483a",
+                "89d03e080be654f90677a0c36c555ed25ec9f7c9a022de1a2e3c1896cc6dbbaf": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony: local latest c08e29caada8a31f9e3b969ffd3cb8120810288660bde55a0f85e91ff29653fe != expected d2e0fdd33229784433348c6f5ab337084305f86778a6cd4f2ffccd863f55cdd6",
+                "f9cda5150b65a14437b160da20101595f7e793a7c45fdeaa819b500944170ece": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony: local latest 27150bdc3e6e4d348e22f39bcddbd88fec225ad8c34072161987337532bc70bb != expected 89d03e080be654f90677a0c36c555ed25ec9f7c9a022de1a2e3c1896cc6dbbaf"
+              },
+              "not_seen": []
+            },
+            "192.168.1.102": {
+              "accepted": 23,
+              "rejected": {
+                "eea1e97bd4879709c9517e24f6abb2f2a7df601dda57fc1dcbd325305aac2c7b": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmUUVJyFaLm4dPpLgWYUCQuFAXPyPbQ1pNC44hrDUZpeiS (nft) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 86d94dc2301e051ad2f95eb7b0c1d2d85bd40186e749348f6d9c5ac589485e8d != expected 3432727830f6633e9397debc89542cc1b577b3edfb4abff1ccf35c26c4746858",
+                "e18287f7b9c4165928131b1223903f4fa01f5b9e2f09bd290431f73633a40609": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmUUVJyFaLm4dPpLgWYUCQuFAXPyPbQ1pNC44hrDUZpeiS (nft) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 20a0b6e97601776d479a243e5791b6c20a3506f5f9dd6da10731a442715857d4 != expected eea1e97bd4879709c9517e24f6abb2f2a7df601dda57fc1dcbd325305aac2c7b",
+                "5fc8d467795ecb8e0dccaeae52a169fd9bcda8ab6e9e1eb907a7bb5a3c02483a": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm: latestTransactionID a7704fc63be49081d7b7a743ba2795b5d0921d5da0a17b2bdf672a18b534bf3c != currentTxID 5fc8d467795ecb8e0dccaeae52a169fd9bcda8ab6e9e1eb907a7bb5a3c02483a",
+                "89d03e080be654f90677a0c36c555ed25ec9f7c9a022de1a2e3c1896cc6dbbaf": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony: local latest c08e29caada8a31f9e3b969ffd3cb8120810288660bde55a0f85e91ff29653fe != expected d2e0fdd33229784433348c6f5ab337084305f86778a6cd4f2ffccd863f55cdd6",
+                "f9cda5150b65a14437b160da20101595f7e793a7c45fdeaa819b500944170ece": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony: local latest 27150bdc3e6e4d348e22f39bcddbd88fec225ad8c34072161987337532bc70bb != expected 89d03e080be654f90677a0c36c555ed25ec9f7c9a022de1a2e3c1896cc6dbbaf"
+              },
+              "not_seen": []
+            },
+            "192.168.1.103": {
+              "accepted": 23,
+              "rejected": {
+                "eea1e97bd4879709c9517e24f6abb2f2a7df601dda57fc1dcbd325305aac2c7b": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmUUVJyFaLm4dPpLgWYUCQuFAXPyPbQ1pNC44hrDUZpeiS (nft) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 86d94dc2301e051ad2f95eb7b0c1d2d85bd40186e749348f6d9c5ac589485e8d != expected 3432727830f6633e9397debc89542cc1b577b3edfb4abff1ccf35c26c4746858",
+                "e18287f7b9c4165928131b1223903f4fa01f5b9e2f09bd290431f73633a40609": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmUUVJyFaLm4dPpLgWYUCQuFAXPyPbQ1pNC44hrDUZpeiS (nft) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 20a0b6e97601776d479a243e5791b6c20a3506f5f9dd6da10731a442715857d4 != expected eea1e97bd4879709c9517e24f6abb2f2a7df601dda57fc1dcbd325305aac2c7b",
+                "5fc8d467795ecb8e0dccaeae52a169fd9bcda8ab6e9e1eb907a7bb5a3c02483a": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm: latestTransactionID d2e0fdd33229784433348c6f5ab337084305f86778a6cd4f2ffccd863f55cdd6 != currentTxID 5fc8d467795ecb8e0dccaeae52a169fd9bcda8ab6e9e1eb907a7bb5a3c02483a",
+                "c08e29caada8a31f9e3b969ffd3cb8120810288660bde55a0f85e91ff29653fe": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 89d03e080be654f90677a0c36c555ed25ec9f7c9a022de1a2e3c1896cc6dbbaf != expected a7704fc63be49081d7b7a743ba2795b5d0921d5da0a17b2bdf672a18b534bf3c",
+                "27150bdc3e6e4d348e22f39bcddbd88fec225ad8c34072161987337532bc70bb": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest f9cda5150b65a14437b160da20101595f7e793a7c45fdeaa819b500944170ece != expected c08e29caada8a31f9e3b969ffd3cb8120810288660bde55a0f85e91ff29653fe"
+              },
+              "not_seen": []
+            },
+            "192.168.1.104": {
+              "accepted": 23,
+              "rejected": {
+                "eea1e97bd4879709c9517e24f6abb2f2a7df601dda57fc1dcbd325305aac2c7b": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmUUVJyFaLm4dPpLgWYUCQuFAXPyPbQ1pNC44hrDUZpeiS (nft) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 86d94dc2301e051ad2f95eb7b0c1d2d85bd40186e749348f6d9c5ac589485e8d != expected 3432727830f6633e9397debc89542cc1b577b3edfb4abff1ccf35c26c4746858",
+                "e18287f7b9c4165928131b1223903f4fa01f5b9e2f09bd290431f73633a40609": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmUUVJyFaLm4dPpLgWYUCQuFAXPyPbQ1pNC44hrDUZpeiS (nft) chain mismatch after sync from bafybmieh3ytg7et7bcd3zi2fkm33imvuod776t5i6bc4e3pyirm2cm3icq: local latest 20a0b6e97601776d479a243e5791b6c20a3506f5f9dd6da10731a442715857d4 != expected eea1e97bd4879709c9517e24f6abb2f2a7df601dda57fc1dcbd325305aac2c7b",
+                "5fc8d467795ecb8e0dccaeae52a169fd9bcda8ab6e9e1eb907a7bb5a3c02483a": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm: latestTransactionID a7704fc63be49081d7b7a743ba2795b5d0921d5da0a17b2bdf672a18b534bf3c != currentTxID 5fc8d467795ecb8e0dccaeae52a169fd9bcda8ab6e9e1eb907a7bb5a3c02483a",
+                "89d03e080be654f90677a0c36c555ed25ec9f7c9a022de1a2e3c1896cc6dbbaf": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony: local latest c08e29caada8a31f9e3b969ffd3cb8120810288660bde55a0f85e91ff29653fe != expected d2e0fdd33229784433348c6f5ab337084305f86778a6cd4f2ffccd863f55cdd6",
+                "f9cda5150b65a14437b160da20101595f7e793a7c45fdeaa819b500944170ece": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token QmYXBu7q6ov2y5dQVShjgB1GGEaEVnqR4hawV2ECVsCPAm (smart_contract) chain mismatch after sync from bafybmickf232xmb55rbm3rrqhmvz3lj65h7pvxleqpmh3nsjfshjophony: local latest 27150bdc3e6e4d348e22f39bcddbd88fec225ad8c34072161987337532bc70bb != expected 89d03e080be654f90677a0c36c555ed25ec9f7c9a022de1a2e3c1896cc6dbbaf"
+              },
+              "not_seen": []
+            }
+          },
+          "disagree": [
+            "f9cda5150b65a14437b160da20101595f7e793a7c45fdeaa819b500944170ece",
+            "27150bdc3e6e4d348e22f39bcddbd88fec225ad8c34072161987337532bc70bb"
+          ],
+          "unreadable": []
+        }
+      ]
+    },
+    {
+      "test_id": "FOREIGN-EXECUTE",
+      "case": "An NFT or contract executed from a node that does not hold it becomes a second genesis of that token.",
+      "expected": "The execute is refused until the node holds the token's chain.",
+      "status": "FAIL",
+      "actual": "REPRODUCED - an execute from a node without the token was accepted as a new genesis: S3 WRONG: 1 operation(s) accepted that should have been refused; 1/1 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .131 at 20% CPU; .108:20000's node has 1 chain entries for the NFT, the owner's 5; fullnodes rejected it:; S4 WRONG: G's NFT chain starts with another entry than the owner's (1 entries vs 5) - a second genesis; 1/1 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .110 at 14% CPU; subscribe answered: NFT subscribed successfully; ; S5 WRONG: 1 operation(s) accepted that should have been refused; 1/1 accepted in p50 0.3s p95 0.3s max 0.3s; busiest machine .108 at 8% CPU; .108:20000's node has 1 chain entries for the contract, the owner's 5; fullnodes rejected",
+      "note": "S1 PASS: O = bafybmickf232xmb on .107:20000; F = bafybmieh3ytg7et on .108:20000; G = bafybmidb7pl5at2 on .110:20000; Q1 = bafybmigew4ayeip on .113:20100; Q3 = bafybmidvnoge3oz on .131:20200 | S2 PASS: 11/11 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .107 at 22% CPU; NFT QmcanQw9dA1v has 5 chain entries; contract QmQSkQJDZSnd has 5 chain entries | S3 WRONG: 1 operation(s) accepted that should have been refused; 1/1 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .131 at 20% CPU; .108:20000's node has 1 chain entries for the NFT, the owner's 5; fullnodes rejected it: prev-txn mismatch, fullnode behind | S4 WRONG: G's NFT chain starts with another entry than the owner's (1 entries vs 5) - a second genesis; 1/1 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .110 at 14% CPU; subscribe answered: NFT subscribed successfully; .110:20000's node has 1 chain entries for the NFT, the owner's 5; fullnodes rejected it: prev-txn mismatch, fullnode behind | S5 WRONG: 1 operation(s) accepted that should have been refused; 1/1 accepted in p50 0.3s p95 0.3s max 0.3s; busiest machine .108 at 8% CPU; .108:20000's node has 1 chain entries for the contract, the owner's 5; fullnodes rejected it: prev-txn mismatch, fullnode behind | S6 PASS: 1/1 accepted in p50 0.1s p95 0.1s max 0.1s; busiest machine .110 at 20% CPU; subscribe answered: Smart contract subscribed successfully; .110:20000's node has 6 chain entries for the contract, the owner's 6 | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "11/14 accepted by all 4, 3 rejected (prev-txn mismatch, fullnode behind) by .101, .102, .103, .104",
+      "seconds": 58.95,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)"
+        },
+        {
+          "check": "persisted",
+          "ok": true,
+          "detail": "every transaction that went through is recorded by both sides",
+          "missing": []
+        },
+        {
+          "check": "fullnode",
+          "ok": false,
+          "detail": "fullnodes: .101 accepted 11/14, REJECTED 3 (prev-txn mismatch, fullnode behind); .102 accepted 11/14, REJECTED 3 (prev-txn mismatch, fullnode behind); .103 accepted 11/14, REJECTED 3 (prev-txn mismatch, fullnode behind); .104 accepted 11/14, REJECTED 3 (prev-txn mismatch, fullnode behind)",
+          "rejected": {
+            "73753828165781c80c0fe29372285cbc7755a063e59846617f291e507f298e90": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmcanQw9dA1vqUwjJzATLxqbQe3M6Vg77ipijngfiZRoVy: latestTransactionID d13264314723a2c15b3bac85a262ae0359f9e2687fbe43a64fdef0f91b6ebd64 != currentTxID 73753828165781c80c0fe29372285cbc7755a063e59846617f291e507f298e90",
+            "fd0587ce7dfc1c0ce4b039ef4326f024971b3dafd996e1b0adf9707f6bd5c95f": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmcanQw9dA1vqUwjJzATLxqbQe3M6Vg77ipijngfiZRoVy: latestTransactionID d13264314723a2c15b3bac85a262ae0359f9e2687fbe43a64fdef0f91b6ebd64 != currentTxID fd0587ce7dfc1c0ce4b039ef4326f024971b3dafd996e1b0adf9707f6bd5c95f",
+            "bf4e19511a6df8c93d705147a7de0e1aaabb8340d3b636536e483377c1ade5ce": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmQSkQJDZSndhsfF1efzHCtxQatQc6Ffx8pzGcnaqZZLSK: latestTransactionID db8bcc1f4d6ea5dbff8739e413ea0f5c8b66ee41956f4610963bb8a97c94d63b != currentTxID bf4e19511a6df8c93d705147a7de0e1aaabb8340d3b636536e483377c1ade5ce"
+          },
+          "status": {
+            "0b3e4d11efa0eab7abb23e4de48b247bc2945658ffc77d5b57fe09c2a61868ff": "accepted",
+            "1d058b01079fa48c1fc038a212abc350aac5944a9dbcf75c70fdd774169a97e1": "accepted",
+            "36e6cc144f3998fcb878eb49ee29599c6eb456f7574ceaa88eac8e2d52bc5876": "accepted",
+            "81d2cfd5260ec9e3b9f2ff2dc61bd7f6648c7fc4674afa961127347aa66fc29a": "accepted",
+            "d13264314723a2c15b3bac85a262ae0359f9e2687fbe43a64fdef0f91b6ebd64": "accepted",
+            "8f2b1d7c4cec21c159990b19cdf2de6ef7a83b37c2aa156a4e21f0b300c2fd09": "accepted",
+            "cf197041cf375385c3b054473c27c61266b05ccd9eafa07cd832db7da1f6b764": "accepted",
+            "e14c4528ae209866205d1d56b50a12302c96bbe545f951aa97c88c3e02e17b7b": "accepted",
+            "e369b840fbf1524a76e994eb52a738a202cbd155e779bb8dff537f745cb70ad2": "accepted",
+            "db8bcc1f4d6ea5dbff8739e413ea0f5c8b66ee41956f4610963bb8a97c94d63b": "accepted",
+            "73753828165781c80c0fe29372285cbc7755a063e59846617f291e507f298e90": "rejected",
+            "fd0587ce7dfc1c0ce4b039ef4326f024971b3dafd996e1b0adf9707f6bd5c95f": "rejected",
+            "bf4e19511a6df8c93d705147a7de0e1aaabb8340d3b636536e483377c1ade5ce": "rejected",
+            "812e0e08ca987f29e8c4b9fd8d525e4ab4550260bcd9de8e1a40566f02d3057d": "accepted"
+          },
+          "per_fullnode": {
+            "192.168.1.101": {
+              "accepted": 11,
+              "rejected": {
+                "73753828165781c80c0fe29372285cbc7755a063e59846617f291e507f298e90": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmcanQw9dA1vqUwjJzATLxqbQe3M6Vg77ipijngfiZRoVy: latestTransactionID d13264314723a2c15b3bac85a262ae0359f9e2687fbe43a64fdef0f91b6ebd64 != currentTxID 73753828165781c80c0fe29372285cbc7755a063e59846617f291e507f298e90",
+                "fd0587ce7dfc1c0ce4b039ef4326f024971b3dafd996e1b0adf9707f6bd5c95f": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmcanQw9dA1vqUwjJzATLxqbQe3M6Vg77ipijngfiZRoVy: latestTransactionID d13264314723a2c15b3bac85a262ae0359f9e2687fbe43a64fdef0f91b6ebd64 != currentTxID fd0587ce7dfc1c0ce4b039ef4326f024971b3dafd996e1b0adf9707f6bd5c95f",
+                "bf4e19511a6df8c93d705147a7de0e1aaabb8340d3b636536e483377c1ade5ce": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmQSkQJDZSndhsfF1efzHCtxQatQc6Ffx8pzGcnaqZZLSK: latestTransactionID db8bcc1f4d6ea5dbff8739e413ea0f5c8b66ee41956f4610963bb8a97c94d63b != currentTxID bf4e19511a6df8c93d705147a7de0e1aaabb8340d3b636536e483377c1ade5ce"
+              },
+              "not_seen": []
+            },
+            "192.168.1.102": {
+              "accepted": 11,
+              "rejected": {
+                "73753828165781c80c0fe29372285cbc7755a063e59846617f291e507f298e90": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmcanQw9dA1vqUwjJzATLxqbQe3M6Vg77ipijngfiZRoVy: latestTransactionID d13264314723a2c15b3bac85a262ae0359f9e2687fbe43a64fdef0f91b6ebd64 != currentTxID 73753828165781c80c0fe29372285cbc7755a063e59846617f291e507f298e90",
+                "fd0587ce7dfc1c0ce4b039ef4326f024971b3dafd996e1b0adf9707f6bd5c95f": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmcanQw9dA1vqUwjJzATLxqbQe3M6Vg77ipijngfiZRoVy: latestTransactionID d13264314723a2c15b3bac85a262ae0359f9e2687fbe43a64fdef0f91b6ebd64 != currentTxID fd0587ce7dfc1c0ce4b039ef4326f024971b3dafd996e1b0adf9707f6bd5c95f",
+                "bf4e19511a6df8c93d705147a7de0e1aaabb8340d3b636536e483377c1ade5ce": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmQSkQJDZSndhsfF1efzHCtxQatQc6Ffx8pzGcnaqZZLSK: latestTransactionID db8bcc1f4d6ea5dbff8739e413ea0f5c8b66ee41956f4610963bb8a97c94d63b != currentTxID bf4e19511a6df8c93d705147a7de0e1aaabb8340d3b636536e483377c1ade5ce"
+              },
+              "not_seen": []
+            },
+            "192.168.1.103": {
+              "accepted": 11,
+              "rejected": {
+                "73753828165781c80c0fe29372285cbc7755a063e59846617f291e507f298e90": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmcanQw9dA1vqUwjJzATLxqbQe3M6Vg77ipijngfiZRoVy: latestTransactionID d13264314723a2c15b3bac85a262ae0359f9e2687fbe43a64fdef0f91b6ebd64 != currentTxID 73753828165781c80c0fe29372285cbc7755a063e59846617f291e507f298e90",
+                "fd0587ce7dfc1c0ce4b039ef4326f024971b3dafd996e1b0adf9707f6bd5c95f": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmcanQw9dA1vqUwjJzATLxqbQe3M6Vg77ipijngfiZRoVy: latestTransactionID d13264314723a2c15b3bac85a262ae0359f9e2687fbe43a64fdef0f91b6ebd64 != currentTxID fd0587ce7dfc1c0ce4b039ef4326f024971b3dafd996e1b0adf9707f6bd5c95f",
+                "bf4e19511a6df8c93d705147a7de0e1aaabb8340d3b636536e483377c1ade5ce": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmQSkQJDZSndhsfF1efzHCtxQatQc6Ffx8pzGcnaqZZLSK: latestTransactionID db8bcc1f4d6ea5dbff8739e413ea0f5c8b66ee41956f4610963bb8a97c94d63b != currentTxID bf4e19511a6df8c93d705147a7de0e1aaabb8340d3b636536e483377c1ade5ce"
+              },
+              "not_seen": []
+            },
+            "192.168.1.104": {
+              "accepted": 11,
+              "rejected": {
+                "73753828165781c80c0fe29372285cbc7755a063e59846617f291e507f298e90": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmcanQw9dA1vqUwjJzATLxqbQe3M6Vg77ipijngfiZRoVy: latestTransactionID d13264314723a2c15b3bac85a262ae0359f9e2687fbe43a64fdef0f91b6ebd64 != currentTxID 73753828165781c80c0fe29372285cbc7755a063e59846617f291e507f298e90",
+                "fd0587ce7dfc1c0ce4b039ef4326f024971b3dafd996e1b0adf9707f6bd5c95f": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmcanQw9dA1vqUwjJzATLxqbQe3M6Vg77ipijngfiZRoVy: latestTransactionID d13264314723a2c15b3bac85a262ae0359f9e2687fbe43a64fdef0f91b6ebd64 != currentTxID fd0587ce7dfc1c0ce4b039ef4326f024971b3dafd996e1b0adf9707f6bd5c95f",
+                "bf4e19511a6df8c93d705147a7de0e1aaabb8340d3b636536e483377c1ade5ce": "processSingleTransaction: failed to validate transaction: ValidateTransaction: TokenChainIntigrityCheck: token details already exist in the tokenchain table, so once again genesis transaction is not allowed, for token QmQSkQJDZSndhsfF1efzHCtxQatQc6Ffx8pzGcnaqZZLSK: latestTransactionID db8bcc1f4d6ea5dbff8739e413ea0f5c8b66ee41956f4610963bb8a97c94d63b != currentTxID bf4e19511a6df8c93d705147a7de0e1aaabb8340d3b636536e483377c1ade5ce"
+              },
+              "not_seen": []
+            }
+          },
+          "disagree": [],
+          "unreadable": []
+        }
+      ]
+    },
+    {
+      "test_id": "MANY-PARTS-AT-ONCE",
+      "case": "Part-RBT payments through one quorum at the same time are refused with a database deadlock, leave the quorum's denomination counters wrong and RBT Locked, and the same token is refused through that quorum again afterwards.",
+      "expected": "Every payment goes through, or is refused with a stated reason and leaves nothing behind.",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history",
+      "note": "S1 NOT RUN: no DID on .107:20000 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "-",
+      "seconds": 1.56,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)"
+        }
+      ]
+    },
+    {
+      "test_id": "PLEDGES-AT-ONCE",
+      "case": "Hundreds of payments through one quorum at once: some are refused because the quorum lost the lock on its pledge, and a token can end up pledged by two wallets.",
+      "expected": "Every payment goes through; no token is held by two wallets.",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: 47 payer(s) qualified, 35 after dropping those whose tokens already have a row on a following payer's node - at least 100 needed; 47 of the 400 wallet(s) needed hold 3 whole token(s) to pay next with at least 5 chain entries each, a fit history, no pledge, nothing Locked and matching token_denom counters",
+      "note": "S1 NOT RUN: 47 payer(s) qualified, 35 after dropping those whose tokens already have a row on a following payer's node - at least 100 needed; 47 of the 400 wallet(s) needed hold 3 whole token(s) to pay next with at least 5 chain entries each, a fit history, no pledge, nothing Locked and matching token_denom counters | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "-",
+      "seconds": 23.21,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)"
+        }
+      ]
+    },
+    {
+      "test_id": "BIG-TRANSFER-MEMORY",
+      "case": "A quorum's memory grows with the square of the number of tokens in one payment, until the machine runs out of memory.",
+      "expected": "Memory grows no faster than the number of tokens, and comes back afterwards.",
+      "status": "SKIP",
+      "actual": "NOT RUN - S1: no DID on .107:20100 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history",
+      "note": "S1 NOT RUN: no DID on .107:20100 can be emptied: none holds nothing, and none holds only Free RBT (at most 200) with no pledge history | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "-",
+      "seconds": 27.5,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum 1, quorum 2 - the database checks are incomplete (a lab problem, not a verdict)"
+        }
+      ]
+    },
+    {
+      "test_id": "IPFS-RESTART",
+      "case": "After a node's IPFS restarts on its own, no other node can reach it (its API still answers); payments that need it are refused with a misleading message; stopping it then kills the IPFS of every node on the same machine.",
+      "expected": "The node can be reached again once its IPFS is back; a refusal says the node cannot be reached; stopping one node leaves its neighbours alone.",
+      "status": "FAIL",
+      "actual": "REPRODUCED - after its IPFS restarted the node could not be reached, the error misled, or stopping it hit its neighbours: S2 WRONG: V's IPFS came back WITHOUT the node's p2p listener - no peer can reach V, although its API answers; killed V's IPFS daemon, pid 3984700; a new IPFS daemon (pid 3986087) after 26s; V's API answers; V's log: 37960:2026-11-; S3 WRONG: the refusal says 'did not exist with the peer' - but the quorum's DID exists; its node could not be reached; 1 valid operation(s) refused: 1x did not exist with the peer; 0/1 accepted; KNOWN PRODUCT BUG: peer unreachable; S4 WRONG: stopping V took 2 other node(s)' IPFS daemons with it: node0, node1; 9 IPFS daemons before stopping V, 6 after",
+      "note": "KNOWN PRODUCT BUG behind 1 refusal(s): 1x peer unreachable, error swallowed (ipfsport/peer.go:205) - not a lab error, not a capacity limit. S1 PASS: M = 192.168.1.107, 9 IPFS daemons (node0, node1, node2, node3, node4, node5, node6, node7, node8); V's quorum = bafybmigm7kpfhxm on .107:20300; A = bafybmibkeqfyutr on .116:20400; B = bafybmicv5judlci on .108:20100 | S2 WRONG: V's IPFS came back WITHOUT the node's p2p listener - no peer can reach V, although its API answers; killed V's IPFS daemon, pid 3984700; a new IPFS daemon (pid 3986087) after 26s; V's API answers; V's log: 37960:2026-11-13T17:21:07.942+0530 [INFO]  Main.Core.IPFSRecovery: IPFS recovery completed successfully: attempt=0 | S3 WRONG: the refusal says 'did not exist with the peer' - but the quorum's DID exists; its node could not be reached; 1 valid operation(s) refused: 1x did not exist with the peer; 0/1 accepted; KNOWN PRODUCT BUG: peer unreachable, error swallowed (ipfsport/peer.go:205) (1) | S4 WRONG: stopping V took 2 other node(s)' IPFS daemons with it: node0, node1; 9 IPFS daemons before stopping V, 6 after | S5 PASS: every node of 192.168.1.107 restarted | 1 token(s) moved, 229-229 chain entries each (at least 5 required) | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "incomplete: could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)",
+      "fullnode": "-",
+      "seconds": 114.63,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "could not read the database of the quorum - the database checks are incomplete (a lab problem, not a verdict)"
+        }
+      ]
+    },
+    {
+      "test_id": "AUDIT-END",
+      "case": "Audit every DID in the fleet and the faucet pair after the run and compare with AUDIT-START",
+      "expected": "The same account as AUDIT-START, and what moved during the run: the held total, each transfer not delivered since AUDIT-START, new double spends; reported, not failed",
+      "status": "PASS",
+      "actual": "400000.000 RBT minted: 399304.380 held, 106.414 out of use, 591.206 not delivered (108 transfer(s)), 0.000 on the wrong node, 2.000 counted twice, untraced -0.000; locked 43.129; held by two DIDs 2",
+      "note": "S1 PASS: nothing to report | S2 PASS: 400000.000 RBT minted: 399304.380 held, 106.414 out of use, 591.206 not delivered (108 transfer(s)), 0.000 on the wrong node, 2.000 counted twice, untraced -0.000; locked 43.129; held by two DIDs 2; not delivered: 591.206 RBT in 108 transfer(s), newest first: 2026-11-05 20:27:29 tx b8c5afc34bee5743 1.000 RBT from .107:20200 to .108:20000 (copies on .106:20000, .108:20000, .110:20000); 2026-11-05 20:26:00 tx d6c582e2a7840d38 1.000 RBT from .107:20200 to .108:20000 (copies on .106:20000, .108:20000, .110:20000); 2026-11-05 20:24:58 tx 16136d91d175d017 1.000 RBT from .107:20200 to .108:20000 (copies on .106:20000, .108:20000, .110:20000); 2026-11-05 19:48:46 tx 02c6b4b53b80711a 500.000 RBT from .144:20200 to .113:20500 (copies on .106:20000, .110:20000, .113:20500); 2026-11-05 16:56:29 tx 720b7a37fa2b10c8 1.000 RBT from .107:20200 to .108:20000 (copies on .106:20000, .108:20000, .110:20000); ... (all in the evidence); in the wallets (held or out of use) +0.000 RBT during this run (399408.794 -> 399408.794) | S3 PASS: 2 token(s) held under two different DIDs, their RBT counted twice: 60001_100127 held by bafybmickf23 (Pledged) on 192.168.1.107:20000 and bafybmieh3yt (Pledged) on 192.168.1.108:20000; 60001_100165 held by bafybmickf23 (Q999) on 192.168.1.107:20000 and bafybmieh3yt (Pledged) on 192.168.1.108:20000; 0 of them new since AUDIT-START | S4 PASS: out of use, by reason: 444 (another node's copy of the chain disagrees) 95.414 RBT, 777 (broken chain at the owner) 10.000 RBT, 999 (more than one owner) 1.000 RBT; 43.129 RBT parked in Locked on 5 DID(s) - left as is; KNOWN PRODUCT BUG - 9 DID(s) have a denomination counter that does not match their Free tokens (e.g. {1.0: (164200, 164013)} on 192.168.1.106:20000, as denomination: (counter, real Free tokens)); committed +3.000, burnt for FT +0.000, locked +0.000 since the start | run once, without delay: time-boxed, so a delayed rerun would spend its window waiting for the fullnode",
+      "db": "-",
+      "fullnode": "-",
+      "seconds": 17.75,
+      "db_checks": [
+        {
+          "check": "db",
+          "ok": null,
+          "detail": "no participants of its own - the case reads the fleet itself"
+        }
+      ]
+    }
+  ]
+}
