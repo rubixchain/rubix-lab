@@ -69,14 +69,15 @@ def _chain_tail(host, token, n=5):
 
 
 def _rows(e, tokens=None):
-    """[(token, value, status)] - every token the DID holds (Free, Locked,
-    Committed, Pledged), or only `tokens`, in any status."""
+    """[(token, value, status)] - every RBT token the DID can pay or pledge with
+    or has in play (Free, Locked, Pledged; not what it burnt for FTs or
+    committed to a contract, which never moves), or only `tokens`, in any status."""
     try:
         rows = db.token_rows(e["host"], e["did"])
     except Exception:
         return None
     return [(t, round(v, 3), db.STATUS_NAME.get(s, s)) for t, v, s, _p in rows
-            if (tokens is None and s in kit_mod.HELD) or (tokens and t in tokens)]
+            if (tokens is None and s in kit_mod.LIVE) or (tokens and t in tokens)]
 
 
 def holdings(st, label, parts, follow, q, q_tokens):
@@ -251,6 +252,7 @@ def unpledged_whole_token(ctx, ci):
             return False, "Q should hold {} whole tokens Free after the faucet's {} RBT, it holds {}".format(
                 TOKENS, TOKENS, held)
         p["faucet_tx"] = [o.get("txid") for o in rc.OPS if o.get("owner") == Q["did"] and o.get("status")]
+        p["q_sunk"] = (kit_mod.scan(ctx, 1, [Q["host"]]).get(Q["did"]) or {}).get("sunk", 0.0)
         ok, why = kit.restart(Q["host"])
         if not ok:
             return False, why
@@ -276,6 +278,9 @@ def unpledged_whole_token(ctx, ci):
                                                         (C, "C"), (D, "D"))] +
                  ["Q's tokens {}, given by the faucet in transaction(s) {}".format(
                      ", ".join(Ts), ", ".join(t for t in p["faucet_tx"] if t) or "?"),
+                  "Q also has {:.3f} RBT from earlier runs burnt for FTs or committed to contracts - "
+                  "Rubix never pays or pledges it, so the holdings below leave it out".format(
+                      p["q_sunk"]),
                   "the tokens A pays next: {}".format(", ".join(kit.tokens_of(A)))])
         return True, ""
 

@@ -50,8 +50,15 @@ import steps
 import token_health
 
 MIN_CHAIN = 5           # entries a moved token's chain has at its owner, at least
-DRAIN_CAP = ch.DRAIN_CAP
 HELD = token_health.HELD
+# What a wallet holds for its next payments and pledges: Rubix picks Free only
+# (core/wallet/token_lock.go:545), Locked and Pledged are still in play. RBT
+# burnt to mint FTs or committed to a contract never moves again - since the
+# basic run of 2026-11-16 every DID has some, and counting it made "empty" and
+# "holds only Free RBT" false for every wallet (the 2026-11-18 unpledged run
+# was NOT RUN for it).
+LIVE = (db.FREE, db.LOCKED, db.PLEDGED, db.QUORUM_PLEDGED)
+SUNK = (db.COMMITTED, db.BURNT_FOR_FT)
 QUARANTINED = token_health.QUARANTINED
 NODE_LOG = fail_cases.NODE_LOG
 UP_WAIT = 90            # seconds a restarted node gets to answer and receive again
@@ -129,7 +136,8 @@ def _scan_node(item):
                           if c.get(v, 0) != a.get(v, 0))
         w["free"] = round(w["status"].get(db.FREE, 0.0), 3)
         w["pledged"] = round(w["status"].get(db.PLEDGED, 0.0) + w["status"].get(db.QUORUM_PLEDGED, 0.0), 3)
-        w["held"] = round(sum(v for s, v in w["status"].items() if s in HELD), 3)
+        w["held"] = round(sum(v for s, v in w["status"].items() if s in LIVE), 3)
+        w["sunk"] = round(sum(v for s, v in w["status"].items() if s in SUNK), 3)
     return host, out
 
 
@@ -157,6 +165,28 @@ def clean(w):
     and its token_denom counters match its Free tokens."""
     return (w["pledged"] <= 0 and w["ex_pledged"] <= 0 and not w["drift"]
             and w["status"].get(db.LOCKED, 0.0) <= 0)
+
+
+def not_emptiable(w):
+    """Why Rubix cannot pay the wallet's RBT away to another DID, or None
+    (already empty, or it can: its Free RBT is moved to another DID of the
+    node - user, 2026-11-18: "if one DID is not empty move the token from that
+    to another DID, it's as simple as that")."""
+    if w["held"] <= 0:
+        return None
+    if w["pledged"] > 0:
+        return "hold Pledged RBT (it moves only once the pledge is released)"
+    if w["status"].get(db.LOCKED, 0.0) > 0:
+        return "hold Locked RBT"
+    if w["ex_pledged"] > 0:
+        return "hold tokens back from a pledge (Rubix refuses to move them)"
+    return None
+
+
+def _drain_order(w):
+    """Emptiest first: an empty wallet, then whole tokens only before parts,
+    counters that match before drifted ones, least RBT first."""
+    return (w["held"] > 0, bool(w["drift"]), abs(w["whole"] - w["free"]) > 0.0005, w["free"])
 
 
 def long_enough(w, k, min_chain=MIN_CHAIN):
@@ -505,14 +535,34 @@ class Kit(object):
         NOT RUN."""
         if host:
             return self._empty_on(host, quorum, role)
-        last = "no node with a second DID is left"
-        for h in self.other_hosts(min_dids=2)[:40]:
+        hosts = self.other_hosts(min_dids=2)
+        if not hosts:
+            return None, "no node with a second DID is left"
+        # Read every candidate node once and start with the nodes whose
+        # emptiest wallet holds least (_drain_order).
+        taken = set(self.used) | set(q["did"] for q in self.quorums) | {quorum["did"]}
+        rank = dict((h, i) for i, h in enumerate(hosts))
+        why, best = {}, {}
+        for w in scan(self.ctx, 1, hosts).values():
+            if w["did"] in taken:
+                continue
+            r = not_emptiable(w)
+            if r:
+                why[r] = why.get(r, 0) + 1
+                continue
+            key = _drain_order(w)
+            best[w["host"]] = min(best.get(w["host"], key), key)
+        last = ""
+        for h in sorted(best, key=lambda h: (best[h], rank[h]))[:10]:
             if tokens and copies([(t, h) for t in tokens]):
                 continue
             e, last = self._empty_on(h, quorum, role)
             if e:
                 return e, ""
-        return None, last
+        return None, "no wallet could be made empty on {} node(s) with 2+ DIDs{}{}".format(
+            len(hosts), " - the others " + ", ".join(
+                "{} {}".format(n, r) for r, n in sorted(why.items(), key=lambda x: -x[1]))
+            if why else "", "; last try: " + last if last else "")
 
     def _empty_on(self, host, quorum, role):
         """An idle DID on `host`, or the node's spare holding least emptied into
@@ -525,15 +575,13 @@ class Kit(object):
             return self.join(role, self.entry(idle[0])), ""
         # Spares holding whole tokens only first: paying away a balance of parts
         # makes the node look for an exact combination of them.
-        spares = sorted((w for w in mine if clean(w) and 0 < w["free"] <= DRAIN_CAP
-                         and w["held"] - w["free"] <= 0.0005),
-                        key=lambda w: (abs(w["whole"] - w["free"]) > 0.0005, w["free"]))
+        spares = sorted((w for w in mine if not not_emptiable(w)), key=_drain_order)
         # The value goes to another DID of the node - never a quorum: Rubix
         # refuses a payment to the signing quorum (core/transaction.go:80).
         keep = [w for w in wallets.values() if w["did"] not in quorum_dids]
         if not spares or len(keep) < 2:
-            return None, "no DID on {} can be emptied: none holds nothing, and none holds only " \
-                         "Free RBT (at most {}) with no pledge history".format(short(host), DRAIN_CAP)
+            return None, "no DID on {} can be emptied: {}".format(short(host), "; ".join(
+                "{} {}".format(w["did"][:12], not_emptiable(w)) for w in mine) or "every DID is taken")
         if not self.quorum_can(quorum, max(w["free"] for w in spares[:2])):
             return None, "the quorum on {} cannot pledge enough to empty a wallet".format(
                 short(quorum["host"]))
